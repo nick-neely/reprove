@@ -46,9 +46,23 @@ several is what a Strategy does.
 _Avoid_: step, stage, leg, turn
 
 **Finding**:
-A claim about the code at exactly one location that survived its Reviewer's own verification.
-A hypothesis that verification disproved never becomes one.
+A claim about the code at exactly one location that its Reviewer did not disprove. Verification
+raises a Finding's standing; it does not admit it, so a claim reached by reasoning alone is still
+a Finding. A hypothesis that verification disproved never becomes one.
 _Avoid_: issue, problem, ReviewFinding, comment
+
+**Severity**:
+The consequence of a Finding if it merges, assigned by the Reviewer from a fixed ladder: `critical`
+(data loss, a security breach or an outage), `high` (incorrect behavior on a normal path), `medium`
+(incorrect behavior on an edge case, or a maintainability hazard with a concrete cost), `low` (style,
+naming, nits). It describes the defect, never a Repository's policy about it, and there is no `info`.
+_Avoid_: priority, impact, info
+
+**Verification**:
+How far a Reviewer got in proving a Finding: `verified` (it executed something whose output
+demonstrates the claim), `inconclusive` (execution was attempted and failed to settle it), `static`
+(reasoned only). This is the whole trust signal a Finding carries; Reprove has no confidence axis.
+_Avoid_: verificationStatus, confidence, partially verified
 
 **Comment**:
 The line-anchored artifact GitHub renders. It is a projection of at most one Finding, and a
@@ -61,8 +75,10 @@ render a Patch, not another name for it.
 _Avoid_: suggestion, fix, diff
 
 **Evidence**:
-The command, output or reproduction a Reviewer captured while verifying a Finding.
-_Avoid_: proof, artifact
+The structured record of what a Reviewer executed while verifying a Finding - the command, its exit
+code and its output - captured whether the attempt settled the claim or not. A Finding cannot be
+`verified` without it.
+_Avoid_: proof, artifact, logs
 
 **Verify**:
 To demonstrate a claim by executing code, whether the claim is a Finding's or a Patch's.
@@ -133,6 +149,12 @@ _Avoid_: mode, review mode, permission level
 How Reviewers are composed within a Run - one Reviewer, or several arranged to challenge
 each other.
 _Avoid_: mode, review strategy
+
+**Threshold**:
+A Repository's policy about which Findings reach GitHub, expressed over Severity and Verification.
+It is applied when a Review is published rather than when a Finding is made, so changing it never
+requires a new Run.
+_Avoid_: filter, gate, minimum severity
 
 ### Tenancy
 
