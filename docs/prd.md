@@ -5,7 +5,7 @@
 **Status:** Draft  
 **Primary platform:** GitHub  
 **Initial harnesses:** Codex, Claude Code, OpenCode  
-**Primary use case:** AI pull request review, validation, and optional remediation using full coding-agent runtimes.
+**Primary use case:** AI pull request review, verification, and optional remediation using full coding-agent Harnesses.
 
 ---
 
@@ -13,7 +13,8 @@
 
 ## Reprove
 
-**Reprove** is an open-source agentic code review system that turns established coding agents into autonomous PR reviewers, validators, and optional fixers.
+**Reprove** is an open-source agentic code review system that turns established coding-agent
+Harnesses into autonomous Reviewers that inspect, verify, and optionally fix pull requests.
 
 The name fits the product in two ways:
 
@@ -37,17 +38,20 @@ The `.dev` domain fits the project as developer infrastructure without adding �
 
 # 2. Summary
 
-Build an open-source GitHub code review system powered by established coding-agent harnesses rather than a proprietary review-only LLM pipeline.
+Build an open-source GitHub code review system powered by established coding-agent Harnesses rather
+than a proprietary review-only Model pipeline.
 
-Initial agent targets:
+Initial Harnesses:
 
 - Codex
 - Claude Code
 - OpenCode
 
-AI SDK 7 exposes Codex, Claude Code, OpenCode, Pi, and other established agent runtimes through the common `HarnessAgent` abstraction.
+AI SDK 7 exposes Codex, Claude Code, OpenCode, Pi, and other established Harnesses through its
+`HarnessAgent` abstraction. That is a dependency API, not Reprove's domain layer: Reprove owns one
+Adapter per Harness.
 
-The product supports two execution modes:
+The product supports two Worker lifecycles:
 
 ### Self-hosted worker
 
@@ -62,7 +66,7 @@ Self-Hosted Worker
    ↓
 Codex / Claude Code / OpenCode
    ↓
-Review + validation + optional fixes
+Review + Verification + optional Patches
 ```
 
 Goals:
@@ -74,7 +78,7 @@ Goals:
 - allow OpenCode provider/model configuration;
 - keep provider credentials on user-controlled infrastructure, and out of the control plane.
 
-### Hosted sandbox
+### Hosted worker
 
 Reviews run in isolated Vercel Sandboxes.
 
@@ -83,13 +87,13 @@ GitHub
    ↓
 Control Plane
    ↓
-Vercel Sandbox
+Hosted Worker
+ ├── Adapter
+ └── Vercel Sandbox
+      ├── Harness + Workspace
+      └── brokered AI Gateway access
    ↓
-HarnessAgent
-   ↓
-Codex / Claude Code / OpenCode
-   ↓
-AI Gateway
+Result
 ```
 
 Hosted execution uses machine-oriented API/Gateway authentication rather than consumer subscription credentials.
@@ -103,17 +107,17 @@ This should not be built as:
 ```text
 PR diff
    ↓
-LLM prompt
+Model prompt
    ↓
 Markdown comments
 ```
 
-The coding agent gets an actual repository environment.
+The Reviewer gets an actual Workspace inside a Sandbox.
 
 ```text
 PR
  ↓
-Coding Agent
+Reviewer
  ├── inspect repository
  ├── inspect diff
  ├── search code
@@ -129,15 +133,19 @@ Coding Agent
  └── produce review findings
 ```
 
-The reviewer should have the same general class of capabilities that makes Codex, Claude Code, and OpenCode useful as coding agents.
+The Reviewer should preserve the capabilities that make Codex, Claude Code, and OpenCode useful as
+coding-agent Harnesses.
 
-HarnessAgent is specifically designed to preserve capabilities above the model layer such as sandboxing, skills, sessions, permission flows, compaction, tools, and runtime configuration instead of reducing a harness to a single model call.
+AI SDK's `HarnessAgent` is specifically designed to preserve capabilities above the Model layer such
+as sandboxing, skills, sessions, permission flows, compaction, tools, and runtime configuration
+instead of reducing a Harness to a single Model call. Reprove's Adapter owns the product contract
+above that dependency.
 
 ---
 
 # 4. Core Differentiation
 
-## 4.1 General-purpose coding agents are the review runtime
+## 4.1 General-purpose coding-agent Harnesses are the review runtime
 
 The product is not primarily building another proprietary reviewer.
 
@@ -162,7 +170,8 @@ The runtime brings existing capabilities such as:
 - tool usage;
 - runtime configuration.
 
-The product supplies the GitHub workflow, review strategy, isolation, result normalization, and product experience around those agents.
+The product supplies the GitHub workflow, Strategy, Isolation, Result normalization, and product
+experience around those Reviewers.
 
 ---
 
@@ -176,7 +185,7 @@ Review with:
 ○ OpenCode
 ```
 
-The user decides which coding-agent runtime they trust for the repository or individual review.
+The user decides which Harness they trust for the Repository or individual Review.
 
 This is configured at two authored layers, settled by
 [ADR 0011](adr/0011-repository-configuration-contract.md):
@@ -216,21 +225,22 @@ Provider: OpenCode Go
 Model: [available OpenCode Go models]
 ```
 
-The UI/config should only expose models actually available through the selected harness/provider.
+The control plane owns a curated Model catalogue keyed by Harness and Provider. None of the initial
+Harnesses exposes reliable runtime Model enumeration through `@ai-sdk/harness`, so the Adapter treats
+Model ids as opaque strings and, where the Harness reports the resolved Model, verifies that the
+pinned Model was honored. The UI and configuration expose only catalogue entries available for the
+selected Harness and Provider.
 
-Exact discovery and configuration mechanism is harness-specific:
+OpenCode explicitly supports selecting Models from any Provider available to the current project,
+including per-run Model selection.
 
-**[Needs Validation per harness]**
-
-OpenCode explicitly supports selecting models from any provider available to the current project, including per-run model selection.
-
-This is a meaningful competitive distinction. CodeRabbit intentionally does not expose underlying LLM selection to users and instead selects/blends models internally.
+This is a meaningful competitive distinction. CodeRabbit intentionally does not expose underlying Model selection to users and instead selects and blends Models internally.
 
 ---
 
-## 4.4 Use the coding agents you already work with
+## 4.4 Use the coding-agent Harnesses you already work with
 
-The reviewer is not a new tool to evaluate. It is the Harness your team already builds with,
+The Reviewer is not a new tool to evaluate. It is the Harness your team already builds with,
 pointed at the pull request.
 
 ```text
@@ -281,7 +291,8 @@ This can include:
 - custom OpenAI-compatible endpoints;
 - other OpenCode-supported providers.
 
-OpenCode Go currently provides a low-cost subscription path focused on open coding models, while OpenCode itself allows model selection across connected providers.
+OpenCode Go currently provides a low-cost subscription path focused on open coding Models, while
+OpenCode itself allows Model selection across connected Providers.
 
 This gives the initial product three clean categories:
 
@@ -313,10 +324,10 @@ The same GitHub experience should sit above both execution paths.
 
 ## 4.7 Review, verification, and fixing are one loop
 
-A suspected problem does not need to immediately become a comment.
+A hypothesis does not immediately become a Finding.
 
 ```text
-Suspected issue
+Hypothesis
       ↓
 Inspect related implementation
       ↓
@@ -329,10 +340,10 @@ Reproduce behavior
 Confirm or reject finding
 ```
 
-In fix-enabled modes:
+Under `fix` Autonomy:
 
 ```text
-Confirmed issue
+Verified Finding
       ↓
 Modify code
       ↓
@@ -377,7 +388,7 @@ Claude Code Reviewer
 
 The goal is reviewer independence.
 
-A model/harness that did not produce the implementation may challenge assumptions the original agent made.
+A Model/Harness that did not produce the implementation may challenge assumptions the Author made.
 
 The system should allow explicit configuration such as:
 
@@ -386,11 +397,11 @@ review:
   harness: codex
 ```
 
-even if another agent generated the PR.
+even if another Author generated the pull request.
 
-Automatically determining which agent authored a change:
+Automatically determining the Author of a change:
 
-**[Undecided / Needs Info]**
+**Deferred to the per-phase Strategy map.**
 
 Potential inputs could eventually include explicit configuration or metadata from integrations, but the product should not assume this metadata always exists.
 
@@ -398,14 +409,14 @@ Potential inputs could eventually include explicit configuration or metadata fro
 
 # 6. Review Strategies
 
-`reviewStrategy` should be treated separately from `harness`.
+`strategy` is separate from `harness`.
 
 Potential strategies:
 
 ## Standard
 
 ```text
-One harness
+One Reviewer
 → inspect
 → verify
 → report
@@ -416,26 +427,26 @@ Initial default.
 ## Adversarial
 
 ```text
-Implementation agent A
+Author A
         ↓
-Reviewer agent B
+Reviewer B
 ```
 
-The reviewer intentionally differs from the implementation agent.
+The Reviewer intentionally differs from the Author.
 
 ## Reviewer + Verifier
 
 ```text
-Agent A
+Reviewer A
 → generate findings
 
-Agent B
+Reviewer B
 → challenge/verify high-value findings
 ```
 
 Potentially useful for reducing false positives.
 
-**[Future / Undecided]**
+**Deferred to the per-phase Strategy map.**
 
 ## Multi-reviewer
 
@@ -452,7 +463,7 @@ Potential use cases:
 - release candidates;
 - explicit manual deep review.
 
-**[Future / Undecided]**
+**Deferred to the per-phase Strategy map.**
 
 ## Cost-optimized escalation
 
@@ -467,7 +478,7 @@ Lower-cost model
 
 OpenCode's broad provider/model support makes this particularly possible.
 
-**[Future / Undecided]**
+**Deferred to the per-phase Strategy map.**
 
 The architecture should allow these strategies without requiring them in the MVP.
 
@@ -478,8 +489,8 @@ The architecture should allow these strategies without requiring them in the MVP
 The product should eventually separate four major choices:
 
 ```text
-Execution
-Self-hosted / Hosted
+Worker
+self-hosted / hosted
 
 Harness
 Codex / Claude Code / OpenCode
@@ -491,29 +502,26 @@ Strategy
 Standard / Adversarial / ...
 ```
 
-Plus review autonomy:
+Plus Autonomy:
 
 ```text
-Mode
-Review / Verify / Fix
+Autonomy
+inspect / verify / fix
 ```
 
 Conceptual configuration:
 
 ```yaml
 review:
-  execution: self-hosted
+  worker: self-hosted
   harness: codex
   model: [harness-supported-model]
   strategy: standard
-  mode: verify
+  autonomy: verify
 ```
 
-Exact configuration format:
-
-Settled by [ADR 0011](adr/0011-repository-configuration-contract.md). Note that `mode` is not the
-key: `CONTEXT.md` bans the word, and the three choices above are `worker`, `autonomy` and
-`strategy`. `execution` is `worker`. See §30.
+The exact configuration format is settled by
+[ADR 0011](adr/0011-repository-configuration-contract.md). See §30.
 
 ---
 
@@ -522,27 +530,27 @@ key: `CONTEXT.md` bans the word, and the three choices above are `worker`, `auto
 ## Core
 
 - Automatically review GitHub pull requests.
-- Use real coding-agent harnesses.
+- Use real coding-agent Harnesses.
 - Initial support:
   - Codex
   - Claude Code
   - OpenCode
 - Allow users to choose the harness.
 - Allow users to choose the model where supported.
-- Allow the agent to investigate the entire repository.
-- Allow executable validation of findings.
-- Support optional agent-driven fixes.
+- Allow the Reviewer to investigate the entire Repository.
+- Allow executable Verification of Findings.
+- Support optional Reviewer-driven Patches.
 - Support cross-harness/adversarial review.
 - Produce structured GitHub reviews and inline comments.
 - Support self-hosted and hosted execution.
 - Keep self-hosted provider credentials outside the control plane.
 - Treat PR code as untrusted.
 - Remain open source.
-- Keep GitHub integration independent from execution backend and harness.
+- Keep GitHub integration independent from Worker and Harness.
 
 ## Quality
 
-Reduce speculative review findings by allowing the agent to validate claims where practical.
+Reduce speculative Findings by allowing the Reviewer to verify claims where practical.
 
 Instead of:
 
@@ -550,7 +558,7 @@ Instead of:
 "This may fail when X occurs."
 ```
 
-the agent should be capable of attempting:
+the Reviewer should be capable of attempting:
 
 ```text
 1. reproduce X
@@ -559,18 +567,27 @@ the agent should be capable of attempting:
 4. report evidence
 ```
 
-Not every finding must be executable.
+Not every Finding can be verified by execution.
 
 ---
 
-# 9. Review Modes
+# 9. Review Autonomy
 
-## Mode A: Review
+Autonomy is an enforcement ladder, not a preferred behavior:
+
+```text
+inspect < verify < fix
+```
+
+A level is offered only where the Adapter can enforce it for the resolved Harness, Model, Route,
+and Sandbox.
+
+## `inspect`
 
 Primary goal:
 
 ```text
-Find issues.
+Find potential defects through reading and reasoning.
 ```
 
 Capabilities:
@@ -581,23 +598,19 @@ Capabilities:
 - inspect related code;
 - reason about behavior.
 
-Whether arbitrary execution is enabled in this lowest mode:
-
-**[Undecided]**
-
-No persistent source changes.
+The Reviewer may read but may not execute project code or mutate the Workspace.
 
 ---
 
-## Mode B: Verify
+## `verify`
 
 Primary goal:
 
 ```text
-Find issues and validate them.
+Find potential defects and verify them.
 ```
 
-Agent may:
+The Reviewer may additionally:
 
 - run existing tests;
 - run type checks;
@@ -615,30 +628,30 @@ Finding hypothesis
       ↓
 Can it be verified?
       ↓
-Execute validation
+Execute verification
       ↓
 Confirmed / rejected
 ```
 
-Rejected hypotheses should not become review comments.
+Rejected hypotheses never become Findings.
 
 ---
 
-## Mode C: Fix
+## `fix`
 
 Primary goal:
 
 ```text
-Find, validate, and repair issues.
+Find, verify, and repair defects.
 ```
 
-Agent may additionally:
+The Reviewer may additionally:
 
 - edit source;
 - modify tests;
 - generate patches;
 - rerun builds/tests;
-- iterate until the proposed fix is validated.
+- iterate until the proposed Patch is verified.
 
 ```text
 Detect
@@ -654,7 +667,7 @@ Re-verify
 Return fix
 ```
 
-How fixes reach GitHub:
+How Patches reach GitHub:
 
 - suggested patch;
 - generated commit;
@@ -662,13 +675,13 @@ How fixes reach GitHub:
 - direct PR commit;
 - follow-up PR.
 
-**[Undecided]**
+**Deferred to the per-phase fix workflow map.**
 
 ---
 
-# 10. Agentic Validation
+# 10. Agentic Verification
 
-Validation is a first-class architectural capability.
+Verification is a first-class architectural capability.
 
 Examples:
 
@@ -688,7 +701,7 @@ Broken API behavior
 Database behavior
 → run isolated reproduction
 
-Dependency issue
+Dependency defect
 → inspect/install/run dependency
 
 Claim about function behavior
@@ -713,35 +726,31 @@ when useful.
 
 # 11. Evidence-Based Findings
 
-Where verification occurred, a finding should be able to include evidence.
+Where Verification occurred, a Finding carries structured Evidence.
 
-Potential evidence:
+Evidence records:
 
 - command executed;
-- relevant test output;
-- build output;
-- stack trace;
-- reproduction steps;
-- temporary validation script;
-- relevant logs.
+- exit code and duration;
+- a bounded head-and-tail excerpt of output;
+- truncation metadata including original byte length.
 
 Conceptual result:
 
 ```text
 Finding
- ├── issue
- ├── location
- ├── explanation
+ ├── path + line/range + anchored source
+ ├── title + body
  ├── severity
- ├── verified
- └── evidence
+ ├── verification: static | inconclusive | verified
+ ├── evidence[]
+ └── patch?
 ```
 
-How much evidence is surfaced directly on GitHub:
-
-**[Undecided]**
-
-Large raw logs should not be dumped into PR comments.
+GitHub renders each bounded Evidence excerpt inside a collapsed `<details>` block. Raw stdout,
+stderr, transcripts, and bulk Workspace content do not cross the self-hosted Worker protocol or
+enter GitHub comments. A Finding cannot be `verified` without Evidence, and a `static` Finding
+cannot carry it.
 
 ---
 
@@ -749,22 +758,22 @@ Large raw logs should not be dumped into PR comments.
 
 Not initially committed:
 
-- automatic commit/push of fixes: **[Undecided]**
+- automatic commit/push of Patches: **[Deferred to the per-phase fix workflow map]**
 - auto-merge: **[Out of Initial Scope]**
 - GitLab: **[Future]**
 - Bitbucket: **[Future]**
 - Pi harness: **[Future]**
 - additional harnesses: **[Future]**
-- multi-agent consensus review: **[Future]**
-- team analytics dashboard: **[Undecided]**
-- organization management depth: **[Undecided]**
+- multi-Reviewer consensus review: **[Future]**
+- team analytics dashboard: **[Deferred to a product phase map]**
+- Owner management depth: **[Deferred to a product phase map]**
 
 Initial product stays focused on:
 
 ```text
 GitHub PR
-→ Agent review
-→ Validation
+→ Review
+→ Verification
 → Findings
 → Optional fix
 ```
@@ -774,38 +783,21 @@ GitHub PR
 # 13. Core Architecture
 
 ```text
-                    GitHub
-                       │
-                       ▼
-                   GitHub App
-                       │
-                       ▼
-                 Control Plane
-                       │
-                  ReviewJob
-                       │
-             ┌─────────┴─────────┐
-             ▼                   ▼
-      Self-Hosted Worker    Hosted Executor
-             │                   │
-             │             Vercel Sandbox
-             │                   │
-             └─────────┬─────────┘
-                       ▼
-                  HarnessAgent
-                       │
-          ┌────────────┼────────────┐
-          ▼            ▼            ▼
-        Codex      Claude Code    OpenCode
-                       │
-                       ▼
-                 ReviewResult
-                       │
-                       ▼
-                 Control Plane
-                       │
-                       ▼
-                  GitHub Review
+GitHub -> GitHub App -> Control Plane -> Run
+
+Run
+ ├── self-hosted Worker
+ │    ├── Adapter
+ │    └── local Sandbox
+ │         ├── Workspace
+ │         └── Harness
+ └── hosted Worker
+      ├── Adapter
+      └── Vercel Sandbox
+           ├── Workspace
+           └── Harness
+
+Result -> Control Plane -> GitHub Review
 ```
 
 ---
@@ -816,19 +808,26 @@ GitHub PR
 |---|---|
 | Language | TypeScript |
 | Runtime | Node.js 22+ / ESM |
-| GitHub integration | Chat SDK GitHub adapter |
-| GitHub-specific API | Octokit |
-| Agent abstraction | AI SDK `HarnessAgent` |
+| Monorepo | pnpm workspaces + Turborepo |
+| GitHub ingress and API | Direct Octokit webhooks and API |
+| Dependency abstraction | AI SDK `HarnessAgent` on the Brokered Route |
+| Reprove abstraction | One Adapter per Harness, with brokered and native Routes |
 | Harnesses | Codex, Claude Code, OpenCode |
 | Hosted isolation | Vercel Sandbox |
 | Hosted AI routing | Vercel AI Gateway |
-| Control-plane framework | **[Undecided]** |
-| Database | **[Undecided]** |
-| Queue | **[Undecided]** |
-| Authentication | **[Undecided]** |
-| Control-plane hosting | **[Undecided]** |
+| Control-plane framework | Next.js |
+| Database | Neon Postgres + Drizzle |
+| Durable orchestration | Vercel Workflows |
+| Authentication | Better Auth |
+| Rate limiting | Upstash |
+| Schema validation | zod |
+| Testing | Vitest + Playwright |
+| Lint and format | Oxlint + Oxfmt, through Ultracite |
+| Product analytics | PostHog, bounded non-content facts only |
+| Control-plane hosting | Vercel |
 
-AI SDK 7 requires Node.js 22+ and ESM and provides HarnessAgent adapters for Codex, Claude Code, OpenCode and other runtimes.
+AI SDK 7 requires Node.js 22+ and ESM. Its `HarnessAgent` implementations are confined behind
+Reprove's Adapter on the Brokered Route; the Native Route invokes the installed CLI directly.
 
 ---
 
@@ -841,9 +840,9 @@ GitHub event
     ↓
 Webhook
     ↓
-Chat SDK GitHub adapter / webhook handling
+Direct Octokit webhook handling
     ↓
-Review orchestrator
+Control Plane
 ```
 
 Responsibilities:
@@ -856,11 +855,9 @@ Responsibilities:
 - publish inline comments;
 - optionally publish fixes.
 
-Use Octokit where functionality exceeds Chat SDK's common abstraction.
-
-Whether PR lifecycle events should flow entirely through Chat SDK or through a parallel direct GitHub webhook handler:
-
-**[Needs Validation]**
+Use Octokit directly for pull-request lifecycle events, Checks, Reviews, Comments, and repository
+access. `@chat-adapter/github` does not route `pull_request` events or publish Reviews, so it is not
+part of ingress.
 
 ---
 
@@ -878,79 +875,97 @@ Potential triggers:
 
 Default:
 
-**[Undecided]**
-
-Likely MVP:
-
 ```text
 PR opened / synchronize
 → automatically review
 ```
 
----
-
-# 17. Normalized Review Job
-
-```text
-ReviewJob
- ├── repository
- ├── installation
- ├── PR
- ├── baseSHA
- ├── headSHA
- ├── executionMode
- ├── harness
- ├── model
- ├── strategy
- ├── reviewMode
- └── repositoryConfiguration
-```
-
-Everything after job creation should be largely independent of GitHub webhook implementation.
+Manual requests remain an additional trigger. A new push creates a new Run at the new head SHA and
+supersedes the prior Run.
 
 ---
 
-# 18. Review Executor
+# 17. Run
 
 ```text
-ReviewExecutor
-   │
-   ├── HostedExecutor
-   └── SelfHostedExecutor
+Run
+ ├── spec                         fixed at creation
+ │    ├── Owner / Repository / Installation / pull request
+ │    ├── baseSha / headSha
+ │    ├── provenance + provenanceBasis
+ │    ├── harness / model / strategy / autonomy
+ │    ├── placement + allowHostedFallback
+ │    ├── resolvedConfig + configDigest
+ │    └── claimableUntil
+ ├── resolution                   written once at claim
+ │    ├── workerId? / route
+ │    ├── isolation / exposure
+ │    └── protocolVersion / workerBuildVersion
+ └── state                        mutable
+      ├── status / lease expiry / timestamps
+      ├── Refusals / failure reason
+      └── accepted Result + publication record
 ```
 
-The executor decides **where** the agent runs.
+A Run is one bounded attempt at fixed base and head SHAs. A new push or retry creates a new Run;
+there is no intermediary layer. Nothing in the Run references a webhook delivery, so everything after
+creation is independent of GitHub ingress.
 
-Harness configuration decides **what agent** performs the work.
-
-Review strategy decides **how agents are composed**.
+Status moves from `queued` to `claimed` to `executing`, then terminates as `completed`, `incomplete`,
+`failed`, `superseded`, `cancelled`, or `unscheduled`. A complete accepted Result makes the Run
+`completed` whether or not it contains Findings; a partial accepted Result makes it `incomplete`;
+execution without an acceptable Result is a Failure. The Check reports that execution outcome, not
+the Review's verdict.
 
 ---
 
-# 19. Harness Abstraction
+# 18. Worker
 
 ```text
-ReviewAgent
- ├── Codex
- ├── Claude Code
- └── OpenCode
+Worker core
+   ├── hosted lifecycle: one Vercel Workflow-backed Run, no durable Worker identity
+   └── self-hosted lifecycle: long-lived daemon, enrollment, polling, claim, and Lease
 ```
 
-Normalize where practical:
+The Worker executes a Run and returns its Result. The hosted and self-hosted lifecycles drive the
+same core and share one Result, progress, and Acceptance path; neither is a different domain thing.
 
-- session creation;
-- instructions;
-- skills;
-- tools;
-- repository workspace;
-- model configuration;
-- streaming;
-- cancellation;
-- result capture.
+The Worker placement decides **where** the Run executes.
 
-Do not force false uniformity.
+Harness and Model decide **which Reviewer** performs a Pass.
 
-Provider-specific behavior should remain behind adapter boundaries.
+Strategy decides **how Reviewers are composed**.
+
+---
+
+# 19. Adapter
+
+```text
+Adapter
+ ├── CodexAdapter
+ ├── ClaudeCodeAdapter
+ └── OpenCodeAdapter
+
+each Adapter
+ ├── Brokered Route: AI SDK `HarnessAgent`
+ └── Native Route: installed CLI
+```
+
+One Adapter per Harness normalizes what callers must reason about and absorbs what they must not:
+
+- a single Pass invocation with progress and cancellation;
+- resolved capabilities, including supported Autonomy and instruction-boundary enforcement;
+- Reprove-owned Reviewer instructions;
+- opaque Model identifiers pinned by the control plane;
+- strict Result and Evidence validation outside the Sandbox;
+- bounded repair of malformed output;
+- typed Harness options, with unknown raw configuration rejected.
+
+The Adapter runs Worker-side, outside the Sandbox. Route is its private implementation detail;
+callers gate dispatch on Exposure, Isolation, and Provenance rather than Route.
+
+Do not force false uniformity. Harness-specific behavior stays behind the Adapter boundary, and a
+missing enforceable capability produces a Refusal rather than a silent downgrade.
 
 ---
 
@@ -960,7 +975,7 @@ Provider-specific behavior should remain behind adapter boundaries.
 
 Covers the OpenAI coding-agent ecosystem.
 
-Relevant capabilities include repository exploration, shell execution, file editing, testing/build workflows, and persistent agent sessions.
+Relevant capabilities include Repository exploration, shell execution, file editing, testing/build workflows, and persistent Harness sessions.
 
 ## Claude Code
 
@@ -978,18 +993,18 @@ This keeps initial scope narrow while avoiding a product tied entirely to OpenAI
 
 ---
 
-# 21. Execution Mode A: Self-Hosted Worker
+# 21. Self-Hosted Worker
 
 ```text
 Control Plane
       ↓
-ReviewJob
+Run
       ↓
-User Worker
+Self-Hosted Worker
       ↓
-Repository Sandbox
-      ↓
-Harness
+Sandbox
+ ├── Workspace
+ └── Harness
       ↓
 Result
 ```
@@ -1004,7 +1019,9 @@ Possible environments:
 
 Supported platforms:
 
-**[Undecided]**
+Linux kernel plus Docker or Podman, with rootless containers preferred. A self-hosted Worker is a
+host process, not a process inside the Sandbox. macOS and Windows are supported only through a
+Linux VM; native Windows containers are not supported.
 
 ---
 
@@ -1039,9 +1056,9 @@ Configure harnesses
     ↓
 Authenticate locally
     ↓
-Register worker
+Enroll Worker
     ↓
-Receive review jobs
+Receive Runs
 ```
 
 Example:
@@ -1090,10 +1107,9 @@ Two operational consequences follow, and both are product concerns rather than f
 [`docs/research/provider-auth-and-usage.md`](research/provider-auth-and-usage.md); cite that
 file rather than restating terms from memory.
 
-- **OpenAI documents non-interactive Codex for automation.** *"Non-interactive mode lets you
-  run Codex from scripts (for example, continuous integration (CI) jobs)… You invoke it with
-  `codex exec`"*, and its own use-case list names *"Run as part of a pipeline (CI, pre-merge
-  checks, scheduled jobs)."* This is the mechanism the Native Auth Route uses.
+- **OpenAI documents non-interactive Codex for automation.** Its documentation says `codex exec`
+  runs Codex from scripts, including CI jobs, and explicitly lists pipelines, pre-merge checks, and
+  scheduled jobs. This is the mechanism the Native Auth Route uses.
 - **`codex exec` reuses the user's existing login:** *"`codex exec` reuses saved CLI
   authentication by default."* No credential is supplied by Reprove.
 - **API keys are OpenAI's recommended default for automation:** *"The right way to authenticate
@@ -1135,42 +1151,56 @@ before the isolation boundary in §23 establishes and verifies it.
 
 # 23. Self-Hosted Security Boundary
 
-Unsafe:
+Reprove assumes repository code executes arbitrary code inside the Sandbox. One Sandbox contains
+both the Harness and the Workspace for one Pass; Reprove does not claim to isolate repository
+execution from the Reviewer.
+
+The Sandbox contract is shared across hosted and self-hosted Workers and defined by properties,
+not by a runtime:
 
 ```text
 Sandbox
- ├── malicious PR
- └── provider credentials
+ ├── private network, PID, and mount namespaces
+ ├── no host bind mounts or container-runtime socket
+ ├── seccomp, resource limits, and ephemeral storage
+ ├── egress only through Reprove's policy proxy
+ └── teardown after the Pass
 ```
 
-Requirement:
+Implementations differ: Vercel Sandbox supplies `microvm` Isolation for hosted Workers; the local
+Docker/Podman provider supplies `container-rootless` or `container` Isolation. Below `container`
+there is no Sandbox and no Run.
 
-> Repository code must not have direct access to long-lived AI/provider credentials.
-
-Potential architecture:
+Credential handling depends on the resolved Route:
 
 ```text
-Worker Host
- ├── Authenticated Agent / Broker
- │
- └── restricted tool bridge
-          ↓
-    Repository Sandbox
+Brokered Route
+  usable credential remains outside the Sandbox
+  placeholder is replaced only by the egress proxy
+  Exposure = none
+
+Native Route
+  user-managed authentication is inside the Sandbox
+  Exposure is computed from that credential
+  risk is bounded by Provenance, Isolation, and revocability
 ```
 
-Alternatives:
+Dispatch gates on `Exposure × Isolation × Provenance`, never on Route. `Exposure` and `Isolation`
+are computed and recorded on the Run; `Provenance` is computed from the pull request and recorded
+with its basis. A stale capability probe or a missing hard property produces a visible Refusal.
+Nothing warns and runs.
 
-- agent outside sandbox;
-- credential broker;
-- runtime-specific isolation;
-- provider-specific execution path.
+Three public promises are intentionally narrow and testable:
 
-**[Needs Research]**
+```text
+1. On the Brokered Route, no usable credential enters the Sandbox.
+2. The Sandbox has no GitHub authority.
+3. A weakened posture never runs quietly.
+```
 
-This remains one of the primary technical blockers for production-safe self-hosted execution.
-It is not a subscription problem: an API key worth thousands a month is as password-equivalent
-as a consumer login, and both are equally exposed by sharing an environment with untrusted
-repository code.
+On the Brokered Route, a compromised Sandbox may still spend the Run's remaining budget against an
+allowed endpoint or attempt exfiltration through an explicitly permitted destination. Brokering
+prevents credential theft; it does not eliminate bounded authorized-service abuse.
 
 ## A note on provider automation guidance
 
@@ -1206,30 +1236,29 @@ than resolving it in its own favour.
 
 **Nothing in the provider guidance found so far establishes a repository-visibility restriction
 that Reprove must enforce**, and this document does not invent one. What survives is a security
-question rather than a terms question, and it is the same one this section already poses: the
-credential and the untrusted repository code must not share an execution environment. That is
-sharper when the repository is public and anyone may open a pull request, which makes
-repository visibility a **risk input to the isolation design**, not a policy gate on the Route.
+question rather than a terms question. Repository visibility is not a Route gate; the durable risk
+input is Provenance, combined at dispatch with Exposure and Isolation.
 
 ---
 
-# 24. Execution Mode B: Hosted Sandbox
+# 24. Hosted Worker
 
 ```text
 Control Plane
       ↓
-Vercel Sandbox
-      ↓
-HarnessAgent
-      ↓
-Codex / Claude Code / OpenCode
-      ↓
-AI Gateway
+Hosted Worker
+ ├── Adapter                           outside the Sandbox
+ └── Vercel Sandbox                    one per Pass
+      ├── Workspace
+      ├── Codex / Claude Code / OpenCode
+      └── brokered access to AI Gateway
 ```
 
 Hosted execution uses Gateway/API credentials rather than consumer sessions.
 
-AI SDK's harness layer is designed to run these established harnesses in sandboxed environments while presenting a common agent interface.
+The hosted Worker is provisioned per Run and has no durable Worker identity, enrollment, claim,
+Lease, or polling lifecycle. Adapter-side Result and Evidence schema validation stays outside the
+Sandbox; the Harness and Workspace share it.
 
 ---
 
@@ -1253,7 +1282,8 @@ Preferred direction:
 
 > Do not rebuild OpenCode's provider-management system.
 
-Review-specific model overrides may still be useful.
+At launch Reprove owns only the pinned Repository-configured Model. OpenCode's provider management
+and any interactive per-run selection remain OpenCode concerns; Reprove does not rebuild them.
 
 ---
 
@@ -1264,105 +1294,102 @@ Review-specific model overrides may still be useful.
 
 2. Resolve repository configuration
 
-3. Create ReviewJob
+3. Create Run
 
-4. Choose execution backend
+4. Choose Worker
 
-5. Choose harness
+5. Choose Harness
 
-6. Choose model
+6. Choose Model
 
-7. Choose review strategy
+7. Choose Strategy
 
 8. Prepare exact base/head commits
 
-9. Start agent
+9. Start Reviewer
 
-10. Agent inspects change
+10. Reviewer inspects change
 
-11. Agent explores relevant repository context
+11. Reviewer explores relevant Repository context
 
-12. Agent forms potential findings
+12. Reviewer forms hypotheses
 
-13. Agent validates findings where useful
+13. Reviewer verifies hypotheses where useful
 
-14. Agent rejects unsupported hypotheses
+14. Reviewer rejects unsupported hypotheses
 
-15. If Fix Mode:
+15. If Autonomy is `fix`:
       modify code
       run verification
-      return patch
+      return Patch
 
-16. Normalize result
+16. Normalize Result
 
 17. Publish GitHub review
 
-18. Persist run metadata
+18. Persist Run metadata
 ```
 
-For multi-agent strategies, steps 9 through 15 may execute through more than one harness.
+For multi-Reviewer Strategies, steps 9 through 15 may execute through more than one Harness.
 
 ---
 
-# 27. Normalized Review Result
+# 27. Result and Finding
 
 ```text
-ReviewResult
+Result
+ ├── completeness: complete | partial
+ ├── stoppedBy?                  required only when partial
  ├── summary
- ├── verificationSummary
  └── findings[]
 ```
 
-Potential finding:
+Finding:
 
 ```text
-ReviewFinding
- ├── file
- ├── line/range
+Finding
+ ├── path
+ ├── line/range + anchoredText
  ├── title
- ├── explanation
+ ├── body
  ├── severity
- ├── confidence
- ├── verificationStatus
- ├── evidence
- └── proposedFix
+ ├── verification
+ ├── evidence[]
+ └── patch?
 ```
 
-Exact schema:
-
-**[Undecided]**
+A partial Result is acceptable and publishes its Findings, but leaves the Run `incomplete`. A
+partial Result with no Findings publishes no Review, because an unfinished review must never read
+as a clean bill of health. A Result is one strictly size-bounded atomic payload and has no table;
+Acceptance absorbs it into the Run.
 
 Do not make parsing arbitrary Markdown the core integration contract.
 
 ---
 
-# 28. Verification Status
+# 28. Verification
 
-Potential statuses:
-
-```text
-STATIC
-```
-
-Detected through analysis only.
+The fixed ladder is:
 
 ```text
-VERIFIED
+static
 ```
 
-Reproduced or otherwise demonstrated through execution.
+Reasoned only. Carries no Evidence.
 
 ```text
-PARTIALLY_VERIFIED
+inconclusive
 ```
 
-Supporting evidence exists, but full reproduction was not possible.
+Execution was attempted but did not settle the claim. Carries Evidence.
 
-Exact names:
+```text
+verified
+```
 
-**[Undecided]**
+Execution demonstrated the claim. Requires Evidence.
 
-This can provide an important trust signal to reviewers.
+Verification is the whole trust signal a Finding carries. There is no confidence field.
 
 ---
 
@@ -1371,30 +1398,31 @@ This can provide an important trust signal to reviewers.
 ```text
 Finding
    ↓
-Create working-tree change
+Create Workspace change
    ↓
 Run targeted verification
    ↓
 Run broader checks
    ↓
-Generate verified patch
+Generate verified Patch
 ```
 
 Possible outcomes:
 
 ```text
-Fix verified
+Patch verified
 
-Fix generated but validation failed
+Patch generated but Verification failed
 
 Unable to safely fix
 ```
 
-The system should never claim a fix was verified when validation failed.
+The system never claims a Patch was verified when Verification failed. Acceptance rejects a Patch
+unless the Run's Autonomy is `fix`.
 
 GitHub delivery method:
 
-**[Undecided]**
+**Deferred to the per-phase fix workflow map.**
 
 ---
 
@@ -1500,7 +1528,7 @@ Settled by [ADR 0011](adr/0011-repository-configuration-contract.md):
 
 # 32. Incremental Reviews
 
-Each run binds to:
+Each Run binds to:
 
 ```text
 base SHA
@@ -1509,15 +1537,20 @@ head SHA
 
 Requirements:
 
-- avoid stale results;
-- cancel/supersede old runs;
-- avoid duplicate findings;
-- reconcile resolved findings;
+- reject stale Results through control-plane Acceptance;
+- cancel and supersede old Runs;
+- suppress duplicate Comments without deleting Findings;
+- reconcile against prior published Findings;
 - handle duplicate webhooks idempotently.
 
-Finding reconciliation algorithm:
+Reconciliation compares the current Run against the most recent prior Run for the pull request that
+successfully published a Review. Findings enter candidate buckets by `path + normalized anchored
+source hash`; exactly one prior and one current Finding in a bucket match as `recurring`. Every
+ambiguous cardinality fails open to `new`.
 
-**[Undecided]**
+The candidate set contains only prior Findings that actually produced an inline Comment. Dedupe
+suppresses the current Comment, never the Finding. On the prior side, `anchor_changed` and
+`not_reproduced` are internal facts and never claims that a defect was fixed.
 
 ---
 
@@ -1525,25 +1558,36 @@ Finding reconciliation algorithm:
 
 Worker responsibilities:
 
-- register;
-- authenticate to control plane;
+- enroll once, then register repeatedly;
+- authenticate to the control plane;
 - advertise harnesses;
 - advertise models/capabilities;
 - report health;
-- receive jobs;
-- execute reviews;
+- poll for claimable Runs;
+- claim a Run and hold its Lease;
+- execute Passes;
 - stream progress;
-- return structured results;
+- return a structured Result;
 - support cancellation.
 
-Transport:
+The self-hosted Worker is always the HTTPS client and the control plane is always the server. There
+is no inbound Worker port, push channel, WebSocket, or SSE connection:
 
-- polling;
-- WebSocket;
-- SSE/callback;
-- queue protocol.
+```text
+Worker polls
+  → claim + Lease
+  → progress and Lease renewal
+  → continue | cancel response
+  → atomic Result or terminal Failure
+```
 
-**[Undecided]**
+Scheduling is two-phase. The control plane selects candidates from deliberately stale advertised
+capabilities; the claiming Worker performs the fresh resolved probe and either commits the claim or
+returns a structured Refusal. A bounded `claimableUntil` makes waiting visible and terminal.
+
+`protocolVersion` is an integer compatibility family and `workerBuildVersion` identifies the
+implementation. Both are recorded on the Run. Hosted Workers share the Result, progress, and
+Acceptance contract but do not exercise enrollment, registration, polling, claim, or Lease.
 
 ---
 
@@ -1551,16 +1595,20 @@ Transport:
 
 Private repositories require temporary worker access.
 
-Preferred:
+Settled flow:
 
 ```text
-Control Plane
+Worker claims Run
       ↓
-Short-lived GitHub installation token
+Worker requests repository access
       ↓
-Worker
+Control plane mints a short-lived, single-Repository installation token
       ↓
-Clone repository
+Worker materializes the Workspace host-side
+      ↓
+Worker strips remotes, credential helpers, hooks, and host references
+      ↓
+Token is destroyed before the Sandbox starts
 ```
 
 Do not distribute the GitHub App private key.
@@ -1569,118 +1617,150 @@ Preferred ownership:
 
 ```text
 Worker:
-- clone/read repository
-- execute review
+- materialize the Workspace
+- execute the Run
 
 Control Plane:
 - own GitHub App
-- publish reviews/comments
+- publish Reviews and Comments
 ```
 
-Final implementation:
-
-**[Needs Validation]**
+The GitHub App private key is never distributed. Installation tokens are minted just in time and
+never persisted in a queued assignment. The Sandbox has no GitHub credential or authority.
 
 ---
 
 # 35. Security Requirements
 
-## Both modes
+## Both Worker placements
 
-Treat PR code as untrusted.
+Treat pull-request code and narrative as untrusted. Reprove assumes repository code executes
+arbitrary code inside the Sandbox.
 
 Protect against:
 
 - malicious build scripts;
 - malicious dependencies;
-- repository prompt injection;
+- repository-controlled privileged instructions;
+- Author-controlled narrative steering;
 - credential exfiltration;
 - arbitrary network access;
 - cross-repository leakage;
 - webhook replay;
-- agent tool abuse;
-- stale jobs.
+- Reviewer tool abuse;
+- stale Runs.
+
+Repository-controlled text never enters a channel the Harness treats as privileged configuration,
+permissions, instructions, or authorization. Native Harness suppression is provisioned in the
+Sandbox environment; targeted sanitization covers only surfaces suppression provably cannot reach.
+Trusted base-ref prose conventions are re-admitted through a Reprove-controlled, subordinate
+channel. Dispatch requires a fresh behavioral probe of this boundary for the exact Harness builds.
+
+Pull-request title and description are supplied as bounded protected JSON with `authority: none`,
+never interpolated into instructions or the initial prompt. These controls prevent Author content
+from increasing a Run's authority; they do not promise that a Model cannot be persuaded within the
+authority it already has.
 
 ## Self-hosted
 
 - provider credentials remain worker-owned;
-- sandbox cannot read provider credentials;
+- Brokered Route credentials remain outside the Sandbox;
+- Native Route credentials are inside the Sandbox, with risk bounded by Exposure, Isolation,
+  Provenance, and revocability;
 - GitHub credentials are temporary;
-- workspace isolated per job;
-- worker tokens are revocable.
+- Workspace isolated per Run;
+- Worker credentials are revocable.
 
 ## Hosted
 
-- isolated sandbox per review;
-- temporary repository credentials;
-- Gateway credentials isolated from repository code;
-- sandbox destroyed/reset after execution.
+- one Sandbox per Pass;
+- temporary Repository credentials;
+- Gateway credentials brokered outside the Sandbox;
+- Sandbox destroyed after execution.
 
-Network policy:
-
-**[Undecided]**
+Egress is default-deny and phased, restricted by host, method, and path. Install may reach configured
+package registries. Verification may reach the resolved Model or Gateway endpoint and explicit
+Repository-approved destinations. There is no ordinary allow-all. The proxy always enforces request
+count and size, body size, wall-clock, concurrency, and denial of unmatched requests; provider-level
+token, Model, or spend limits apply only where the resolved credential supports them.
 
 ---
 
 # 36. Persistence
 
-Likely entities:
+Persisted entities:
 
 ```text
-Account
-GitHubInstallation
-Repository
-RepositorySettings
+Better Auth, untouched: user, session, account, verification
 
-Worker
-WorkerCapabilities
-
-ReviewJob
-ReviewRun
-ReviewFinding
-ReviewArtifact
+owner
+installation
+repository
+worker
+worker_credential
+enrollment_code
+run
+finding
+publication
 ```
 
-Exact schema:
+Every Owner-scoped Reprove table is protected by application scoping plus Postgres RLS. GitHub's numeric
+Owner id is the tenant key. Runtime connections use a restricted non-`BYPASSRLS` role and
+transaction-local tenant context; boot refuses if the boundary is misconfigured. Better Auth has no
+Reprove membership relation, and authorization is answered live by GitHub.
 
-**[Undecided]**
+Result has no table: Acceptance absorbs it into `run`. Evidence, Patch, Passes, and Refusals are
+bounded JSONB; Findings are rows because Reconciliation queries them across Runs. Repository stores
+no review configuration; each Run stores `resolvedConfig` plus `configDigest`.
 
-Private repository contents should not be permanently stored unless required.
+One 90-day clock purges content-bearing fields in place: anchored source, Finding title and body,
+Evidence excerpt and command text, and the content-bearing part of resolved Project commands. Run
+metadata, Severity, Verification, paths, dispositions, counts, bucket keys, and audit facts remain.
+Installation removal revokes the grant and deletes nothing; explicit Owner deletion removes all
+Owner-scoped Reprove data.
 
 ---
 
 # 37. Observability
 
-Each run should record:
+The Run is the durable audit record. It records bounded terminal facts including:
 
 ```text
 repository
 PR
 base SHA
 head SHA
-execution backend
+placement
 harness
 model
-review strategy
-review mode
+strategy
+autonomy
 worker/sandbox
+route
+isolation
+exposure
+provenance + provenance basis
+protocol and worker build versions
 status
 duration
-validation commands
+Project commands, purged after 90 days
 failure reason
 ```
 
 Hosted:
 
 ```text
-provider
-AI Gateway usage
-estimated cost
+Provider
+Usage
+derived cost where a marginal price exists
 ```
 
-Self-hosted usage visibility:
+Normalized Usage crosses the Worker protocol. A Native Route Run may consume an allowance the user
+already holds, so Reprove does not present API-price-table arithmetic as that user's actual cost.
 
-**[Depends on provider / Needs Validation]**
+Progress events cross the protocol for liveness and cancellation but are not persisted. There is no
+event table or stored Run timeline. Product analytics may contain bounded non-content facts, never
+source, Finding prose, Evidence, command text, transcripts, or raw progress events.
 
 ---
 
@@ -1719,9 +1799,9 @@ scripts, reproduction, verification, and eventually fixes.
 
 The short form, for a headline rather than a spec:
 
-> **Turn the coding agents you already use into autonomous reviewers.**
+> **Turn the coding-agent Harnesses you already use into autonomous Reviewers.**
 
-Reprove then supplies the product layer that a coding agent does not have on its own:
+Reprove then supplies the product layer that a Harness does not have on its own:
 
 - GitHub-native automatic review on a pull request;
 - structured Findings anchored to a location;
@@ -1729,7 +1809,8 @@ Reprove then supplies the product layer that a coding agent does not have on its
 - Harness and Model choice;
 - cross-harness and adversarial Strategies;
 - hosted and self-hosted Workers;
-- credential isolation between the Reviewer's authentication and the code it executes;
+- explicit credential posture: Brokered isolation, or Native gating by Exposure, Isolation, and
+  Provenance;
 - review UX that fits how the team already reads a pull request;
 - fix and re-verify workflows.
 
@@ -1739,10 +1820,10 @@ Reprove is a **PR review bot**: it arrives automatically on a pull request and l
 anchored, severity-tagged, threshold-filtered Findings in a GitHub Review. That is the
 category, and it is the only set Reprove positions against.
 
-This matters because a naive search for "multi-harness plus cross-agent review" surfaces
-projects that are **not in the category** - agent orchestrators and session managers that let
+This matters because a naive search for "multi-Harness plus cross-Harness review" surfaces
+projects that are **not in the category** - Harness orchestrators and session managers that let
 you drive Codex, Claude Code and OpenCode from one place, and that may expose a GitHub
-surface where a mention summons an agent onto a pull request. That is orchestration, not
+surface where a mention summons a Harness onto a pull request. That is orchestration, not
 review. A reviewer is defined by the workflow it fits into: unprompted arrival on every pull
 request, one Finding per location, Severity and Verification a team can set policy on, dedupe
 across pushes, and a Review a human reads the way they read any other.
@@ -1771,24 +1852,24 @@ the mechanism. Harness *continuity* is the claim.
 
 Within the category, every reviewer either brings its own model or locks you to one vendor:
 
-| Reviewer | Who chooses the reviewing agent |
+| Reviewer | Who chooses the Reviewer |
 |---|---|
 | CodeRabbit | Vendor. Managed models, blended internally; explicitly argues users should not have to choose. |
-| Greptile | Vendor. External coding agents are handed a *fix*, never the review. |
-| PR-Agent | User picks a **Model**, but the agent loop is PR-Agent's own. |
-| shippie | User picks a **Model**; single agent loop, not a Harness. |
+| Greptile | Vendor. External coding-agent Harnesses are handed a *fix*, never the Review. |
+| PR-Agent | User picks a **Model**, but the Reviewer loop is PR-Agent's own. |
+| shippie | User picks a **Model**; single Reviewer loop, not a Harness. |
 | Claude Code Review | Anthropic. Claude only, by construction. |
 | Codex automatic reviews | OpenAI. Codex only, by construction, and diff-only. |
-| **Reprove** | **You. The reviewing agent is your Harness, on your authentication.** |
+| **Reprove** | **You. The Reviewer is your Harness, on your authentication.** |
 
-**Not one reviewer in the category lets the Reviewer be the coding agent the team already
+**Not one Reviewer in the category lets the Reviewer be the coding-agent Harness the team already
 uses.** That is the unclaimed position, and everything else Reprove offers - cross-harness
 Strategies, execution-backed Findings, hosted and self-hosted Workers - is what makes that
 continuity useful rather than a novelty.
 
 One asymmetry is structural rather than a matter of feature parity: **the vendor-native
 reviewers cannot offer Harness choice.** A single-vendor reviewer that let a user pick a
-competitor's coding agent would be shipping that competitor's product. That axis is closed to
+competitor's Harness would be shipping that competitor's product. That axis is closed to
 the largest incumbents permanently, not until they get around to it.
 
 The current state of both the category and the adjacent orchestrators is recorded in
@@ -1853,13 +1934,14 @@ pages rather than in documentation, precisely because they change.
 
 ## Why credential isolation is not the headline
 
-Reprove's strongest architectural claim is that untrusted repository code never shares an
-execution environment with a password-equivalent Harness credential (§23,
-[`SECURITY.md`](../SECURITY.md)). That is a real differentiator, and it is deliberately not
-the lead.
+Reprove's strongest architectural claim is narrower and testable: the Brokered Route keeps usable
+credentials outside the Sandbox, the Sandbox has no GitHub authority, and a weakened posture never
+runs quietly (§23, [`SECURITY.md`](../SECURITY.md)). The Native Route necessarily carries its
+credential inside the Sandbox and is gated by Exposure, Isolation, and Provenance. This boundary is
+deliberately not the lead.
 
 It is an *enabling* property: it is the reason the product can be trusted, not the reason a
-developer wants it. The first-order reason to want Reprove is that the coding agents you
+developer wants it. The first-order reason to want Reprove is that the coding-agent Harnesses you
 already work with become your reviewers. Isolation is what makes that safe to run on code you
 did not write. Lead with the promise; support it with the architecture.
 
@@ -1895,17 +1977,17 @@ Codex / Claude Code / OpenCode
 CodeRabbit explicitly takes a managed-model approach and argues that its users should not need
 to choose the underlying model. Reprove intentionally makes that choice available - and goes
 further than model choice, because the thing the user selects is the whole Harness, not a
-model slotted into somebody else's agent loop.
+Model slotted into somebody else's Reviewer loop.
 
 This is the right primary comparison. The managed reviewers are the incumbents in the
 category, and the disagreement with them is genuine rather than a feature gap: they hold that
-the reviewing agent should be the vendor's problem, and Reprove holds that it should be the
-agent the team already works with.
+the Reviewer should be the vendor's problem, and Reprove holds that it should be the Harness the
+team already works with.
 
 ### Core message
 
-> Use the coding agents you already work with as autonomous PR reviewers, validators, and
-> optional fixers - with real repository execution behind every finding.
+> Use the coding-agent Harnesses you already work with as autonomous PR Reviewers that inspect,
+> verify, and optionally fix - with real repository execution behind every Finding.
 
 ---
 
@@ -1922,14 +2004,14 @@ Open PR
       ↓
 Review dispatched
       ↓
-Coding agent investigates repository
+Reviewer investigates Repository
       ↓
-Agent verifies selected findings
+Reviewer verifies selected Findings
       ↓
 Structured review posted
 ```
 
-Initial harness targets:
+Initial Harnesses:
 
 ```text
 Codex
@@ -1937,18 +2019,19 @@ Claude Code
 OpenCode
 ```
 
-Required modes:
+Required Autonomy:
 
 ```text
-Review
-Verify
+inspect
+verify
 ```
 
-Fix Mode:
+`fix` Autonomy:
 
-**[Target, exact GitHub write behavior undecided]**
+**Target for a later phase; GitHub write behavior is deferred to its phase map.**
 
-Even before GitHub write-back exists, the agent should be allowed to modify its temporary workspace when needed to determine whether a potential fix actually works.
+A Reviewer may mutate the Workspace only under `fix` Autonomy. A Patch may be returned before any
+GitHub write-back surface exists.
 
 ---
 
@@ -1958,33 +2041,32 @@ Even before GitHub write-back exists, the agent should be allowed to modify its 
 
 Establish the architecture before optimizing product behavior.
 
-- initialize project/repository structure;
+- initialize the pnpm/Turborepo package graph and enforce its dependency boundaries;
 - define control-plane boundaries;
 - create GitHub App;
-- integrate Chat SDK / GitHub webhooks;
-- define `ReviewJob` and `ReviewResult`;
-- define `ReviewExecutor` and `ReviewAgent` interfaces;
-- establish database/job foundations;
-- establish sandbox/security boundaries;
+- integrate direct Octokit webhooks;
+- define Run, Result, and Finding;
+- define Worker and Adapter interfaces;
+- establish Neon, Drizzle, and Vercel Workflow foundations;
+- establish Sandbox, instruction, credential, and Acceptance boundaries;
 - create minimal local development workflow.
 
-**Exit condition:** GitHub events can enter the system and produce a normalized review job.
+**Exit condition:** GitHub events can enter the system and create a Run ready for a Worker.
 
 ---
 
-## Phase 1: MVP, Hosted Review + Verify
+## Phase 1: MVP, Hosted `inspect` + `verify`
 
-Build the first complete vertical slice using one harness.
+Build the first complete vertical slice using one Harness.
 
 Suggested first target:
 
 ```text
 GitHub
-→ HostedExecutor
-→ Vercel Sandbox
-→ HarnessAgent
+→ hosted Worker
+→ Adapter + Vercel Sandbox
 → Codex
-→ Review/Verify
+→ inspect/verify
 → GitHub Review
 ```
 
@@ -1994,13 +2076,13 @@ Scope:
 - exact PR checkout;
 - repository inspection;
 - run builds/tests/scripts;
-- structured findings;
+- structured Findings;
 - inline comments;
 - review summary;
 - basic repository configuration;
-- basic run status/error handling.
+- basic Run status, Refusal, and Failure handling.
 
-**Exit condition:** A real GitHub PR can be reviewed and selectively validated end to end.
+**Exit condition:** A real GitHub pull request can be reviewed and selectively verified end to end.
 
 ---
 
@@ -2012,13 +2094,13 @@ Add:
 
 - Claude Code;
 - OpenCode;
-- harness selection;
-- model selection where supported;
+- Harness selection;
+- Model selection where supported;
 - OpenCode provider/model delegation;
-- standard review strategy;
+- standard Strategy;
 - manual cross-harness/adversarial review;
 - normalized capability discovery;
-- harness-specific configuration boundaries.
+- Harness-specific configuration boundaries.
 
 Example supported workflow:
 
@@ -2034,24 +2116,25 @@ Codex-generated PR
 → Claude Code review
 ```
 
-**Exit condition:** The same PR workflow works through all three initial harnesses without leaking harness-specific logic throughout the application.
+**Exit condition:** The same pull-request workflow works through all three initial Harnesses without
+leaking Harness-specific logic beyond their Adapters.
 
 ---
 
 ## Phase 3: Self-Hosted Worker
 
-Add the second execution model.
+Add the self-hosted Worker lifecycle.
 
 Scope:
 
 - worker installation;
-- worker registration;
-- worker authentication;
+- Worker enrollment and registration;
+- Worker authentication;
 - capability/model advertisement;
-- review job transport;
-- local harness configuration;
-- subscription-backed authentication where validated;
-- repository sandboxing;
+- Run polling, claim, and Lease renewal;
+- local Harness configuration;
+- Native Route authentication where supported;
+- Sandbox provisioning;
 - credential isolation;
 - health/status reporting;
 - cancellation and failures.
@@ -2062,26 +2145,26 @@ Security is the main concern in this phase.
 
 ---
 
-## Phase 4: Fix Mode + Advanced Agentic Workflows
+## Phase 4: `fix` Autonomy + Advanced Agentic Workflows
 
 Move beyond review-only behavior.
 
 Add:
 
 - temporary source modifications;
-- proposed patches;
-- targeted fix verification;
-- broader post-fix validation;
-- GitHub fix delivery mechanism;
-- reviewer + verifier strategies;
+- proposed Patches;
+- targeted Patch Verification;
+- broader post-Patch Verification;
+- GitHub Patch delivery mechanism;
+- Reviewer + verifier Strategies;
 - optional cross-harness verification;
-- evidence-backed findings;
-- richer review strategies.
+- Evidence-backed Findings;
+- richer Strategies.
 
 Potential:
 
 ```text
-Codex finds issue
+Codex produces a Finding
 → Codex proposes fix
 → Claude verifies fix
 ```
@@ -2095,7 +2178,8 @@ Claude reviews
 
 Exact workflows remain configurable rather than hard-coded.
 
-**Exit condition:** The system can find, validate, repair, and re-validate an issue through a controlled agent workflow.
+**Exit condition:** The system can find, verify, repair, and re-verify a defect through a controlled
+Reviewer workflow.
 
 ---
 
@@ -2107,10 +2191,10 @@ Scope:
 
 - incremental review reconciliation;
 - duplicate detection;
-- stale-job cancellation;
+- stale-Run cancellation;
 - concurrency;
 - retries;
-- queue hardening;
+- orchestration hardening;
 - observability;
 - hosted usage/cost tracking;
 - security review;
@@ -2127,87 +2211,63 @@ Potential future work begins after this phase:
 - Pi;
 - GitLab;
 - Bitbucket;
-- multi-agent consensus;
+- multi-Reviewer consensus;
 - automatic reviewer selection;
 - cost-aware routing;
 - deeper organization/team features.
 
 ---
 
-# 41. Major Open Questions
+# 41. Foundation Decisions and Deferrals
 
-## Blocking
+The foundation map resolved every structurally load-bearing question. Product behavior beyond that
+boundary is explicitly deferred to the per-phase maps.
 
-1. **Self-hosted credential isolation**
-   - How can the harness authenticate without exposing credentials to repository processes?
+## Resolved foundation questions
 
-2. **Self-hosted sandbox**
-   - Common sandbox or runtime-specific implementation?
+1. **Self-hosted credential isolation:** Brokered credentials stay outside the Sandbox; Native
+   credentials do not. Dispatch gates on Exposure, Isolation, and Provenance (§23).
+2. **Self-hosted Sandbox:** one property-based Sandbox contract with runtime-specific
+   implementations (§23).
+3. **Subscription automation:** Reprove states the mechanism and provider evidence without ruling
+   on a user's terms; the unattended webhook-triggered case remains unaddressed by providers (§22).
+4. **OpenCode configuration:** Provider and authentication configuration remain Harness-owned;
+   Reprove supplies typed Adapter options and a pinned Model (§19, §25).
+5. **Model discovery:** the control plane owns a curated catalogue because the Harnesses expose no
+   reliable runtime enumeration (§4.3).
+6. **GitHub lifecycle:** direct Octokit webhooks and API (§15).
+13. **`inspect` Autonomy:** read-only; no project execution or Workspace mutation (§9).
+16. **Evidence for `verified`:** no Evidence, no `verified`; the Worker cross-checks claimed Evidence
+   against Adapter-observed tool activity (§11, §28).
+17. **Network access:** default-deny phased egress restricted by host, method, and path (§35).
+23. **Automatic review:** pull-request open and synchronize events create Runs by default (§16).
+24. **Severity:** `critical`, `high`, `medium`, `low`, consequence-anchored; no `info`.
+25. **Confidence:** no field. Verification is the only trust signal (§28).
+26. **Configuration:** `.reprove.yml`, base ref only, with structurally distinct `review:` and
+   `security:` resolution rules (§30).
+29. **Framework:** Next.js on Vercel.
+30. **Database:** Neon Postgres + Drizzle, application scoping plus RLS, numeric Owner id tenant key.
+31. **Durable orchestration:** Vercel Workflows, not Queue.
+32. **Worker protocol:** outbound HTTPS polling, claim, Lease, bounded Result, and control-plane
+   Acceptance (§33).
+33. **Worker OS:** Linux kernel plus Docker or Podman; macOS and Windows through a Linux VM (§21).
+34. **Observability:** terminal facts on the Run; no durable event stream (§37).
+35. **Retention:** one 90-day content-field purge clock (§36).
+36. **License:** Apache-2.0.
+37. **Offering:** open core, with self-hosted Worker first-class and self-hosted control plane
+   best-effort.
 
-3. ~~**Subscription automation**~~ - **Resolved.** Reprove states the mechanism and records
-   each provider's published position rather than ruling on their terms; whether a given
-   subscription permits an unattended Run is between the user and their provider. The
-   unattended, webhook-triggered Claude Code subscription case stays marked unvalidated.
-   See §22, *Provider authentication constraints*.
+## Deferred to per-phase maps
 
-4. **OpenCode configuration**
-   - Which provider/model settings should be delegated versus overridden?
-
-5. **Model discovery**
-   - How should each harness expose currently usable models to the control plane?
-
-6. **GitHub lifecycle**
-   - Chat SDK only or Chat SDK plus direct webhook layer?
-
-## Review strategy
-
-7. How is the authoring agent identified for adversarial review?
-8. Should adversarial review be manually configured initially?
-9. When should a second reviewer be invoked?
-10. How should conflicting agent findings be reconciled?
-11. Should different models within the same harness count as independent reviewers?
-12. Should higher-risk findings automatically escalate to another harness?
-
-## Agent behavior
-
-13. What does Review Mode allow?
-14. When should verification execute?
-15. How aggressively can agents create temporary tests/scripts?
-16. How much evidence is required for `VERIFIED`?
-17. What network access is allowed?
-18. What execution timeouts apply?
-
-## Fixing
-
-19. Does Fix Mode ship immediately after MVP?
-20. Suggested patch, commit, branch, or follow-up PR?
-21. Human approval before write-back?
-22. What checks must pass before a fix can be called verified?
-
-## Product
-
-23. Automatic review default: **[Undecided]**
-24. Severity model: **[Undecided]**
-25. Confidence model: **[Undecided]**
-26. Configuration format: **Resolved** - `.reprove.yml`, base ref only, `review:` / `security:` sections ([ADR 0011](adr/0011-repository-configuration-contract.md)).
-27. Dashboard scope: **[Undecided]**
-28. Hosted billing: **[Undecided]**
-
-## Infrastructure
-
-29. Framework: **[Undecided]**
-30. Database: **[Undecided]**
-31. Queue: **[Undecided]**
-32. Worker protocol: **[Undecided]**
-33. Worker OS support: **[Undecided]**
-34. Observability: **[Undecided]**
-35. Data retention: **[Undecided]**
-
-## Open Source
-
-36. License: **[Undecided]**
-37. OSS-only versus hosted offering: **[Undecided]**
-38. Third-party harness extension API: **[Future / Undecided]**
+- **Strategy:** Author identification, adversarial defaults, Reviewer composition, conflicting
+  Findings, independence, and escalation (questions 7-12).
+- **Reviewer behavior:** when Verification runs, temporary test and script policy, and execution
+  deadlines (questions 14, 15, 18).
+- **Fix workflow:** sequencing, GitHub delivery, human approval, and the bar for a verified Patch
+  (questions 19-22).
+- **Product:** dashboard scope and hosted billing (questions 27-28).
+- **Extension surface:** support for third-party Harnesses and independently implemented Workers
+  (question 38).
 
 ---
 
@@ -2221,7 +2281,7 @@ Do not reduce Codex, Claude Code, or OpenCode to:
 prompt → response
 ```
 
-Preserve their agent capabilities.
+Preserve their Harness capabilities.
 
 ## 2. Harness and model are separate choices
 
@@ -2235,9 +2295,9 @@ Model
 
 Expose both where the harness permits it.
 
-## 3. Give the agent an environment
+## 3. Give the Reviewer an environment
 
-The reviewer should be able to interact with the repository and prove claims through execution.
+The Reviewer should be able to interact with the Workspace and verify claims through execution.
 
 ## 4. Reason, then verify
 
@@ -2259,9 +2319,9 @@ hypothesis
 
 when verification is practical.
 
-## 5. Different agents can challenge each other
+## 5. Different Reviewers can challenge each other
 
-The implementation agent does not need to be the review agent.
+The Reviewer does not need to use the same Harness or Model as the Author.
 
 ```text
 Claude writes
@@ -2270,7 +2330,7 @@ Claude writes
 
 is a feature, not an edge case.
 
-## 6. Fixes should be verifiable
+## 6. Patches should be verifiable
 
 ```text
 change
@@ -2288,23 +2348,23 @@ change
 ## 7. Execution location is replaceable
 
 ```text
-ReviewJob
-   ↓
-ReviewExecutor
-  /          \
-Self-hosted   Hosted
+Run
+ ↓
+Worker
+ ├── self-hosted lifecycle
+ └── hosted lifecycle
 ```
 
 ## 8. GitHub remains independent
 
-GitHub ultimately receives a normalized result regardless of:
+GitHub ultimately receives a normalized Review regardless of:
 
 - harness;
 - model;
 - provider;
 - worker;
 - sandbox;
-- review strategy.
+- Strategy.
 
 ## 9. OpenCode is the initial flexibility layer
 
@@ -2322,4 +2382,6 @@ That is enough initial coverage without expanding scope into additional harnesse
 
 The product identity is:
 
-> **An open-source orchestration layer that turns user-selected coding agents and models into autonomous PR reviewers, validators, and fixers, with self-hosted or hosted execution and support for cross-agent review workflows.**
+> **An open-source review system that turns user-selected coding-agent Harnesses and Models into
+> autonomous pull-request Reviewers that inspect, verify, and optionally fix, with self-hosted or
+> hosted Workers and cross-Harness Strategies.**
