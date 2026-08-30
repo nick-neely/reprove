@@ -1,0 +1,837 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reprove Phase 0 protocol family prototype</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #18231f;
+      --muted: #66716c;
+      --paper: #f5f3ed;
+      --panel: #fffefa;
+      --line: #d9d7cf;
+      --accent: #176b4d;
+      --accent-soft: #e1f1e9;
+      --danger: #a3362d;
+      --danger-soft: #f8e8e5;
+      --warn: #8a5b13;
+      --warn-soft: #f6eddc;
+      --code: #14201b;
+      --shadow: 0 12px 32px rgb(24 35 31 / 8%);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.5;
+    }
+
+    button, textarea { font: inherit; }
+    button { cursor: pointer; }
+
+    .shell {
+      width: min(1440px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 44px 0 72px;
+    }
+
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--accent);
+      font-size: 0.75rem;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { max-width: 900px; margin-bottom: 14px; font-size: clamp(2rem, 4.2vw, 4.6rem); line-height: 0.98; letter-spacing: -0.045em; }
+    h2 { margin-bottom: 8px; font-size: 1.25rem; letter-spacing: -0.02em; }
+    h3 { margin-bottom: 6px; font-size: 0.96rem; }
+    .lede { max-width: 900px; color: var(--muted); font-size: 1.05rem; }
+    code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: 0.9em; }
+
+    .question {
+      margin: 28px 0;
+      padding: 20px 22px;
+      border: 1px solid var(--line);
+      border-left: 4px solid var(--accent);
+      border-radius: 12px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+
+    .question p:last-child { margin-bottom: 0; }
+
+    .contract-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      margin-bottom: 28px;
+    }
+
+    .contract-card, .panel, .verdict {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+
+    .contract-card { padding: 18px; }
+    .contract-card strong { display: block; margin-bottom: 6px; }
+    .contract-card p { margin-bottom: 12px; color: var(--muted); font-size: 0.88rem; }
+
+    .chips { display: flex; flex-wrap: wrap; gap: 7px; }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 4px 9px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 0.73rem;
+    }
+
+    .chip.green { border-color: #9bcab7; background: var(--accent-soft); color: #0d533b; }
+    .chip.amber { border-color: #dec38f; background: var(--warn-soft); color: #70470b; }
+    .chip.gray { color: #58625e; }
+
+    .flow {
+      display: grid;
+      grid-template-columns: minmax(180px, 0.9fr) 48px minmax(220px, 1fr) 48px minmax(180px, 0.9fr);
+      align-items: stretch;
+      margin: 0 0 28px;
+    }
+
+    .flow-node {
+      min-height: 144px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--panel);
+    }
+
+    .flow-node strong { display: block; margin-bottom: 8px; }
+    .flow-node p { margin: 0; color: var(--muted); font-size: 0.86rem; }
+    .flow-arrow { display: grid; place-items: center; color: var(--accent); font-size: 1.6rem; font-weight: 800; }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(260px, 0.72fr) minmax(480px, 1.45fr);
+      gap: 16px;
+      align-items: start;
+    }
+
+    .panel { overflow: hidden; }
+    .panel-head { padding: 18px 20px 12px; border-bottom: 1px solid var(--line); }
+    .panel-head p { margin: 0; color: var(--muted); font-size: 0.86rem; }
+    .panel-body { padding: 16px 20px 20px; }
+
+    .group + .group { margin-top: 20px; }
+    .group-label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 8px;
+      color: var(--muted);
+      font-size: 0.72rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .fixture-list { display: grid; gap: 7px; }
+    .fixture-button {
+      width: 100%;
+      padding: 10px 11px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: #fff;
+      color: var(--ink);
+      text-align: left;
+    }
+
+    .fixture-button:hover, .fixture-button.active { border-color: var(--accent); background: var(--accent-soft); }
+    .fixture-button span { display: block; margin-top: 2px; color: var(--muted); font-size: 0.76rem; }
+    .fixture-button:hover span, .fixture-button.active span { color: #31594a; }
+
+    .state-summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+
+    .state-cell { padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+    .state-cell dt { color: var(--muted); font-size: 0.68rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; }
+    .state-cell dd { margin: 3px 0 0; font-size: 0.86rem; font-weight: 700; word-break: break-word; }
+    .ok { color: var(--accent); }
+    .bad { color: var(--danger); }
+    .pending { color: var(--warn); }
+
+    .message {
+      margin-bottom: 14px;
+      padding: 12px 13px;
+      border-radius: 10px;
+      font-size: 0.88rem;
+    }
+
+    .message.ok { background: var(--accent-soft); }
+    .message.bad { background: var(--danger-soft); }
+    .message.pending { background: var(--warn-soft); }
+
+    .code-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .code-panel { min-width: 0; }
+    .code-label { margin: 0 0 6px; color: var(--muted); font-size: 0.7rem; font-weight: 800; letter-spacing: 0.07em; text-transform: uppercase; }
+    pre {
+      min-height: 310px;
+      max-height: 520px;
+      margin: 0;
+      padding: 14px;
+      overflow: auto;
+      border-radius: 10px;
+      background: var(--code);
+      color: #e8f1ec;
+      font: 0.76rem/1.55 "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      tab-size: 2;
+    }
+
+    .walkthroughs { margin-top: 28px; }
+    .tab-list { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+    .tab {
+      padding: 8px 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+      color: var(--ink);
+    }
+    .tab[aria-selected="true"] { border-color: var(--accent); background: var(--accent); color: #fff; }
+    .walkthrough { display: none; padding: 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+    .walkthrough.active { display: block; }
+    .walkthrough p { max-width: 900px; color: var(--muted); }
+    .steps { display: flex; flex-wrap: wrap; gap: 8px; }
+    .step {
+      padding: 9px 12px;
+      border: 1px solid var(--accent);
+      border-radius: 9px;
+      background: #fff;
+      color: var(--accent);
+      font-weight: 700;
+    }
+    .step:hover { background: var(--accent-soft); }
+
+    .verdict { margin-top: 28px; padding: 22px; }
+    .verdict-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 16px 0; }
+    .verdict-item { padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+    .verdict-item p { min-height: 64px; margin-bottom: 10px; font-size: 0.86rem; }
+    .choice-row { display: flex; gap: 7px; }
+    .choice {
+      flex: 1;
+      padding: 7px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+    }
+    .choice.selected.yes { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+    .choice.selected.no { border-color: var(--danger); background: var(--danger-soft); color: var(--danger); }
+    textarea { width: 100%; min-height: 118px; padding: 12px; border: 1px solid var(--line); border-radius: 9px; resize: vertical; color: var(--ink); background: #fff; }
+    .copy { margin-top: 8px; padding: 9px 13px; border: 0; border-radius: 9px; background: var(--accent); color: #fff; font-weight: 700; }
+
+    .footnote { margin-top: 18px; color: var(--muted); font-size: 0.78rem; }
+
+    @media (max-width: 1000px) {
+      .contract-grid, .verdict-grid { grid-template-columns: 1fr; }
+      .workspace { grid-template-columns: 1fr; }
+      .flow { grid-template-columns: 1fr; gap: 8px; }
+      .flow-arrow { transform: rotate(90deg); }
+    }
+
+    @media (max-width: 720px) {
+      .shell { width: min(100% - 20px, 1440px); padding-top: 24px; }
+      .state-summary { grid-template-columns: 1fr 1fr; }
+      .code-grid { grid-template-columns: 1fr; }
+      pre { min-height: 240px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <p class="eyebrow">Throwaway prototype for Shape the executable protocol family and compatibility fixtures</p>
+    <h1>The smallest protocol that proves the Worker boundary</h1>
+    <p class="lede">Drive proposed v1 fixtures through both sides of the untrusted boundary. The demo tests one question: can Phase 0 prove a fixed Run specification becomes a Result or a Refusal without making scheduling, hosted execution, or Adapter internals part of the wire contract?</p>
+
+    <section class="question" aria-labelledby="question-title">
+      <h2 id="question-title">Question under test</h2>
+      <p><strong>Proposal:</strong> Phase 0 exports only <code>RunSpec</code>, <code>Result</code>, <code>Refusal</code>, and the plain-JSON value schemas they contain from <code>@reprove/protocol/v1</code>. The Worker validates <code>RunSpec</code> on entry and validates its own <code>Result</code> or <code>Refusal</code> before return. The control plane applies the same authoritative parser again because the Worker is untrusted.</p>
+      <p><strong>Assumption to challenge:</strong> an endpoint or caller selects the message schema. There is no generic message envelope or growing union in Phase 0.</p>
+    </section>
+
+    <section class="contract-grid" aria-label="Proposed package boundary">
+      <article class="contract-card">
+        <strong>Export in Phase 0</strong>
+        <p>The executable boundary and the nested values it needs.</p>
+        <div class="chips">
+          <span class="chip green">RunSpec</span>
+          <span class="chip green">Result</span>
+          <span class="chip green">Refusal</span>
+          <span class="chip green">Finding</span>
+          <span class="chip green">Evidence</span>
+          <span class="chip green">PassRecord</span>
+          <span class="chip green">Usage</span>
+        </div>
+      </article>
+      <article class="contract-card">
+        <strong>Keep Worker-internal</strong>
+        <p>The Adapter output is attacker-controlled input to Worker core, not a wire Result.</p>
+        <div class="chips">
+          <span class="chip amber">AdapterPassOutput</span>
+          <span class="chip amber">ClaimedEvidence</span>
+          <span class="chip amber">ObservedToolCall</span>
+          <span class="chip amber">Evidence cross-check</span>
+          <span class="chip amber">WorkerOutcome</span>
+        </div>
+      </article>
+      <article class="contract-card">
+        <strong>Defer until exercised</strong>
+        <p>These are settled protocol areas, but Phase 0 neither runs nor proves them.</p>
+        <div class="chips">
+          <span class="chip gray">Enrollment</span>
+          <span class="chip gray">Claim</span>
+          <span class="chip gray">Lease</span>
+          <span class="chip gray">Cancellation</span>
+          <span class="chip gray">Progress</span>
+          <span class="chip gray">Capabilities</span>
+          <span class="chip gray">Repository access</span>
+          <span class="chip gray">HTTP routes</span>
+        </div>
+      </article>
+    </section>
+
+    <section class="flow" aria-label="Validation path">
+      <article class="flow-node">
+        <strong>Control-plane composition</strong>
+        <p>Constructs a fixed <code>RunSpec</code> from settled Run facts and the normalized, secret-free <code>resolvedConfig</code>. Phase 0 injects it directly.</p>
+      </article>
+      <div class="flow-arrow" aria-hidden="true">&#8594;</div>
+      <article class="flow-node">
+        <strong>Worker core outside the Sandbox</strong>
+        <p>Validates input, drives the Adapter and Sandbox, cross-checks claimed Evidence against observed tool activity, then constructs one normalized outcome.</p>
+      </article>
+      <div class="flow-arrow" aria-hidden="true">&#8594;</div>
+      <article class="flow-node">
+        <strong>Control-plane boundary</strong>
+        <p>Parses the returned <code>Result</code> or <code>Refusal</code> again. Unknown additive fields are tolerated and stripped. Acceptance stays out of Worker code.</p>
+      </article>
+    </section>
+
+    <section class="workspace" aria-label="Fixture runner">
+      <aside class="panel">
+        <div class="panel-head">
+          <h2>Free play</h2>
+          <p>Each button resets the demo and runs one fixture through the proposed parser.</p>
+        </div>
+        <div class="panel-body">
+          <div class="group">
+            <div class="group-label"><span>Compatibility anchors</span><span>must stay valid</span></div>
+            <div class="fixture-list" id="valid-fixtures"></div>
+          </div>
+          <div class="group">
+            <div class="group-label"><span>Hard invariant probes</span><span>must reject</span></div>
+            <div class="fixture-list" id="invalid-fixtures"></div>
+          </div>
+          <div class="group">
+            <div class="group-label"><span>Boundary separation</span><span>not protocol</span></div>
+            <div class="fixture-list" id="internal-fixtures"></div>
+          </div>
+        </div>
+      </aside>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Current boundary state</h2>
+          <p>The accepted value shows what remains after unknown additive fields are ignored.</p>
+        </div>
+        <div class="panel-body">
+          <dl class="state-summary">
+            <div class="state-cell"><dt>Fixture</dt><dd id="state-fixture">None</dd></div>
+            <div class="state-cell"><dt>Schema</dt><dd id="state-schema">None</dd></div>
+            <div class="state-cell"><dt>Worker parse</dt><dd id="state-worker" class="pending">Not run</dd></div>
+            <div class="state-cell"><dt>Control-plane parse</dt><dd id="state-control" class="pending">Not run</dd></div>
+          </dl>
+          <div id="state-message" class="message pending">Choose a fixture or begin a guided walkthrough.</div>
+          <div class="code-grid">
+            <div class="code-panel">
+              <p class="code-label">Submitted plain JSON</p>
+              <pre id="input-json" role="region" tabindex="0" aria-label="Submitted plain JSON">{}</pre>
+            </div>
+            <div class="code-panel">
+              <p class="code-label">Parsed value or rejection</p>
+              <pre id="output-json" role="region" tabindex="0" aria-label="Parsed value or rejection">{}</pre>
+            </div>
+          </div>
+        </div>
+      </section>
+    </section>
+
+    <section class="walkthroughs" aria-labelledby="walkthrough-title">
+      <p class="eyebrow">Guided walkthroughs</p>
+      <h2 id="walkthrough-title">The awkward cases, in order</h2>
+      <div class="tab-list" role="tablist" aria-label="Protocol walkthroughs">
+        <button class="tab" role="tab" aria-selected="true" data-tab="smallest">1. Smallest family</button>
+        <button class="tab" role="tab" aria-selected="false" data-tab="adapter">2. Adapter separation</button>
+        <button class="tab" role="tab" aria-selected="false" data-tab="compatibility">3. Compatibility</button>
+        <button class="tab" role="tab" aria-selected="false" data-tab="refusal">4. Refusal</button>
+      </div>
+
+      <article class="walkthrough active" id="walkthrough-smallest">
+        <h3>A Run can cross and finish without scheduling protocol</h3>
+        <p>Start with the fixed input, then return the smallest honest success. Nothing here requires enrollment, claim, lease, progress, HTTP, or a hosted Workflow seam.</p>
+        <div class="steps">
+          <button class="step" data-fixture="run-spec-valid">Step 1: validate RunSpec</button>
+          <button class="step" data-fixture="result-complete-empty">Step 2: return complete Result</button>
+        </div>
+      </article>
+
+      <article class="walkthrough" id="walkthrough-adapter">
+        <h3>Adapter output cannot masquerade as a wire Result</h3>
+        <p>The Adapter reports claimed Evidence and observed tool calls separately. Posting that internal bundle directly fails. Only Worker core may cross-check it and construct the wire-visible Evidence carried by a Result.</p>
+        <div class="steps">
+          <button class="step" data-fixture="adapter-output-internal">Step 1: inspect Adapter output</button>
+          <button class="step" data-fixture="adapter-as-result">Step 2: try it as Result</button>
+          <button class="step" data-fixture="result-verified">Step 3: inspect normalized Result</button>
+        </div>
+      </article>
+
+      <article class="walkthrough" id="walkthrough-compatibility">
+        <h3>Additive evolution is allowed, settled invariants are not</h3>
+        <p>A valid fixture with a future optional field is accepted and stripped. Negative fixtures exist only for invariants already settled by ADR, so the suite does not declare every unimplemented Phase 1 behavior invalid.</p>
+        <div class="steps">
+          <button class="step" data-fixture="result-future-field">Step 1: ignore an additive field</button>
+          <button class="step" data-fixture="verified-no-evidence">Step 2: reject no Evidence</button>
+          <button class="step" data-fixture="partial-no-reason">Step 3: reject ambiguous partial</button>
+        </div>
+      </article>
+
+      <article class="walkthrough" id="walkthrough-refusal">
+        <h3>A pre-execution refusal is data, not a degraded Run</h3>
+        <p>The Worker names the failed requirement and the resolved facts. It does not claim that no Worker could ever serve the Run, and it does not silently weaken the requirement.</p>
+        <div class="steps">
+          <button class="step" data-fixture="refusal-valid">Step 1: return structured Refusal</button>
+          <button class="step" data-fixture="refusal-missing-fact">Step 2: omit the failed requirement</button>
+        </div>
+      </article>
+    </section>
+
+    <section class="verdict" aria-labelledby="verdict-title">
+      <p class="eyebrow">Human verdict</p>
+      <h2 id="verdict-title">What should the ticket record?</h2>
+      <p class="lede">Mark each proposition, then copy the summary into your reply. Nothing is saved.</p>
+      <div class="verdict-grid">
+        <article class="verdict-item" data-verdict="surface">
+          <p><strong>Phase 0 surface:</strong> export only <code>RunSpec</code>, <code>Result</code>, <code>Refusal</code>, and their nested values.</p>
+          <div class="choice-row"><button class="choice yes">Feels right</button><button class="choice no">Needs change</button></div>
+        </article>
+        <article class="verdict-item" data-verdict="adapter">
+          <p><strong>Adapter boundary:</strong> keep <code>AdapterPassOutput</code>, claimed Evidence, and observed tool activity out of protocol.</p>
+          <div class="choice-row"><button class="choice yes">Feels right</button><button class="choice no">Needs change</button></div>
+        </article>
+        <article class="verdict-item" data-verdict="fixtures">
+          <p><strong>Fixture policy:</strong> valid fixtures are compatibility anchors; invalid fixtures cover only settled hard invariants.</p>
+          <div class="choice-row"><button class="choice yes">Feels right</button><button class="choice no">Needs change</button></div>
+        </article>
+      </div>
+      <textarea id="verdict-summary" aria-label="Verdict summary" placeholder="Choose a response for each proposition. Add any change here."></textarea>
+      <button class="copy" id="copy-verdict">Copy verdict</button>
+      <p class="footnote">This file is a throwaway logic prototype. It is not a production schema, package implementation, or specification. The validated decision belongs in the Wayfinder resolution; the artifact stays on its prototype branch as primary evidence.</p>
+    </section>
+  </main>
+
+  <script>
+    // Pure prototype module. It has no DOM dependencies and can be lifted out of this page.
+    const ProtocolPrototype = (() => {
+      const LIMITS = Object.freeze({ resultBytes: 256 * 1024, summaryChars: 8000, findings: 100, evidencePerFinding: 10, excerptChars: 2000 });
+      const SHA = /^[0-9a-f]{40}$/;
+      const allowed = (value, values) => values.includes(value);
+      const own = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
+      const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype;
+      const isString = (value, min = 0, max = Infinity) => typeof value === "string" && value.length >= min && value.length <= max;
+      const isInt = (value, min = -Infinity) => Number.isInteger(value) && value >= min;
+      const clone = (value) => JSON.parse(JSON.stringify(value));
+      const pick = (value, keys) => Object.fromEntries(keys.filter((key) => own(value, key)).map((key) => [key, clone(value[key])]));
+
+      function plainJson(value, path = "payload", errors = []) {
+        if (value === null || ["string", "boolean"].includes(typeof value)) return errors;
+        if (typeof value === "number") {
+          if (!Number.isFinite(value)) errors.push(`${path} must contain a finite JSON number`);
+          return errors;
+        }
+        if (Array.isArray(value)) {
+          value.forEach((item, index) => plainJson(item, `${path}[${index}]`, errors));
+          return errors;
+        }
+        if (!isObject(value)) {
+          errors.push(`${path} must be plain JSON, not a runtime-only value`);
+          return errors;
+        }
+        Object.entries(value).forEach(([key, item]) => plainJson(item, `${path}.${key}`, errors));
+        return errors;
+      }
+
+      function validateUsage(value, path, errors) {
+        if (!isObject(value)) return errors.push(`${path} must be an object`);
+        if (!isInt(value.inputTokens, 0)) errors.push(`${path}.inputTokens must be a non-negative integer`);
+        if (!isInt(value.outputTokens, 0)) errors.push(`${path}.outputTokens must be a non-negative integer`);
+        ["cachedInputTokens", "reasoningTokens"].forEach((key) => {
+          if (own(value, key) && !isInt(value[key], 0)) errors.push(`${path}.${key} must be a non-negative integer`);
+        });
+      }
+
+      function validateEvidence(value, path, errors) {
+        if (!isObject(value)) return errors.push(`${path} must be an object`);
+        if (!isString(value.command, 1, 1000)) errors.push(`${path}.command must be 1 to 1000 characters`);
+        if (!(value.exitCode === null || Number.isInteger(value.exitCode))) errors.push(`${path}.exitCode must be an integer or null`);
+        if (!isInt(value.durationMs, 0)) errors.push(`${path}.durationMs must be a non-negative integer`);
+        if (!isString(value.excerpt, 0, LIMITS.excerptChars)) errors.push(`${path}.excerpt exceeds its bound`);
+        if (typeof value.truncated !== "boolean") errors.push(`${path}.truncated must be boolean`);
+        if (!isInt(value.originalByteLength, 0)) errors.push(`${path}.originalByteLength must be a non-negative integer`);
+      }
+
+      function validatePassRecord(value, path, errors) {
+        if (!isObject(value)) return errors.push(`${path} must be an object`);
+        if (!isString(value.passId, 1, 256)) errors.push(`${path}.passId must be a bounded string`);
+        if (!allowed(value.harness, ["codex", "claude-code", "opencode"])) errors.push(`${path}.harness is invalid`);
+        if (!isString(value.pinnedModel, 1, 128)) errors.push(`${path}.pinnedModel must be a bounded string`);
+        if (!(value.resolvedModel === null || isString(value.resolvedModel, 1, 128))) errors.push(`${path}.resolvedModel must be a bounded string or null`);
+        if (!isString(value.startedAt, 1, 80) || !isString(value.endedAt, 1, 80)) errors.push(`${path} timestamps are required`);
+        if (!allowed(value.outcome, ["completed", "failed"])) errors.push(`${path}.outcome is invalid`);
+        if (!(value.failureReason === null || isString(value.failureReason, 1, 512))) errors.push(`${path}.failureReason must be a bounded string or null`);
+        if (typeof value.repairTurnUsed !== "boolean") errors.push(`${path}.repairTurnUsed must be boolean`);
+        validateUsage(value.usage, `${path}.usage`, errors);
+      }
+
+      function validateFinding(value, path, errors) {
+        if (!isObject(value)) return errors.push(`${path} must be an object`);
+        if (!isString(value.title, 1, 160)) errors.push(`${path}.title must be 1 to 160 characters`);
+        if (!isString(value.body, 1, 4000)) errors.push(`${path}.body must be 1 to 4000 characters`);
+        if (!allowed(value.severity, ["critical", "high", "medium", "low"])) errors.push(`${path}.severity is invalid`);
+        if (!allowed(value.verification, ["verified", "inconclusive", "static"])) errors.push(`${path}.verification is invalid`);
+        if (!isObject(value.location)) {
+          errors.push(`${path}.location must be an object`);
+        } else {
+          if (!isString(value.location.path, 1, 1024)) errors.push(`${path}.location.path is invalid`);
+          if (!isInt(value.location.startLine, 1) || !isInt(value.location.endLine, 1) || value.location.endLine < value.location.startLine) errors.push(`${path}.location line range is invalid`);
+        }
+        if (!isString(value.anchoredText, 0, 512)) errors.push(`${path}.anchoredText exceeds its bound`);
+        if (!Array.isArray(value.evidence) || value.evidence.length > LIMITS.evidencePerFinding) {
+          errors.push(`${path}.evidence must be a bounded array`);
+        } else {
+          value.evidence.forEach((item, index) => validateEvidence(item, `${path}.evidence[${index}]`, errors));
+          if (value.verification === "verified" && value.evidence.length === 0) errors.push(`${path}: verification=verified requires Evidence`);
+          if (value.verification === "static" && value.evidence.length > 0) errors.push(`${path}: verification=static cannot carry Evidence`);
+        }
+      }
+
+      function parseRunSpec(raw) {
+        const errors = plainJson(raw);
+        if (!isObject(raw)) errors.push("RunSpec must be an object");
+        if (errors.length) return { ok: false, errors };
+        if (raw.protocolVersion !== 1) errors.push("protocolVersion must be 1 for /v1");
+        ["runId", "ownerId", "repositoryId", "installationId", "configDigest"].forEach((key) => {
+          if (!isString(raw[key], 1, 256)) errors.push(`${key} must be a bounded string`);
+        });
+        if (!isInt(raw.pullRequestNumber, 1)) errors.push("pullRequestNumber must be positive");
+        if (!SHA.test(raw.baseSha || "") || !SHA.test(raw.headSha || "")) errors.push("baseSha and headSha must be full lowercase SHAs");
+        if (!allowed(raw.provenance, ["internal", "external"])) errors.push("provenance is invalid");
+        if (!isObject(raw.provenanceBasis) || typeof raw.provenanceBasis.sameRepositoryBranch !== "boolean" || !isString(raw.provenanceBasis.authorAssociation, 1, 64)) errors.push("provenanceBasis is invalid");
+        if (!allowed(raw.placement, ["self_hosted", "hosted"])) errors.push("placement is invalid");
+        if (typeof raw.allowHostedFallback !== "boolean") errors.push("allowHostedFallback must be boolean");
+        if (!allowed(raw.harness, ["codex", "claude-code", "opencode"])) errors.push("harness is invalid");
+        if (!isString(raw.model, 1, 128)) errors.push("model must be an opaque bounded id");
+        if (raw.strategy !== "standard") errors.push("Phase 0 strategy must be standard");
+        if (!allowed(raw.autonomy, ["inspect", "verify", "fix"])) errors.push("autonomy is invalid");
+        if (!isObject(raw.resolvedConfig) || raw.resolvedConfig.schemaVersion !== 1 || !isObject(raw.resolvedConfig.review) || !isObject(raw.resolvedConfig.security)) errors.push("resolvedConfig must be the normalized schema-versioned snapshot");
+        if (!isString(raw.claimableUntil, 1, 80) || !isString(raw.createdAt, 1, 80)) errors.push("Run timestamps are required");
+        if (errors.length) return { ok: false, errors };
+        return { ok: true, value: pick(raw, ["protocolVersion", "runId", "ownerId", "repositoryId", "installationId", "pullRequestNumber", "baseSha", "headSha", "provenance", "provenanceBasis", "placement", "allowHostedFallback", "harness", "model", "strategy", "autonomy", "resolvedConfig", "configDigest", "claimableUntil", "createdAt"]) };
+      }
+
+      function parseResult(raw) {
+        const errors = plainJson(raw);
+        if (!isObject(raw)) errors.push("Result must be an object");
+        if (errors.length) return { ok: false, errors };
+        const bytes = new TextEncoder().encode(JSON.stringify(raw)).length;
+        if (bytes > LIMITS.resultBytes) errors.push(`Result is ${bytes} bytes, over the ${LIMITS.resultBytes} byte bound`);
+        if (raw.protocolVersion !== 1) errors.push("protocolVersion must be 1 for /v1");
+        if (!isString(raw.runId, 1, 256)) errors.push("runId must be a bounded string");
+        if (!allowed(raw.completeness, ["complete", "partial"])) errors.push("completeness is invalid");
+        if ((raw.completeness === "partial") !== (raw.stoppedBy !== null)) errors.push("stoppedBy is required exactly when completeness=partial");
+        if (raw.stoppedBy !== null && !allowed(raw.stoppedBy, ["budget_exhausted", "cancelled", "superseded"])) errors.push("stoppedBy is invalid");
+        if (!isString(raw.summary, 1, LIMITS.summaryChars)) errors.push("summary is empty or over its bound");
+        if (!isInt(raw.disprovedHypothesisCount, 0)) errors.push("disprovedHypothesisCount must be non-negative");
+        if (!Array.isArray(raw.findings) || raw.findings.length > LIMITS.findings) {
+          errors.push("findings must be a bounded array");
+        } else {
+          raw.findings.forEach((item, index) => validateFinding(item, `findings[${index}]`, errors));
+        }
+        if (!Array.isArray(raw.passes) || raw.passes.length < 1) {
+          errors.push("passes must contain at least one PassRecord");
+        } else {
+          raw.passes.forEach((item, index) => validatePassRecord(item, `passes[${index}]`, errors));
+        }
+        validateUsage(raw.usage, "usage", errors);
+        if (!isString(raw.workerBuildVersion, 1, 128)) errors.push("workerBuildVersion must be a bounded string");
+        if (errors.length) return { ok: false, errors };
+        return { ok: true, value: pick(raw, ["runId", "completeness", "stoppedBy", "summary", "disprovedHypothesisCount", "findings", "passes", "usage", "protocolVersion", "workerBuildVersion"]) };
+      }
+
+      function parseRefusal(raw) {
+        const errors = plainJson(raw);
+        if (!isObject(raw)) errors.push("Refusal must be an object");
+        if (errors.length) return { ok: false, errors };
+        if (raw.protocolVersion !== 1) errors.push("protocolVersion must be 1 for /v1");
+        if (!isString(raw.runId, 1, 256)) errors.push("runId must be a bounded string");
+        if (!isString(raw.reason, 1, 96)) errors.push("reason must be a bounded machine code");
+        if (!isString(raw.requirement, 1, 96)) errors.push("requirement must name what failed");
+        if (!(raw.required === null || isString(raw.required, 1, 256))) errors.push("required must be a bounded string or null");
+        if (!(raw.actual === null || isString(raw.actual, 1, 256))) errors.push("actual must be a bounded string or null");
+        if (errors.length) return { ok: false, errors };
+        return { ok: true, value: pick(raw, ["protocolVersion", "runId", "reason", "requirement", "required", "actual"]) };
+      }
+
+      function parse(schema, raw) {
+        if (schema === "RunSpec") return parseRunSpec(raw);
+        if (schema === "Result") return parseResult(raw);
+        if (schema === "Refusal") return parseRefusal(raw);
+        return { ok: false, errors: [`${schema} is Worker-internal and has no @reprove/protocol/v1 parser`] };
+      }
+
+      return Object.freeze({ LIMITS, parse });
+    })();
+
+    const SHA_BASE = "a".repeat(40);
+    const SHA_HEAD = "b".repeat(40);
+    const usage = { inputTokens: 180000, outputTokens: 9400 };
+    const passRecord = {
+      passId: "pass_01",
+      harness: "codex",
+      pinnedModel: "gpt-5.5-codex",
+      resolvedModel: null,
+      startedAt: "2026-08-30T10:00:00Z",
+      endedAt: "2026-08-30T10:18:00Z",
+      outcome: "completed",
+      failureReason: null,
+      repairTurnUsed: false,
+      usage
+    };
+    const evidence = {
+      command: "pnpm test -- auth",
+      exitCode: 1,
+      durationMs: 4120,
+      excerpt: "expected constant-time comparison",
+      truncated: false,
+      originalByteLength: 33
+    };
+    const finding = {
+      title: "Session token comparison leaks timing",
+      body: "The comparison short-circuits on the first differing byte.",
+      severity: "high",
+      verification: "verified",
+      location: { path: "src/auth/session.ts", startLine: 41, endLine: 43 },
+      anchoredText: "if (token === stored) return true",
+      evidence: [evidence]
+    };
+    const baseResult = {
+      runId: "run_01",
+      completeness: "complete",
+      stoppedBy: null,
+      summary: "Reviewed the simulated change.",
+      disprovedHypothesisCount: 2,
+      findings: [],
+      passes: [passRecord],
+      usage,
+      protocolVersion: 1,
+      workerBuildVersion: "0.1.0-prototype"
+    };
+
+    const fixtures = [
+      {
+        id: "run-spec-valid", group: "valid", schema: "RunSpec", title: "valid/run-spec-minimal.json",
+        note: "Fixed, secret-free Run facts enter Worker core.",
+        payload: {
+          protocolVersion: 1,
+          runId: "run_01", ownerId: "owner_01", repositoryId: "repo_01", installationId: "installation_01",
+          pullRequestNumber: 412, baseSha: SHA_BASE, headSha: SHA_HEAD,
+          provenance: "internal", provenanceBasis: { sameRepositoryBranch: true, authorAssociation: "MEMBER" },
+          placement: "self_hosted", allowHostedFallback: false,
+          harness: "codex", model: "gpt-5.5-codex", strategy: "standard", autonomy: "verify",
+          resolvedConfig: {
+            schemaVersion: 1,
+            review: {
+              enabled: true,
+              strategy: "standard",
+              budget: 20,
+              event: "COMMENT",
+              threshold: { severity: "medium", verification: "any" },
+              ignore: [],
+              commands: { test: "pnpm test" },
+              baseConventions: true,
+              harnessOptions: {},
+              overrides: []
+            },
+            security: { maxExposure: "scoped", allowExternalProvenance: false, installScripts: "deny", allowHostedFallback: false, egress: [] }
+          },
+          configDigest: "sha256:4c2a-prototype", claimableUntil: "2026-08-30T10:30:00Z", createdAt: "2026-08-30T09:58:00Z"
+        }, expected: true
+      },
+      {
+        id: "result-complete-empty", group: "valid", schema: "Result", title: "valid/result-complete-empty.json",
+        note: "A finished review may honestly return no Findings.", payload: baseResult, expected: true
+      },
+      {
+        id: "result-verified", group: "valid", schema: "Result", title: "valid/result-verified-finding.json",
+        note: "Only cross-checked Evidence appears in the wire Result.", payload: { ...baseResult, findings: [finding] }, expected: true
+      },
+      {
+        id: "result-partial", group: "valid", schema: "Result", title: "valid/result-partial-with-finding.json",
+        note: "One Result schema transports an unfinished but useful outcome.", payload: { ...baseResult, completeness: "partial", stoppedBy: "budget_exhausted", findings: [{ ...finding, verification: "static", evidence: [] }] }, expected: true
+      },
+      {
+        id: "refusal-valid", group: "valid", schema: "Refusal", title: "valid/refusal-isolation.json",
+        note: "The failed requirement is explicit and no downgrade occurs.",
+        payload: { protocolVersion: 1, runId: "run_01", reason: "isolation_insufficient", requirement: "isolation", required: "container-rootless", actual: "container" }, expected: true
+      },
+      {
+        id: "result-future-field", group: "valid", schema: "Result", title: "valid/result-additive-field.json",
+        note: "The parser accepts then strips a future optional field.", payload: { ...baseResult, futureDiagnostic: { harmless: true } }, expected: true
+      },
+      {
+        id: "verified-no-evidence", group: "invalid", schema: "Result", title: "invalid/verified-without-evidence.json",
+        note: "No Evidence means verified is unreachable.", payload: { ...baseResult, findings: [{ ...finding, evidence: [] }] }, expected: false
+      },
+      {
+        id: "static-with-evidence", group: "invalid", schema: "Result", title: "invalid/static-with-evidence.json",
+        note: "Static means reasoned only.", payload: { ...baseResult, findings: [{ ...finding, verification: "static" }] }, expected: false
+      },
+      {
+        id: "partial-no-reason", group: "invalid", schema: "Result", title: "invalid/partial-without-stopped-by.json",
+        note: "A partial Result must say why it stopped.", payload: { ...baseResult, completeness: "partial" }, expected: false
+      },
+      {
+        id: "refusal-missing-fact", group: "invalid", schema: "Refusal", title: "invalid/refusal-without-requirement.json",
+        note: "A generic refusal cannot explain the security decision.", payload: { protocolVersion: 1, runId: "run_01", reason: "cannot_run", required: null, actual: null }, expected: false
+      },
+      {
+        id: "adapter-as-result", group: "invalid", schema: "Result", title: "invalid/adapter-output-as-result.json",
+        note: "An internal Adapter bundle is not normalized wire data.",
+        payload: { runId: "run_01", claimedFindings: [{ ...finding, evidence: [{ command: evidence.command, exitCode: 1, excerpt: evidence.excerpt }] }], observedToolCalls: [{ command: evidence.command, exitCode: 1, durationMs: 4120, output: evidence.excerpt }] }, expected: false
+      },
+      {
+        id: "adapter-output-internal", group: "internal", schema: "AdapterPassOutput", title: "internal/adapter-pass-output",
+        note: "Worker core input, deliberately absent from protocol exports.",
+        payload: { claimedFindings: [{ ...finding, evidence: [{ command: evidence.command, exitCode: 1, excerpt: evidence.excerpt }] }], observedToolCalls: [{ command: evidence.command, exitCode: 1, durationMs: 4120, output: evidence.excerpt }] }, expected: false
+      }
+    ];
+
+    const byId = new Map(fixtures.map((fixture) => [fixture.id, fixture]));
+    const inputNode = document.querySelector("#input-json");
+    const outputNode = document.querySelector("#output-json");
+    const messageNode = document.querySelector("#state-message");
+    const stateFixture = document.querySelector("#state-fixture");
+    const stateSchema = document.querySelector("#state-schema");
+    const stateWorker = document.querySelector("#state-worker");
+    const stateControl = document.querySelector("#state-control");
+
+    function setStatus(node, text, kind) {
+      node.textContent = text;
+      node.className = kind;
+    }
+
+    function runFixture(id) {
+      const fixture = byId.get(id);
+      if (!fixture) return;
+      document.querySelectorAll(".fixture-button").forEach((button) => button.classList.toggle("active", button.dataset.fixture === id));
+      const worker = ProtocolPrototype.parse(fixture.schema, fixture.payload);
+      const control = worker.ok ? ProtocolPrototype.parse(fixture.schema, JSON.parse(JSON.stringify(fixture.payload))) : { ok: false, errors: worker.errors };
+      const matched = worker.ok === fixture.expected && control.ok === fixture.expected;
+
+      stateFixture.textContent = fixture.title;
+      stateSchema.textContent = `@reprove/protocol/v1 ${fixture.schema}`;
+      setStatus(stateWorker, worker.ok ? "Accepted" : "Rejected", worker.ok ? "ok" : "bad");
+      setStatus(stateControl, control.ok ? "Accepted" : "Rejected", control.ok ? "ok" : "bad");
+      messageNode.className = `message ${matched ? "ok" : "bad"}`;
+      messageNode.textContent = matched
+        ? `${fixture.note} This matches the fixture's expected ${fixture.expected ? "acceptance" : "rejection"}.`
+        : `The prototype disagrees with the fixture expectation. That is a design bug to resolve.`;
+      inputNode.textContent = JSON.stringify(fixture.payload, null, 2);
+      outputNode.textContent = worker.ok
+        ? JSON.stringify({ accepted: worker.value, note: "Unknown additive fields are absent from the parsed value." }, null, 2)
+        : JSON.stringify({ rejected: true, errors: worker.errors }, null, 2);
+    }
+
+    function mountFixtures(group, selector) {
+      const node = document.querySelector(selector);
+      fixtures.filter((fixture) => fixture.group === group).forEach((fixture) => {
+        const button = document.createElement("button");
+        button.className = "fixture-button";
+        button.dataset.fixture = fixture.id;
+        button.innerHTML = `<strong>${fixture.title}</strong><span>${fixture.note}</span>`;
+        button.addEventListener("click", () => runFixture(fixture.id));
+        node.appendChild(button);
+      });
+    }
+
+    mountFixtures("valid", "#valid-fixtures");
+    mountFixtures("invalid", "#invalid-fixtures");
+    mountFixtures("internal", "#internal-fixtures");
+    document.querySelectorAll(".step").forEach((button) => button.addEventListener("click", () => {
+      runFixture(button.dataset.fixture);
+      document.querySelector(".workspace").scrollIntoView({ behavior: "smooth", block: "start" });
+    }));
+
+    document.querySelectorAll(".tab").forEach((tab) => tab.addEventListener("click", () => {
+      document.querySelectorAll(".tab").forEach((item) => item.setAttribute("aria-selected", String(item === tab)));
+      document.querySelectorAll(".walkthrough").forEach((item) => item.classList.toggle("active", item.id === `walkthrough-${tab.dataset.tab}`));
+    }));
+
+    const verdicts = { surface: null, adapter: null, fixtures: null };
+    const verdictSummary = document.querySelector("#verdict-summary");
+    function updateVerdict() {
+      const labels = {
+        surface: "Phase 0 surface",
+        adapter: "Adapter boundary",
+        fixtures: "Fixture policy"
+      };
+      const lines = Object.entries(verdicts).map(([key, value]) => `${labels[key]}: ${value === true ? "feels right" : value === false ? "needs change" : "not answered"}`);
+      verdictSummary.value = `${lines.join("\n")}\n\nRequested changes: `;
+    }
+    document.querySelectorAll(".verdict-item").forEach((item) => {
+      item.querySelectorAll(".choice").forEach((choice) => choice.addEventListener("click", () => {
+        const yes = choice.classList.contains("yes");
+        verdicts[item.dataset.verdict] = yes;
+        item.querySelectorAll(".choice").forEach((candidate) => candidate.classList.toggle("selected", candidate === choice));
+        updateVerdict();
+      }));
+    });
+    document.querySelector("#copy-verdict").addEventListener("click", async (event) => {
+      try {
+        await navigator.clipboard.writeText(verdictSummary.value);
+        event.currentTarget.textContent = "Copied";
+      } catch {
+        verdictSummary.select();
+        event.currentTarget.textContent = "Selected - copy manually";
+      }
+    });
+
+    runFixture("run-spec-valid");
+  </script>
+</body>
+</html>
