@@ -75,6 +75,21 @@ database, and queue are still open - see the [PRD](docs/prd.md).
 - [Product Requirements Document](docs/prd.md) - full product definition,
   architecture, roadmap, and open questions.
 
+## Contributing
+
+Reprove is open source and contributions are welcome. Start with
+[CONTRIBUTING.md](CONTRIBUTING.md) for how the repo is organized, how decisions
+get made, and the DCO sign-off every commit needs. Everyone participating is
+held to the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+Found a security problem? Do not open an issue - see [SECURITY.md](SECURITY.md).
+
 ## License
 
-Not yet chosen.
+[Apache License 2.0](LICENSE). See [NOTICE](NOTICE) for the attribution notice
+Apache-2.0 expects downstream distributions to carry.
+
+Reprove is developed as open core: the project in this repository is
+Apache-2.0, and Reprove Cloud adds unpublished billing and multi-tenant
+management on top of it. The boundary is drawn by what gets published, not by
+license restrictions - nothing here is licensed to discourage self-hosting.

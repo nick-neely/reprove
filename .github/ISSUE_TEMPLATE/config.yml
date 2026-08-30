@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/nick-neely/reprove/security/advisories/new
+    about: Report privately. Never open a public issue for a security problem.
+  - name: How a decision was made
+    url: https://github.com/nick-neely/reprove/issues?q=label%3Awayfinder%3Amap
+    about: Wayfinder maps carry the open questions and the decisions already settled.

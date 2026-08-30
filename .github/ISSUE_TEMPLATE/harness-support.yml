@@ -1,0 +1,88 @@
+name: Harness support
+description: Request or propose support for a coding-agent harness Reprove does not drive yet.
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A **Harness** is a coding-agent runtime Reprove drives as a Reviewer - a
+        named, installable program, not a model. Reprove ships with Codex, Claude
+        Code and OpenCode. Adding a fourth is a real piece of work, and the
+        answers below are what decide whether it is feasible.
+
+        If you want a different **Model** rather than a different Harness, use
+        the feature request template instead - models are chosen separately.
+
+  - type: input
+    id: harness
+    attributes:
+      label: Harness
+      description: Its name and a link to its repository or docs.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: route
+    attributes:
+      label: How would Reprove invoke it?
+      description: >
+        A **Route** is how an Adapter invokes a Harness and which credential that
+        invocation carries. See
+        [ADR 0003](https://github.com/nick-neely/reprove/blob/main/docs/adr/0003-two-invocation-routes.md).
+      options:
+        - Brokered - it has an @ai-sdk/harness adapter
+        - Native - it has a CLI with user-managed authentication
+        - Both
+        - Neither / not sure
+    validations:
+      required: true
+
+  - type: input
+    id: adapter
+    attributes:
+      label: "@ai-sdk/harness adapter package, if one exists"
+      placeholder: "@ai-sdk/harness-example"
+
+  - type: textarea
+    id: non-interactive
+    attributes:
+      label: Non-interactive invocation
+      description: >
+        The exact command that runs it headlessly to completion with a prompt
+        and no TTY. If it cannot run without a TTY, say so - that is usually
+        disqualifying.
+      render: shell
+    validations:
+      required: true
+
+  - type: dropdown
+    id: structured-output
+    attributes:
+      label: Structured output
+      description: >
+        Can it be made to emit JSON matching a schema you supply? Reprove needs a
+        Result it can validate, and cannot rely on prose parsing.
+      options:
+        - "Yes - it accepts a schema (e.g. --output-schema)"
+        - "Yes - JSON output, but no schema enforcement"
+        - "No - prose only"
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: controls
+    attributes:
+      label: Controls it exposes
+      description: >
+        Whether it can be run with repository-local instruction files ignored,
+        with tools restricted, with network access limited, or with a working
+        directory it must not leave. Reprove needs a Reviewer it can constrain.
+
+  - type: textarea
+    id: interest
+    attributes:
+      label: Why this Harness
+      description: >
+        What it gives a reviewer that Codex, Claude Code and OpenCode do not, and
+        whether you are offering to build and maintain the Adapter.

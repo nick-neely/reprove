@@ -1,0 +1,48 @@
+name: Feature request
+description: Propose a change to what Reprove does.
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Reprove is pre-implementation, so a lot is already planned but not built.
+        Please check [docs/prd.md](https://github.com/nick-neely/reprove/blob/main/docs/prd.md),
+        [docs/adr/](https://github.com/nick-neely/reprove/tree/main/docs/adr) and
+        the open [wayfinder maps](https://github.com/nick-neely/reprove/issues?q=label%3Awayfinder%3Amap)
+        first. If a decision already went the other way, argue with the ADR -
+        that is a legitimate and welcome kind of issue.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: >
+        What you are trying to do and what stops you. Describe the situation,
+        not the feature - the solution is the next box.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like Reprove to do
+      description: >
+        Please use the vocabulary in
+        [CONTEXT.md](https://github.com/nick-neely/reprove/blob/main/CONTEXT.md)
+        where it has a word for what you mean.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+      description: Including doing nothing, and why that is not enough.
+
+  - type: textarea
+    id: prior-decisions
+    attributes:
+      label: Does this contradict a settled decision?
+      description: >
+        If it conflicts with an ADR or a resolved wayfinder ticket, link it and
+        say why it is worth reopening. This makes the issue stronger, not weaker.
