@@ -1553,8 +1553,8 @@ Self-hosted usage visibility:
 
 > **Turn the coding agents you already use into autonomous reviewers.**
 
-Not "another AI reviewer with a better model," and not "a reviewer that happens to support
-several agents." The claim is continuity: the Harness your team already trusts to *write* the
+Not "another AI reviewer with a better model," and not "an orchestrator that can also touch a
+pull request." The claim is continuity: the Harness your team already trusts to *write* the
 software becomes the Reviewer that examines it, keeping the general capabilities that made it
 useful in the first place - repository exploration, shell execution, builds, tests, one-off
 scripts, reproduction, verification, and eventually fixes.
@@ -1571,6 +1571,24 @@ Reprove then supplies the product layer that a coding agent does not have on its
 - review UX that fits how the team already reads a pull request;
 - fix and re-verify workflows.
 
+## The category is pull-request review
+
+Reprove is a **PR review bot**: it arrives automatically on a pull request and leaves
+anchored, severity-tagged, threshold-filtered Findings in a GitHub Review. That is the
+category, and it is the only set Reprove positions against.
+
+This matters because a naive search for "multi-harness plus cross-agent review" surfaces
+projects that are **not in the category** - agent orchestrators and session managers that let
+you drive Codex, Claude Code and OpenCode from one place, and that may expose a GitHub
+surface where a mention summons an agent onto a pull request. That is orchestration, not
+review. A reviewer is defined by the workflow it fits into: unprompted arrival on every pull
+request, one Finding per location, Severity and Verification a team can set policy on, dedupe
+across pushes, and a Review a human reads the way they read any other.
+
+Those projects are **adjacent prior art, not competitors.** Some of them independently built
+multi-harness plumbing, and that is worth knowing and acknowledging honestly. It is not worth
+positioning against, and their existence does not weaken the claim below.
+
 ## Do not position solely around code execution
 
 Execution is no longer a differentiator. Managed reviewers already run code: at least one
@@ -1579,32 +1597,41 @@ product must not rely on:
 
 > "We run tests and they don't."
 
-## Do not position solely around being multi-harness
+## Do not position on being multi-harness for its own sake
 
-Harness choice is also claimed elsewhere, including by open-source projects. Reprove is not
-differentiated by supporting several Harnesses; it is differentiated by what that support is
-*for* - a Reviewer that is the agent you already use, with execution-backed Findings, arriving
-automatically on a pull request, under Strategies that let two Harnesses challenge each other.
+Supporting several Harnesses is plumbing, not a product claim - and *multi-harness
+orchestration* is a different category, not a competing one. What matters is not that Reprove
+speaks to three Harnesses; it is that the Reviewer performing the review **is the Harness you
+already use**, with your Model, your authentication and your configuration. Harness choice is
+the mechanism. Harness *continuity* is the claim.
 
 ## What is actually unclaimed
 
-Four properties, and the position is their combination rather than any one of them:
+Within the category, every reviewer either brings its own model or locks you to one vendor:
 
-1. the user's choice of full coding-agent Harnesses as the Reviewer;
-2. cross-harness and adversarial review between them;
-3. a real Workspace in a Sandbox, with execution as the evidentiary basis for a Finding;
-4. both a hosted and a self-hosted Worker, over one GitHub experience.
+| Reviewer | Who chooses the reviewing agent |
+|---|---|
+| CodeRabbit | Vendor. Managed models, blended internally; explicitly argues users should not have to choose. |
+| Greptile | Vendor. External coding agents are handed a *fix*, never the review. |
+| PR-Agent | User picks a **Model**, but the agent loop is PR-Agent's own. |
+| shippie | User picks a **Model**; single agent loop, not a Harness. |
+| Claude Code Review | Anthropic. Claude only, by construction. |
+| Codex automatic reviews | OpenAI. Codex only, by construction, and diff-only. |
+| **Reprove** | **You. The reviewing agent is your Harness, on your authentication.** |
 
-Individually, each is claimed by somebody. Verified together, they are not - see
-[`docs/research/competitive-landscape.md`](research/competitive-landscape.md), a dated
-snapshot that should be re-verified rather than trusted indefinitely. That survey found
-genuine open-source prior art on three of the four axes, which Reprove should acknowledge
-plainly rather than write around.
+**Not one reviewer in the category lets the Reviewer be the coding agent the team already
+uses.** That is the unclaimed position, and everything else Reprove offers - cross-harness
+Strategies, execution-backed Findings, hosted and self-hosted Workers - is what makes that
+continuity useful rather than a novelty.
 
 One asymmetry is structural rather than a matter of feature parity: **the vendor-native
 reviewers cannot offer Harness choice.** A single-vendor reviewer that let a user pick a
 competitor's coding agent would be shipping that competitor's product. That axis is closed to
-the largest incumbents by construction.
+the largest incumbents permanently, not until they get around to it.
+
+The current state of both the category and the adjacent orchestrators is recorded in
+[`docs/research/competitive-landscape.md`](research/competitive-landscape.md), a dated
+snapshot that should be re-verified rather than trusted indefinitely.
 
 ## Hosted and self-hosted state the claim differently
 
@@ -1662,10 +1689,14 @@ Codex / Claude Code / OpenCode
 ```
 
 CodeRabbit explicitly takes a managed-model approach and argues that its users should not need
-to choose the underlying model. Reprove intentionally makes that choice available. That is a
-real difference in philosophy, but it is a supporting argument, not the thesis - and it is the
-wrong primary comparison, because the closest architectural prior art is open source, not
-managed.
+to choose the underlying model. Reprove intentionally makes that choice available - and goes
+further than model choice, because the thing the user selects is the whole Harness, not a
+model slotted into somebody else's agent loop.
+
+This is the right primary comparison. The managed reviewers are the incumbents in the
+category, and the disagreement with them is genuine rather than a feature gap: they hold that
+the reviewing agent should be the vendor's problem, and Reprove holds that it should be the
+agent the team already works with.
 
 ### Core message
 
