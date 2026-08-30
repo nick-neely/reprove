@@ -1,0 +1,1460 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Simulated Pass boundary prototype</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --paper: #f4f1ea;
+        --panel: #fffdf8;
+        --ink: #18211c;
+        --muted: #667068;
+        --line: #d7d4c9;
+        --accent: #146b50;
+        --accent-soft: #dceee7;
+        --warning: #8c5a14;
+        --warning-soft: #f5e8cf;
+        --danger: #9b342f;
+        --danger-soft: #f6dfdc;
+        --shadow: 0 12px 30px rgba(34, 43, 37, 0.08);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--paper);
+        color: var(--ink);
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        line-height: 1.5;
+      }
+
+      button,
+      select {
+        font: inherit;
+      }
+
+      button {
+        cursor: pointer;
+      }
+
+      button:focus-visible,
+      summary:focus-visible {
+        outline: 3px solid rgba(20, 107, 80, 0.35);
+        outline-offset: 3px;
+      }
+
+      main {
+        width: min(1180px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 48px 0 72px;
+      }
+
+      .eyebrow {
+        margin: 0 0 10px;
+        color: var(--accent);
+        font-size: 0.78rem;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin-top: 0;
+      }
+
+      h1 {
+        max-width: 850px;
+        margin-bottom: 14px;
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: clamp(2.2rem, 6vw, 4.9rem);
+        font-weight: 500;
+        letter-spacing: -0.045em;
+        line-height: 0.98;
+      }
+
+      h2 {
+        margin-bottom: 10px;
+        font-size: clamp(1.35rem, 3vw, 2rem);
+        letter-spacing: -0.025em;
+      }
+
+      h3 {
+        margin-bottom: 8px;
+        font-size: 1rem;
+      }
+
+      .lede {
+        max-width: 790px;
+        margin-bottom: 22px;
+        color: #455048;
+        font-size: clamp(1rem, 2vw, 1.2rem);
+      }
+
+      .prototype-note {
+        display: inline-flex;
+        gap: 8px;
+        align-items: center;
+        padding: 7px 10px;
+        border: 1px solid var(--warning);
+        border-radius: 999px;
+        background: var(--warning-soft);
+        color: #67400b;
+        font-size: 0.82rem;
+        font-weight: 750;
+      }
+
+      .question {
+        margin: 34px 0;
+        padding: 22px 24px;
+        border-left: 5px solid var(--accent);
+        background: rgba(255, 253, 248, 0.7);
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: clamp(1.15rem, 2.5vw, 1.55rem);
+      }
+
+      .section {
+        margin-top: 26px;
+        padding: clamp(20px, 4vw, 34px);
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        background: var(--panel);
+        box-shadow: var(--shadow);
+      }
+
+      .section-heading {
+        display: flex;
+        gap: 18px;
+        align-items: start;
+        justify-content: space-between;
+        margin-bottom: 22px;
+      }
+
+      .section-heading p {
+        max-width: 670px;
+        margin-bottom: 0;
+        color: var(--muted);
+      }
+
+      .outcome {
+        display: flex;
+        gap: 18px;
+        align-items: center;
+        justify-content: space-between;
+        padding: 20px;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        background: #f8f7f2;
+      }
+
+      .outcome strong {
+        display: block;
+        margin-bottom: 2px;
+        font-size: 1.15rem;
+      }
+
+      .outcome p {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      .badge {
+        flex: none;
+        padding: 7px 11px;
+        border-radius: 999px;
+        background: #e8e7e1;
+        color: #424b45;
+        font-size: 0.8rem;
+        font-weight: 800;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+      }
+
+      .badge.result {
+        background: var(--accent-soft);
+        color: var(--accent);
+      }
+
+      .badge.refusal {
+        background: var(--warning-soft);
+        color: var(--warning);
+      }
+
+      .badge.failure {
+        background: var(--danger-soft);
+        color: var(--danger);
+      }
+
+      .state-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 16px;
+      }
+
+      .state-card {
+        min-height: 104px;
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: 13px;
+        background: #fff;
+      }
+
+      .state-card span {
+        display: block;
+        margin-bottom: 6px;
+        color: var(--muted);
+        font-size: 0.72rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .state-card strong {
+        display: block;
+        overflow-wrap: anywhere;
+      }
+
+      .state-card small {
+        display: block;
+        margin-top: 4px;
+        color: var(--muted);
+      }
+
+      .flow {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 10px;
+        margin: 20px 0 0;
+      }
+
+      .flow-card {
+        position: relative;
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: 13px;
+        background: #fff;
+      }
+
+      .flow-card:not(:last-child)::after {
+        position: absolute;
+        top: 50%;
+        right: -10px;
+        z-index: 2;
+        width: 10px;
+        border-top: 2px solid var(--accent);
+        content: "";
+      }
+
+      .flow-card b {
+        display: block;
+        color: var(--accent);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.8rem;
+      }
+
+      .flow-card span {
+        display: block;
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 0.83rem;
+      }
+
+      .fixture-grid,
+      .decision-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .fixture-card,
+      .decision-card {
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: #fff;
+      }
+
+      .fixture-card ul,
+      .decision-card ul {
+        margin: 10px 0 0;
+        padding-left: 20px;
+      }
+
+      .fixture-card li + li,
+      .decision-card li + li {
+        margin-top: 7px;
+      }
+
+      code {
+        padding: 0.12em 0.32em;
+        border-radius: 5px;
+        background: #edeee9;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.88em;
+      }
+
+      .profile-row,
+      .actions,
+      .verdict-options {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 9px;
+      }
+
+      .profile-row {
+        margin-bottom: 16px;
+      }
+
+      .profile-button,
+      .action-button,
+      .step-button,
+      .verdict-button,
+      .copy-button {
+        min-height: 42px;
+        padding: 9px 13px;
+        border: 1px solid #b8beb9;
+        border-radius: 10px;
+        background: #fff;
+        color: var(--ink);
+        font-weight: 700;
+      }
+
+      .profile-button:hover,
+      .action-button:hover,
+      .step-button:hover,
+      .verdict-button:hover,
+      .copy-button:hover {
+        border-color: var(--accent);
+        background: #f3faf7;
+      }
+
+      .profile-button[aria-pressed="true"],
+      .verdict-button[aria-pressed="true"] {
+        border-color: var(--accent);
+        background: var(--accent-soft);
+        color: var(--accent);
+      }
+
+      .action-button {
+        flex: 1 1 180px;
+        text-align: left;
+      }
+
+      .action-button small {
+        display: block;
+        color: var(--muted);
+        font-weight: 500;
+      }
+
+      .tabs {
+        display: flex;
+        gap: 8px;
+        overflow-x: auto;
+        margin-bottom: 18px;
+        padding-bottom: 4px;
+      }
+
+      [role="tab"] {
+        flex: 0 0 auto;
+        padding: 9px 13px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: #fff;
+        color: var(--ink);
+        font-weight: 750;
+      }
+
+      [role="tab"][aria-selected="true"] {
+        border-color: var(--accent);
+        background: var(--accent);
+        color: #fff;
+      }
+
+      [role="tabpanel"][hidden] {
+        display: none;
+      }
+
+      .walkthrough-intro {
+        max-width: 760px;
+        color: var(--muted);
+      }
+
+      .steps {
+        display: grid;
+        gap: 10px;
+        margin-top: 16px;
+      }
+
+      .step {
+        display: grid;
+        grid-template-columns: 42px minmax(0, 1fr) auto;
+        gap: 12px;
+        align-items: center;
+        padding: 12px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: #fff;
+      }
+
+      .step-number {
+        display: grid;
+        width: 34px;
+        height: 34px;
+        place-items: center;
+        border-radius: 50%;
+        background: #e8e7e1;
+        font-weight: 800;
+      }
+
+      .step.done .step-number {
+        background: var(--accent-soft);
+        color: var(--accent);
+      }
+
+      .step p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.88rem;
+      }
+
+      .step-button {
+        white-space: nowrap;
+      }
+
+      .trace {
+        max-height: 340px;
+        overflow: auto;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .trace li {
+        display: grid;
+        grid-template-columns: 86px minmax(0, 1fr);
+        gap: 12px;
+        padding: 10px 0;
+        border-bottom: 1px solid #eceae3;
+      }
+
+      .trace li:last-child {
+        border-bottom: 0;
+      }
+
+      .trace b {
+        color: var(--accent);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.78rem;
+      }
+
+      details {
+        margin-top: 16px;
+      }
+
+      summary {
+        cursor: pointer;
+        color: var(--accent);
+        font-weight: 750;
+      }
+
+      pre {
+        overflow: auto;
+        padding: 16px;
+        border-radius: 12px;
+        background: #17201b;
+        color: #e9f2ed;
+        font-size: 0.78rem;
+        line-height: 1.55;
+      }
+
+      .decision-card .label {
+        color: var(--accent);
+        font-size: 0.78rem;
+        font-weight: 850;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .not-in-seam {
+        border-color: #d7c3a2;
+        background: #fffaf0;
+      }
+
+      .verdict-card {
+        padding: 18px 0;
+        border-top: 1px solid var(--line);
+      }
+
+      .verdict-card:first-of-type {
+        border-top: 0;
+        padding-top: 0;
+      }
+
+      .verdict-card p {
+        margin-bottom: 12px;
+        color: var(--muted);
+      }
+
+      .verdict-summary {
+        margin-top: 18px;
+        padding: 16px;
+        border-radius: 12px;
+        background: #eef4f0;
+      }
+
+      .verdict-summary pre {
+        margin: 10px 0 12px;
+        white-space: pre-wrap;
+      }
+
+      .copy-status {
+        margin-left: 10px;
+        color: var(--accent);
+        font-size: 0.86rem;
+        font-weight: 750;
+      }
+
+      .visually-hidden {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+
+      @media (max-width: 900px) {
+        .state-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .flow {
+          grid-template-columns: 1fr;
+        }
+
+        .flow-card:not(:last-child)::after {
+          top: auto;
+          right: auto;
+          bottom: -10px;
+          left: 28px;
+          width: 0;
+          height: 10px;
+          border-top: 0;
+          border-left: 2px solid var(--accent);
+        }
+      }
+
+      @media (max-width: 680px) {
+        main {
+          width: min(100% - 20px, 1180px);
+          padding-top: 28px;
+        }
+
+        .section,
+        .question {
+          border-radius: 16px;
+        }
+
+        .section-heading,
+        .outcome {
+          display: block;
+        }
+
+        .outcome .badge {
+          display: inline-block;
+          margin-top: 14px;
+        }
+
+        .state-grid,
+        .fixture-grid,
+        .decision-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .step {
+          grid-template-columns: 36px minmax(0, 1fr);
+        }
+
+        .step-button {
+          grid-column: 1 / -1;
+          width: 100%;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">Wayfinder prototype 35</p>
+      <h1>One simulated Pass across the Worker boundary</h1>
+      <p class="lede">
+        Drive the proposed Phase 0 tracer from a fixed Run specification to a normalized Result,
+        then break the boundaries that must Refuse or Fail instead.
+      </p>
+      <span class="prototype-note">Throwaway decision prototype, not production code</span>
+
+      <blockquote class="question">
+        Does one deterministic fixture Reviewer, run through the real Worker core and local Sandbox
+        seams, prove the Worker-side architecture without pretending a real Codex review has already
+        shipped?
+      </blockquote>
+
+      <section class="section" aria-labelledby="state-heading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Current state</p>
+            <h2 id="state-heading">What the Worker may return right now</h2>
+          </div>
+          <p>
+            Action buttons stay available so you can press them out of order. Illegal transitions
+            are rejected and recorded without changing the state.
+          </p>
+        </div>
+
+        <div class="outcome" aria-live="polite">
+          <div>
+            <strong id="outcome-title">No outcome yet</strong>
+            <p id="outcome-detail">The fixed RunSpec has not entered Worker core.</p>
+          </div>
+          <span class="badge" id="outcome-badge">Pending</span>
+        </div>
+
+        <div class="state-grid" id="state-grid"></div>
+
+        <div class="flow" role="list" aria-label="Proposed package flow">
+          <div class="flow-card" role="listitem">
+            <b>@reprove/protocol/v1</b>
+            <span>Parse the fixed RunSpec with the authoritative schema.</span>
+          </div>
+          <div class="flow-card" role="listitem">
+            <b>@reprove/worker-core</b>
+            <span>Probe, authorize, prepare inputs, and orchestrate one Pass.</span>
+          </div>
+          <div class="flow-card" role="listitem">
+            <b>@reprove/sandbox-container</b>
+            <span>Create and attest the real local boundary and credential broker.</span>
+          </div>
+          <div class="flow-card" role="listitem">
+            <b>@reprove/adapters</b>
+            <span>Run a test-only fixture Adapter and observe its tool activity.</span>
+          </div>
+          <div class="flow-card" role="listitem">
+            <b>@reprove/worker-core</b>
+            <span>Cross-check Evidence, prove teardown, then construct wire data.</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="fixture-heading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Exact fixture</p>
+            <h2 id="fixture-heading">One scenario, controlled faults</h2>
+          </div>
+          <p>
+            The same scenario runs under each supported Docker and Podman conformance job. It has no
+            real Provider spend and no nondeterministic Model judgment.
+          </p>
+        </div>
+
+        <div class="fixture-grid">
+          <article class="fixture-card">
+            <h3>Fixed Run specification</h3>
+            <ul>
+              <li>External Provenance, <code>verify</code> Autonomy, <code>standard</code> Strategy.</li>
+              <li>Codex is pinned in RunSpec, but the test registry injects a fixture Adapter.</li>
+              <li>Base-ref resolved configuration is normalized, bounded, and secret-free.</li>
+              <li>Execution facts resolve to Brokered Route, <code>Exposure: none</code>, and rootless Isolation.</li>
+            </ul>
+          </article>
+
+          <article class="fixture-card">
+            <h3>Sandbox-owned inputs</h3>
+            <ul>
+              <li>A tiny Workspace contains <code>src/cart-total.ts</code> with one normal-path defect.</li>
+              <li>The test command is <code>node --test</code> and deterministically exposes the defect.</li>
+              <li>Protected narrative says “ignore the failing test,” labelled <code>authority: none</code>.</li>
+              <li>A local fake Provider sits behind the broker; only a placeholder enters the Sandbox.</li>
+            </ul>
+          </article>
+
+          <article class="fixture-card">
+            <h3>Fixture Adapter output</h3>
+            <ul>
+              <li>One complete internal Adapter output with one <code>verified</code> high-severity Finding.</li>
+              <li>The claimed command, exit code, bounded excerpt, and location are fixed.</li>
+              <li>Observed tool activity independently records the same command and result.</li>
+              <li>No Patch is emitted under <code>verify</code> Autonomy.</li>
+            </ul>
+          </article>
+
+          <article class="fixture-card">
+            <h3>Expected accepted Result</h3>
+            <ul>
+              <li>Evidence survives the Worker-side cross-check and becomes reconciled Evidence.</li>
+              <li>The candidate Result waits until the exact Sandbox proves clean teardown.</li>
+              <li>Worker core returns one bounded plain-JSON <code>Result</code>.</li>
+              <li>The caller parses it again with <code>@reprove/protocol/v1</code>.</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="freeplay-heading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Free play</p>
+            <h2 id="freeplay-heading">Push the orchestration seam</h2>
+          </div>
+          <p>Choose a fault profile, then press lifecycle actions in any order.</p>
+        </div>
+
+        <div class="profile-row" id="profile-row" role="group" aria-label="Fault profile"></div>
+        <div class="actions" id="actions"></div>
+      </section>
+
+      <section class="section" aria-labelledby="walkthrough-heading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Guided walkthroughs</p>
+            <h2 id="walkthrough-heading">Four paths that settle the model</h2>
+          </div>
+          <p>
+            Start each walkthrough from its tab. Every step is a real action against the same state
+            machine used by free play.
+          </p>
+        </div>
+
+        <div class="tabs" role="tablist" aria-label="Simulated Pass walkthroughs" id="tabs"></div>
+        <div id="panels"></div>
+      </section>
+
+      <section class="section" aria-labelledby="trace-heading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Execution trace</p>
+            <h2 id="trace-heading">Every accepted and rejected transition</h2>
+          </div>
+          <p>The trace uses domain language. The full prototype state is available below it.</p>
+        </div>
+
+        <ol class="trace" id="trace" aria-live="polite"></ol>
+        <details>
+          <summary>Inspect the full in-memory state</summary>
+          <pre id="raw-state"></pre>
+        </details>
+      </section>
+
+      <section class="section" aria-labelledby="seam-heading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Proposed answer</p>
+            <h2 id="seam-heading">The highest seam and the handoff boundary</h2>
+          </div>
+          <p>
+            The function name is provisional. The ownership and package direction are the decision.
+          </p>
+        </div>
+
+        <div class="decision-grid">
+          <article class="decision-card">
+            <span class="label">Highest test seam</span>
+            <h3><code>@reprove/worker-core</code> Run execution entry</h3>
+            <p>
+              A package-level integration test calls the real orchestration entry, provisionally
+              <code>executeRun(runSpec, executionContext, dependencies)</code>, and observes only its
+              internal Worker outcome.
+            </p>
+            <ul>
+              <li>It does not call Adapter helpers, the Evidence cross-check, or teardown directly.</li>
+              <li>It uses dependency injection already needed for Adapter and Sandbox composition.</li>
+              <li>It reparses final Result or Refusal wire data at the caller side.</li>
+            </ul>
+          </article>
+
+          <article class="decision-card">
+            <span class="label">Why a fixture Reviewer</span>
+            <h3>Deterministic plumbing, honest scope</h3>
+            <p>
+              A test-only Adapter drives a fixture process through the real Sandbox provider. It
+              proves orchestration, trust boundaries, and data shape without qualifying a real
+              Harness, Model, or Provider.
+            </p>
+            <ul>
+              <li>The fixture Adapter is not registered or advertised in production.</li>
+              <li>Codex contract tests still own the real bridge behavior.</li>
+              <li>The adversarial evaluation gate still owns probabilistic review integrity.</li>
+            </ul>
+          </article>
+
+          <article class="decision-card">
+            <span class="label">Required terminal distinction</span>
+            <h3>Refusal before execution, Failure after it</h3>
+            <p>
+              A missing hard boundary returns a structured Refusal only while the fixture Reviewer
+              has not started. Evidence mismatch or teardown residue occurs after execution and must
+              become Failure, discarding the candidate Result.
+            </p>
+          </article>
+
+          <article class="decision-card not-in-seam">
+            <span class="label">Intentionally deferred</span>
+            <h3>Phase 1 and control-plane behavior</h3>
+            <ul>
+              <li>A real hosted Codex Brokered Route review with Provider credentials.</li>
+              <li>Model reasoning quality and the 576-trial qualification evaluation.</li>
+              <li>GitHub ingress, repository-token minting, persistence, Acceptance, Reconciliation, and publication.</li>
+              <li>Native Route, other Harnesses, multi-Pass Strategy, and <code>fix</code> write-back.</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="verdict-heading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Human verdict</p>
+            <h2 id="verdict-heading">What needs your reaction</h2>
+          </div>
+          <p>
+            This ticket stays open until these choices are answered. Your selections live only in
+            this page and can be copied as a short response.
+          </p>
+        </div>
+
+        <div id="verdicts"></div>
+        <div class="verdict-summary">
+          <strong>Verdict summary</strong>
+          <pre id="verdict-summary"></pre>
+          <button class="copy-button" id="copy-verdict" type="button">Copy verdict summary</button>
+          <span class="copy-status" id="copy-status" role="status"></span>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      // Portable logic module. It has no DOM dependency and can be lifted into a test fixture.
+      const SimulatedPassMachine = (() => {
+        const profiles = {
+          accepted: {
+            label: "Accepted Result",
+            description: "All mechanical contracts hold.",
+          },
+          boundaryRefusal: {
+            label: "Credential Refusal",
+            description: "The real credential would enter the Sandbox.",
+          },
+          evidenceMismatch: {
+            label: "Evidence Mismatch",
+            description: "Claimed Evidence has no observed counterpart.",
+          },
+          teardownResidue: {
+            label: "Teardown Residue",
+            description: "Execution finishes but labeled resources remain.",
+          },
+        };
+
+        const actions = [
+          ["PARSE_RUN_SPEC", "Parse RunSpec", "Protocol v1 at the Worker-side seam"],
+          ["PROBE_CAPABILITIES", "Probe capabilities", "Fresh exact-artifact evidence"],
+          ["AUTHORIZE", "Authorize execution", "Exposure x Isolation x Provenance"],
+          ["CREATE_SANDBOX", "Create and attest Sandbox", "Real provider boundary, no Reviewer yet"],
+          ["PREPARE_INPUTS", "Prepare protected inputs", "Workspace, conventions, narrative, broker"],
+          ["RUN_SIMULATED_PASS", "Run fixture Reviewer", "One deterministic Adapter invocation"],
+          ["VALIDATE_CANDIDATE", "Validate Adapter output", "Internal shape, pinned Model, no Patch"],
+          ["CROSS_CHECK_EVIDENCE", "Cross-check Evidence", "Claim against observed tool activity"],
+          ["TEARDOWN", "Prove teardown", "No labeled runtime, proxy, or broker residue"],
+          ["FINALIZE", "Construct wire outcome", "Result only after clean teardown"],
+        ];
+
+        const verdictQuestions = [
+          {
+            id: "fixture",
+            title: "Scenario shape",
+            question: "Should one fixed fixture with controlled faults be the Phase 0 tracer?",
+            options: ["Yes, keep one fixture", "No, split the scenarios"],
+          },
+          {
+            id: "seam",
+            title: "Highest seam",
+            question: "Should the test enter through Worker core's Run execution entry?",
+            options: ["Yes, use Worker core", "No, move the seam"],
+          },
+          {
+            id: "deferred",
+            title: "Phase boundary",
+            question: "Is real Codex and control-plane behavior correctly deferred?",
+            options: ["Yes, the boundary is right", "No, change the boundary"],
+          },
+        ];
+
+        function initialState(profile = "accepted", verdicts = {}) {
+          return {
+            profile,
+            phase: "awaiting_run_spec",
+            runSpec: "unparsed",
+            capability: "unprobed",
+            authorization: "undecided",
+            sandbox: "absent",
+            inputs: "absent",
+            pass: "not_started",
+            candidate: "absent",
+            evidence: "uncrossed",
+            cleanup: "not_required",
+            harnessStarts: 0,
+            quarantined: false,
+            outcome: {
+              kind: "pending",
+              code: null,
+              detail: "The fixed RunSpec has not entered Worker core.",
+            },
+            verdicts: { ...verdicts },
+            history: [
+              {
+                action: "RESET",
+                message: `Loaded profile: ${profiles[profile].label}.`,
+                accepted: true,
+              },
+            ],
+          };
+        }
+
+        function addHistory(state, action, message, accepted = true) {
+          return {
+            ...state,
+            history: [...state.history, { action, message, accepted }],
+          };
+        }
+
+        function reject(state, action, message) {
+          return addHistory(state, action, `Rejected transition: ${message}`, false);
+        }
+
+        function pendingRefusal(state, code, detail) {
+          return {
+            ...state,
+            phase: "cleanup_required",
+            outcome: { kind: "pending_refusal", code, detail },
+            cleanup: "required",
+          };
+        }
+
+        function failAfterExecution(state, code, detail) {
+          return {
+            ...state,
+            phase: "cleanup_required",
+            candidate: "discarded",
+            outcome: { kind: "failure", code, detail },
+            cleanup: "required",
+          };
+        }
+
+        function reduce(state, action) {
+          if (action.type === "RESET") {
+            return initialState(action.profile || state.profile, state.verdicts);
+          }
+
+          if (action.type === "SET_VERDICT") {
+            const next = {
+              ...state,
+              verdicts: { ...state.verdicts, [action.question]: action.answer },
+            };
+            return addHistory(next, action.type, `Recorded ${action.question} verdict: ${action.answer}.`);
+          }
+
+          if (["result", "refusal"].includes(state.outcome.kind)) {
+            return reject(state, action.type, "the Worker already returned a terminal wire outcome");
+          }
+
+          switch (action.type) {
+            case "PARSE_RUN_SPEC": {
+              if (state.runSpec !== "unparsed") return reject(state, action.type, "RunSpec was already parsed");
+              const next = { ...state, phase: "run_spec_parsed", runSpec: "valid_v1" };
+              return addHistory(next, action.type, "Protocol v1 accepted and stripped the fixed RunSpec.");
+            }
+
+            case "PROBE_CAPABILITIES": {
+              if (state.runSpec !== "valid_v1") return reject(state, action.type, "parse RunSpec first");
+              if (state.capability !== "unprobed") return reject(state, action.type, "capabilities were already probed");
+              const next = { ...state, phase: "capabilities_fresh", capability: "fresh_exact_fingerprint" };
+              return addHistory(next, action.type, "Fresh Adapter, instruction-boundary, and host capability evidence matched.");
+            }
+
+            case "AUTHORIZE": {
+              if (state.capability !== "fresh_exact_fingerprint") return reject(state, action.type, "fresh capability evidence is required");
+              if (state.authorization !== "undecided") return reject(state, action.type, "authorization was already decided");
+              const next = { ...state, phase: "authorized", authorization: "external_eligible" };
+              return addHistory(next, action.type, "Exposure none plus rootless Isolation permits external Provenance.");
+            }
+
+            case "CREATE_SANDBOX": {
+              if (state.authorization !== "external_eligible") return reject(state, action.type, "Worker core has not authorized execution");
+              if (state.sandbox !== "absent") return reject(state, action.type, "a Sandbox already exists");
+              const next = {
+                ...state,
+                phase: "sandbox_attested",
+                sandbox: "attested_instance",
+                cleanup: "required",
+              };
+              return addHistory(next, action.type, "The exact Sandbox passed outside inspection and inside canaries.");
+            }
+
+            case "PREPARE_INPUTS": {
+              if (state.sandbox !== "attested_instance") return reject(state, action.type, "an attested Sandbox is required");
+              if (state.inputs !== "absent") return reject(state, action.type, "inputs were already prepared");
+              if (state.profile === "boundaryRefusal") {
+                const next = pendingRefusal(
+                  { ...state, inputs: "credential_boundary_unestablished" },
+                  "credential_boundary_unestablished",
+                  "A real credential would enter the Sandbox. The fixture Reviewer must not start.",
+                );
+                return addHistory(next, action.type, "Credential placeholder enforcement failed. Cleanup is required before Refusal returns.");
+              }
+              const next = { ...state, phase: "inputs_protected", inputs: "protected_and_brokered" };
+              return addHistory(next, action.type, "Workspace and protected narrative were materialized; only a broker placeholder entered.");
+            }
+
+            case "RUN_SIMULATED_PASS": {
+              if (state.inputs !== "protected_and_brokered") return reject(state, action.type, "protected inputs and broker must be established");
+              if (state.pass !== "not_started") return reject(state, action.type, "the one Pass already started");
+              const next = {
+                ...state,
+                phase: "pass_executed",
+                pass: "fixture_adapter_completed",
+                candidate: "adapter_output_unvalidated",
+                harnessStarts: state.harnessStarts + 1,
+              };
+              return addHistory(next, action.type, "Fixture Reviewer ran node --test and emitted one claimed verified Finding.");
+            }
+
+            case "VALIDATE_CANDIDATE": {
+              if (state.candidate !== "adapter_output_unvalidated") return reject(state, action.type, "run the fixture Reviewer first");
+              const next = { ...state, phase: "candidate_validated", candidate: "validated_adapter_output" };
+              return addHistory(next, action.type, "Adapter output was valid, used the pinned Model identity, and carried no Patch.");
+            }
+
+            case "CROSS_CHECK_EVIDENCE": {
+              if (state.candidate !== "validated_adapter_output") return reject(state, action.type, "validate Adapter output first");
+              if (state.profile === "evidenceMismatch") {
+                const next = failAfterExecution(
+                  { ...state, evidence: "mismatch" },
+                  "evidence_cross_check_failed",
+                  "Execution began, so missing observed tool activity is Failure, never Refusal.",
+                );
+                return addHistory(next, action.type, "Claimed Evidence had no observed counterpart. Candidate Result was discarded.");
+              }
+              const next = {
+                ...state,
+                phase: "evidence_cross_checked",
+                candidate: "candidate_result",
+                evidence: "reconciled",
+              };
+              return addHistory(next, action.type, "Claimed command matched observed tool activity and became bounded Evidence.");
+            }
+
+            case "TEARDOWN": {
+              if (state.sandbox === "absent") return reject(state, action.type, "no Sandbox exists");
+              if (state.cleanup === "clean") return reject(state, action.type, "teardown was already proven clean");
+              if (state.profile === "teardownResidue" && state.pass === "fixture_adapter_completed") {
+                const next = {
+                  ...failAfterExecution(
+                    state,
+                    "sandbox_teardown_incomplete",
+                    "Labeled runtime residue remained after execution. Candidate Result was discarded.",
+                  ),
+                  sandbox: "residue_detected",
+                  cleanup: "residue",
+                  quarantined: true,
+                  phase: "failed",
+                };
+                return addHistory(next, action.type, "Teardown inventory found residue. The local capability fingerprint was quarantined.");
+              }
+
+              const next = {
+                ...state,
+                sandbox: "destroyed",
+                cleanup: "clean",
+                phase: "cleanup_proven",
+              };
+
+              if (state.outcome.kind === "pending_refusal") {
+                return addHistory(
+                  {
+                    ...next,
+                    phase: "refused",
+                    outcome: {
+                      kind: "refusal",
+                      code: state.outcome.code,
+                      detail: state.outcome.detail,
+                    },
+                  },
+                  action.type,
+                  "Cleanup passed. Worker core returned the pending structured Refusal.",
+                );
+              }
+
+              if (state.outcome.kind === "failure") {
+                return addHistory(
+                  { ...next, phase: "failed" },
+                  action.type,
+                  "Cleanup passed after Failure. No Result or Refusal wire payload was constructed.",
+                );
+              }
+
+              return addHistory(next, action.type, "No labeled runtime, network, volume, port, proxy, or broker residue remained.");
+            }
+
+            case "FINALIZE": {
+              if (state.outcome.kind === "failure") return reject(state, action.type, "Failure discarded the candidate Result");
+              if (state.cleanup !== "clean") return reject(state, action.type, "clean teardown proof is required");
+              if (state.candidate !== "candidate_result" || state.evidence !== "reconciled") {
+                return reject(state, action.type, "a validated candidate Result with reconciled Evidence is required");
+              }
+              const next = {
+                ...state,
+                phase: "result_returned",
+                outcome: {
+                  kind: "result",
+                  code: "complete",
+                  detail: "One bounded Result with one verified Finding passed protocol v1 at both seams.",
+                },
+              };
+              return addHistory(next, action.type, "Worker core constructed Result; the caller parsed the same plain JSON again.");
+            }
+
+            default:
+              return reject(state, action.type, "unknown action");
+          }
+        }
+
+        return { actions, initialState, profiles, reduce, verdictQuestions };
+      })();
+
+      const walkthroughs = [
+        {
+          id: "accepted",
+          label: "Accepted Result",
+          profile: "accepted",
+          intro: "Follow the only path that may return a complete Result. Watch the candidate wait for both Evidence and teardown proof.",
+          steps: [
+            ["PARSE_RUN_SPEC", "Accept the fixed wire input"],
+            ["PROBE_CAPABILITIES", "Require fresh evidence"],
+            ["AUTHORIZE", "Apply the eligibility matrix"],
+            ["CREATE_SANDBOX", "Attest the exact instance"],
+            ["PREPARE_INPUTS", "Protect narrative and broker credentials"],
+            ["RUN_SIMULATED_PASS", "Execute the fixture Reviewer"],
+            ["VALIDATE_CANDIDATE", "Validate the internal Adapter output"],
+            ["CROSS_CHECK_EVIDENCE", "Promote claimed data to Evidence"],
+            ["TEARDOWN", "Prove no residue remains"],
+            ["FINALIZE", "Construct and reparse Result"],
+          ],
+        },
+        {
+          id: "refusal",
+          label: "Boundary Refusal",
+          profile: "boundaryRefusal",
+          intro: "Break credential brokering before the Reviewer starts. The Sandbox still needs cleanup before the Refusal can return.",
+          steps: [
+            ["PARSE_RUN_SPEC", "Accept the fixed wire input"],
+            ["PROBE_CAPABILITIES", "Require fresh evidence"],
+            ["AUTHORIZE", "Apply the eligibility matrix"],
+            ["CREATE_SANDBOX", "Create the pre-execution instance"],
+            ["PREPARE_INPUTS", "Detect the credential violation"],
+            ["TEARDOWN", "Clean up, then return Refusal"],
+          ],
+        },
+        {
+          id: "evidence",
+          label: "Evidence Failure",
+          profile: "evidenceMismatch",
+          intro: "Let execution begin, then remove the observed counterpart to claimed Evidence. The outcome is Failure, never downgraded Verification.",
+          steps: [
+            ["PARSE_RUN_SPEC", "Accept the fixed wire input"],
+            ["PROBE_CAPABILITIES", "Require fresh evidence"],
+            ["AUTHORIZE", "Apply the eligibility matrix"],
+            ["CREATE_SANDBOX", "Attest the exact instance"],
+            ["PREPARE_INPUTS", "Protect inputs and credentials"],
+            ["RUN_SIMULATED_PASS", "Execute the fixture Reviewer"],
+            ["VALIDATE_CANDIDATE", "Validate the internal output"],
+            ["CROSS_CHECK_EVIDENCE", "Expose the mismatch"],
+            ["TEARDOWN", "Clean up after Failure"],
+          ],
+        },
+        {
+          id: "teardown",
+          label: "Teardown Failure",
+          profile: "teardownResidue",
+          intro: "Reach a valid candidate Result, then leave labeled residue. The candidate is discarded and the local capability is quarantined.",
+          steps: [
+            ["PARSE_RUN_SPEC", "Accept the fixed wire input"],
+            ["PROBE_CAPABILITIES", "Require fresh evidence"],
+            ["AUTHORIZE", "Apply the eligibility matrix"],
+            ["CREATE_SANDBOX", "Attest the exact instance"],
+            ["PREPARE_INPUTS", "Protect inputs and credentials"],
+            ["RUN_SIMULATED_PASS", "Execute the fixture Reviewer"],
+            ["VALIDATE_CANDIDATE", "Validate the internal output"],
+            ["CROSS_CHECK_EVIDENCE", "Construct a candidate Result"],
+            ["TEARDOWN", "Find residue and quarantine"],
+          ],
+        },
+      ];
+
+      let state = SimulatedPassMachine.initialState();
+      let activeWalkthrough = walkthroughs[0].id;
+      const walkthroughProgress = Object.fromEntries(walkthroughs.map((w) => [w.id, new Set()]));
+
+      function dispatch(action) {
+        state = SimulatedPassMachine.reduce(state, action);
+        render();
+      }
+
+      function fieldCard(label, value, detail = "") {
+        return `<div class="state-card"><span>${label}</span><strong>${value}</strong>${detail ? `<small>${detail}</small>` : ""}</div>`;
+      }
+
+      function outcomeView(outcome) {
+        const labels = {
+          pending: ["No outcome yet", "Pending", ""],
+          pending_refusal: ["Refusal pending cleanup", "Pending refusal", "refusal"],
+          result: ["Normalized Result", "Result", "result"],
+          refusal: ["Explicit Refusal", "Refusal", "refusal"],
+          failure: ["Execution Failure", "Failure", "failure"],
+        };
+        return labels[outcome.kind] || labels.pending;
+      }
+
+      function renderState() {
+        const [title, badge, badgeClass] = outcomeView(state.outcome);
+        document.querySelector("#outcome-title").textContent = title;
+        document.querySelector("#outcome-detail").textContent = state.outcome.detail;
+        const badgeEl = document.querySelector("#outcome-badge");
+        badgeEl.textContent = badge;
+        badgeEl.className = `badge ${badgeClass}`.trim();
+
+        document.querySelector("#state-grid").innerHTML = [
+          fieldCard("Phase", state.phase.replaceAll("_", " ")),
+          fieldCard("RunSpec", state.runSpec.replaceAll("_", " "), "@reprove/protocol/v1"),
+          fieldCard("Authorization", state.authorization.replaceAll("_", " "), "Worker core owns the decision"),
+          fieldCard("Sandbox", state.sandbox.replaceAll("_", " "), state.quarantined ? "Capability quarantined" : "Local provider"),
+          fieldCard("Inputs", state.inputs.replaceAll("_", " "), "Narrative and credential boundary"),
+          fieldCard("Pass", state.pass.replaceAll("_", " "), `${state.harnessStarts} fixture Reviewer start(s)`),
+          fieldCard("Evidence", state.evidence.replaceAll("_", " "), "Claim versus observed activity"),
+          fieldCard("Cleanup", state.cleanup.replaceAll("_", " "), "Result waits for this"),
+        ].join("");
+
+        document.querySelector("#raw-state").textContent = JSON.stringify(state, null, 2);
+      }
+
+      function renderProfiles() {
+        document.querySelector("#profile-row").innerHTML = Object.entries(SimulatedPassMachine.profiles)
+          .map(
+            ([id, profile]) => `
+              <button class="profile-button" type="button" data-profile="${id}" aria-pressed="${state.profile === id}">
+                ${profile.label}
+              </button>`,
+          )
+          .join("");
+      }
+
+      function renderActions() {
+        document.querySelector("#actions").innerHTML = SimulatedPassMachine.actions
+          .map(
+            ([type, label, description]) => `
+              <button class="action-button" type="button" data-action="${type}">
+                ${label}<small>${description}</small>
+              </button>`,
+          )
+          .join("");
+      }
+
+      function renderWalkthroughs() {
+        document.querySelector("#tabs").innerHTML = walkthroughs
+          .map(
+            (walkthrough) => `
+              <button
+                type="button"
+                role="tab"
+                id="tab-${walkthrough.id}"
+                aria-controls="panel-${walkthrough.id}"
+                aria-selected="${activeWalkthrough === walkthrough.id}"
+                tabindex="${activeWalkthrough === walkthrough.id ? 0 : -1}"
+                data-tab="${walkthrough.id}"
+              >${walkthrough.label}</button>`,
+          )
+          .join("");
+
+        document.querySelector("#panels").innerHTML = walkthroughs
+          .map((walkthrough) => {
+            const progress = walkthroughProgress[walkthrough.id];
+            return `
+              <div
+                role="tabpanel"
+                id="panel-${walkthrough.id}"
+                aria-labelledby="tab-${walkthrough.id}"
+                ${activeWalkthrough === walkthrough.id ? "" : "hidden"}
+              >
+                <p class="walkthrough-intro">${walkthrough.intro}</p>
+                <button class="profile-button" type="button" data-start="${walkthrough.id}">
+                  Start this walkthrough
+                </button>
+                <div class="steps">
+                  ${walkthrough.steps
+                    .map(
+                      ([action, label], index) => `
+                        <div class="step ${progress.has(index) ? "done" : ""}">
+                          <span class="step-number">${index + 1}</span>
+                          <div><strong>${label}</strong><p>${action.replaceAll("_", " ").toLowerCase()}</p></div>
+                          <button class="step-button" type="button" data-step="${walkthrough.id}:${index}:${action}">
+                            Run step
+                          </button>
+                        </div>`,
+                    )
+                    .join("")}
+                </div>
+              </div>`;
+          })
+          .join("");
+      }
+
+      function renderTrace() {
+        document.querySelector("#trace").innerHTML = [...state.history]
+          .reverse()
+          .map(
+            (event) => `
+              <li>
+                <b>${event.accepted ? event.action : "BLOCKED"}</b>
+                <span>${event.message}</span>
+              </li>`,
+          )
+          .join("");
+      }
+
+      function verdictText() {
+        return SimulatedPassMachine.verdictQuestions
+          .map((question) => `- ${question.title}: ${state.verdicts[question.id] || "Unanswered"}`)
+          .join("\n");
+      }
+
+      function renderVerdicts() {
+        document.querySelector("#verdicts").innerHTML = SimulatedPassMachine.verdictQuestions
+          .map(
+            (question) => `
+              <article class="verdict-card">
+                <h3>${question.title}</h3>
+                <p>${question.question}</p>
+                <div class="verdict-options">
+                  ${question.options
+                    .map(
+                      (answer) => `
+                        <button
+                          class="verdict-button"
+                          type="button"
+                          data-verdict-question="${question.id}"
+                          data-verdict-answer="${answer}"
+                          aria-pressed="${state.verdicts[question.id] === answer}"
+                        >${answer}</button>`,
+                    )
+                    .join("")}
+                </div>
+              </article>`,
+          )
+          .join("");
+        document.querySelector("#verdict-summary").textContent = verdictText();
+      }
+
+      function render() {
+        renderState();
+        renderProfiles();
+        renderActions();
+        renderWalkthroughs();
+        renderTrace();
+        renderVerdicts();
+      }
+
+      document.addEventListener("click", (event) => {
+        const profile = event.target.closest("[data-profile]");
+        if (profile) {
+          dispatch({ type: "RESET", profile: profile.dataset.profile });
+          return;
+        }
+
+        const action = event.target.closest("[data-action]");
+        if (action) {
+          dispatch({ type: action.dataset.action });
+          return;
+        }
+
+        const tab = event.target.closest("[data-tab]");
+        if (tab) {
+          activeWalkthrough = tab.dataset.tab;
+          renderWalkthroughs();
+          document.querySelector(`#tab-${activeWalkthrough}`).focus();
+          return;
+        }
+
+        const start = event.target.closest("[data-start]");
+        if (start) {
+          const walkthrough = walkthroughs.find((item) => item.id === start.dataset.start);
+          walkthroughProgress[walkthrough.id].clear();
+          dispatch({ type: "RESET", profile: walkthrough.profile });
+          return;
+        }
+
+        const step = event.target.closest("[data-step]");
+        if (step) {
+          const [walkthroughId, index, actionType] = step.dataset.step.split(":");
+          dispatch({ type: actionType });
+          walkthroughProgress[walkthroughId].add(Number(index));
+          renderWalkthroughs();
+          return;
+        }
+
+        const verdict = event.target.closest("[data-verdict-question]");
+        if (verdict) {
+          dispatch({
+            type: "SET_VERDICT",
+            question: verdict.dataset.verdictQuestion,
+            answer: verdict.dataset.verdictAnswer,
+          });
+        }
+      });
+
+      document.querySelector("#tabs").addEventListener("keydown", (event) => {
+        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+        event.preventDefault();
+        const index = walkthroughs.findIndex((item) => item.id === activeWalkthrough);
+        let nextIndex = index;
+        if (event.key === "ArrowRight") nextIndex = (index + 1) % walkthroughs.length;
+        if (event.key === "ArrowLeft") nextIndex = (index - 1 + walkthroughs.length) % walkthroughs.length;
+        if (event.key === "Home") nextIndex = 0;
+        if (event.key === "End") nextIndex = walkthroughs.length - 1;
+        activeWalkthrough = walkthroughs[nextIndex].id;
+        renderWalkthroughs();
+        document.querySelector(`#tab-${activeWalkthrough}`).focus();
+      });
+
+      document.querySelector("#copy-verdict").addEventListener("click", async () => {
+        const status = document.querySelector("#copy-status");
+        try {
+          await navigator.clipboard.writeText(verdictText());
+          status.textContent = "Copied";
+        } catch {
+          status.textContent = "Copy unavailable. Select the text above.";
+        }
+      });
+
+      window.SimulatedPassMachine = SimulatedPassMachine;
+      render();
+    </script>
+  </body>
+</html>
