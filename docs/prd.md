@@ -1100,6 +1100,14 @@ file rather than restating terms from memory.
   the words "unattended" or "webhook-triggered", and Anthropic notes that advertised limits
   *"assume ordinary, individual usage"*. Reprove records this combination as **unaddressed
   rather than blessed or prohibited**, and does not resolve it on the user's behalf.
+- **This ground moves.** Anthropic changed position four times between January and June 2026 -
+  client blocks, then formal terms language, then full enforcement against third-party tools,
+  then an announced reversal, then a pause on the day that reversal was to take effect, still
+  unresolved. Its live documentation currently contradicts itself on whether subscription
+  credentials may back third-party Agent SDK usage. **None of that touches the clause Reprove
+  relies on** - the Native Auth Route runs the unmodified CLI, not the Agent SDK - but it is
+  why no Reprove document may describe any of this as settled, and why the constraints here
+  cite URLs rather than dates.
 
 **What Reprove does not claim.** That subscription authentication is a cost-avoidance
 strategy, that it will remain available, or that any Route is safe for `external` Provenance
@@ -1748,7 +1756,9 @@ in [`docs/research/provider-auth-and-usage.md`](research/provider-auth-and-usage
 Five limits on the claim, all of which must survive any rewording:
 
 1. **It is a current capability, not a guarantee** about future provider pricing, limits, or
-   authentication policy. Providers may change any of these at any time.
+   authentication policy. This is evidenced rather than cautious boilerplate: one provider
+   changed its position on subscription-backed third-party usage four times in seven months and
+   is currently paused mid-change (§22).
 2. **It does not apply to the Brokered Harness Route.** Hosted Runs use managed API/Gateway
    authentication and are metered accordingly.
 3. **It is not a claim that Reprove is cheaper**, and never a comparison against a named

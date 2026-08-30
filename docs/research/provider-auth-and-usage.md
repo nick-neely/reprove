@@ -24,6 +24,11 @@ off the subscription and onto API billing).
 **[V] Anthropic's carve-out is broader than previously recorded**, and it explicitly survives
 platform hosting - with conditions Reprove already satisfies by construction.
 
+**[V] But Anthropic's position is actively in flux and currently paused mid-change.** It has
+moved four times in seven months (§5). The **unmodified-CLI carve-out Reprove depends on has
+not moved**, and the reversals concern Agent SDK and third-party-app usage, which the Native
+Auth Route does not use - but nothing here should be described as settled.
+
 **[V] OpenAI's automation guidance is more cautionary than previously recorded**, and one line
 in it lands directly on Reprove: *"Do not use this workflow for public or open-source
 repositories."* See §5 - this is the one finding here that constrains the product rather than
@@ -86,19 +91,22 @@ your chat experience but doesn't include access to the Claude API or Console."*
 
 ## 4. OpenCode
 
-**[V]** Three distinct paths, per [opencode.ai/docs/go](https://opencode.ai/docs/go/):
+**[V]** Three coexisting and genuinely distinct paths:
 
-- **BYOK** - the open-source CLI connects directly to providers with the user's own keys. Cost
-  is whatever that provider charges. This is the base case.
-- **OpenCode Go** - a $10/month subscription (first month $5) over a curated set of ~20-25
-  open-weight coding models, with dollar-denominated caps: *"5 hour limit - $12 of usage,"*
-  *"Weekly limit - $30 of usage,"* *"Monthly limit - $60 of usage."* One subscriber per
-  workspace.
+- **BYOK, the base case.** *"OpenCode uses the AI SDK and Models.dev to support 75+ LLM
+  providers"* via the user's own keys ([opencode.ai/docs/providers](https://opencode.ai/docs/providers)).
+  Cost is whatever that provider charges. Zen is *"completely optional to use."*
+- **OpenCode Go** - *"a low cost $10/month subscription… generous limits and reliable access to
+  the most capable open source models,"* usable *"with OpenCode or any agent"*
+  ([opencode.ai/go](https://opencode.ai/go)). Curated open-weight models, dollar-denominated
+  caps (*"5 hour limit - $12 of usage,"* *"Weekly limit - $30 of usage,"* *"Monthly limit - $60
+  of usage"*), one subscriber per workspace.
 - **OpenCode Zen** - separate pay-as-you-go prepaid balance over curated frontier models.
 
-**Lower confidence than §2-3.** These figures came from a documentation fetch rather than a
-raw-page read, and the frequently repeated "zero markup" framing for Zen could **not** be
-confirmed on a primary page. Do not repeat it.
+**[I] OpenCode is the least constrained of the three Harnesses** for Reprove's purposes: BYOK is
+an ordinary provider key with no subscription-terms question attached, and neither Zen nor Go
+carries anything resembling OpenAI's or Anthropic's automation restrictions. **Do not repeat
+the widely quoted "zero markup" framing for Zen** - it could not be confirmed on a primary page.
 
 ## 5. Automation, CI, and unattended use
 
@@ -180,13 +188,60 @@ Run is not obviously "ordinary, individual usage." Neither vendor's documentatio
 words "unattended" or "webhook-triggered" at all. This specific combination remains
 **unaddressed rather than blessed or prohibited**, and Reprove should keep saying so.
 
-**Date not verified.** The February 2026 dating of this clarification is widely reported by
-secondary sources but carries no dated stamp on the primary page. **Cite the URL, not a date.**
+### Anthropic's position is actively unstable, and that is the finding
+
+Do not cite the legal-and-compliance language as a settled position. It is one move in an
+ongoing sequence that has reversed twice and is currently paused:
+
+| Date | What happened | Evidence |
+|---|---|---|
+| 2026-01-09 | Server-side blocks deployed against third-party clients spoofing the Claude Code client. Enforcement, no policy text. | Secondary only |
+| ~2026-02-19 | "Authentication and credential use" language added to the legal-and-compliance page (§5 above). | **[V]** page live; **date secondary** |
+| 2026-04-04 | Full enforcement: Pro/Max/Team subscriptions stopped covering third-party tools. One-time credit issued as compensation. | Secondary only - no Anthropic-hosted announcement found |
+| 2026-05-13 | Reversal announced: a separate monthly "Agent SDK credit" ($20 Pro / $100 Max 5x / $200 Max 20x) explicitly covering third-party apps authenticating with a Claude subscription, effective 2026-06-15. | **[V]** via the page below |
+| 2026-06-15 | **Paused on the day it was to take effect.** Unresolved as of 2026-08-29. | **[V]** live banner |
+
+The live banner, verbatim, from
+[support.claude.com/en/articles/15036540](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan):
+
+> "**Update June 15:** We're pausing the changes to Claude Agent SDK usage described below. For
+> now, nothing has changed: Claude Agent SDK, `claude -p`, and third-party app usage still draw
+> from your subscription's usage limits. The previously announced monthly credit… isn't
+> available. We're working to update the plan to better support how users build with Claude
+> subscriptions. When we have an update, we'll share it before anything takes effect."
+
+**[V] Anthropic's live documentation currently contradicts itself.** The legal-and-compliance
+page says Agent SDK developers *"should use API key authentication"* and that Anthropic does not
+permit routing requests through subscription credentials *"on behalf of their users."* The
+Agent SDK article treats a user's own OAuth-authenticated third-party usage as normal and
+sanctioned. **[I]** The likely reconciliation is that the legal page targets a *developer*
+pooling or reselling *other people's* usage, while an *individual* running a tool under their
+own session is the Agent SDK article's case - but Anthropic has published nothing reconciling
+them. Treat the ambiguity as real and current, not as stale reporting.
+
+**[I] Two things follow for Reprove, and they point in opposite directions.**
+
+1. **The instability does not invalidate the carve-out.** Reprove's Native Auth Route invokes
+   the **unmodified `claude` CLI**, not the Agent SDK. The entire reversal sequence above is
+   about Agent SDK and third-party-app usage; the CLI carve-out in §5 is a different clause and
+   has not moved. Reprove is on the more stable side of this line, and deliberately so.
+2. **It is decisive evidence for the guardrail.** "A current capability, not a guarantee about
+   future provider pricing, limits, or authentication policy" is not boilerplate caution - this
+   provider changed position four times in seven months and is currently paused mid-change.
+   Any Reprove document that implies permanence is contradicted by the record.
+
+**Dates.** Only the 2026-06-15 pause is verified from a dated primary element. The February
+and April dates rest on secondary reporting. **Cite URLs, not dates.**
 
 ## 6. Not verified
 
-- Numeric usage allowances for any plan, from either vendor.
+- Numeric usage allowances for any plan, from either vendor. Both deliberately publish these on
+  pricing pages instead. **Never quote a figure.**
 - OpenCode Zen's "zero markup" pricing framing.
-- The precise date of Anthropic's authentication clarification.
+- The 2026-02 and 2026-04 dates in the Anthropic timeline - secondary reporting only. Only the
+  2026-06-15 pause is verified from a dated primary element.
+- How Anthropic reconciles its legal-and-compliance page with its Agent SDK article. The
+  contradiction is live and unexplained.
 - Any vendor statement specifically addressing unattended or webhook-triggered subscription
-  usage. Its absence is itself the finding.
+  usage. **Its absence is itself the finding**, and it is the reason Reprove records this
+  combination as unaddressed rather than permitted.
