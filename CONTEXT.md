@@ -107,8 +107,10 @@ _Avoid_: ReviewAgent, agent, bot
 
 **Adapter**:
 Reprove's per-Harness code, driving a Harness by whichever Route applies and supplying what no
-Route provides: the model catalogue, the capability descriptor, and validation of the Result.
-A Route is an implementation detail of an Adapter, not something its callers choose between.
+Route provides: the capability descriptor, the Reviewer's instructions, and validation of the
+Result. It runs Worker-side, outside the Sandbox, and treats model identifiers as opaque strings -
+the catalogue is the control plane's. A Route is an implementation detail of an Adapter, not
+something its callers choose between.
 _Avoid_: driver, plugin, integration
 
 **Author**:
@@ -157,11 +159,25 @@ The install, build, test and typecheck commands a repository declares for its ow
 which a Reviewer may run while verifying.
 _Avoid_: checks, validation commands, scripts
 
+**Refusal**:
+A decision not to dispatch, made before execution begins, because a requirement was not met: a
+missing hard Sandbox property, an ineligible combination of Exposure, Isolation and Provenance, or
+a capability probe too stale to trust. It names the requirement that failed rather than degrading
+quietly, and it is a protocol message rather than a log line.
+_Avoid_: rejection, denial, error
+
+**Failure**:
+The outcome of a Run or Pass that began executing and could not produce an acceptable Result. It is
+distinct from a Refusal, which happens before dispatch, and from a Review carrying no Findings,
+which is a success.
+_Avoid_: error, crash, abort
+
 ### Controls
 
 **Autonomy**:
 What a Reviewer is permitted to do, as a ladder: `inspect` may read, `verify` may execute,
-`fix` may mutate the Workspace.
+`fix` may mutate the Workspace. A level is offered only where it can be enforced, so a Harness
+that cannot be restricted does not advertise the levels it cannot honour.
 _Avoid_: mode, review mode, permission level
 
 **Strategy**:
