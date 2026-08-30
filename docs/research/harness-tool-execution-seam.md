@@ -20,7 +20,7 @@ The honest breakdown, because "no" is too coarse:
 
 **The goal behind (a) is achievable, and the answer is better than (a) would have been.** `@ai-sdk/harness` inverts the arrangement: the agent CLI, the repo, and anything the repo executes all live inside the sandbox together with a **randomly generated placeholder credential**, while the real API key stays on the host and is spliced into outbound requests by an egress proxy outside the sandbox boundary. Untrusted PR code that reads every file and environment variable in its box finds `aisdkhc_<43 chars of base64url>` and nothing else.
 
-That is the "credential broker" bullet already listed in `docs/prd.md` §24. The PRD's drawn "potential architecture" (agent outside, restricted tool bridge inward) is the one alternative in that list that does not exist off the shelf. **Strike it and adopt the broker.**
+That is the "credential broker" bullet already listed in `docs/prd.md` §23 (§24 when this note was written; the PRD renumbered in [#9](https://github.com/nick-neely/reprove/issues/9)). The PRD's drawn "potential architecture" (agent outside, restricted tool bridge inward) is the one alternative in that list that does not exist off the shelf. **Strike it and adopt the broker.**
 
 Three things this does not fix, all load-bearing:
 

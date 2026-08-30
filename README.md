@@ -2,11 +2,11 @@
 
 **Open-source agentic code review for GitHub pull requests.**
 
-Reprove turns established coding agents - Codex, Claude Code, OpenCode - into
-autonomous PR reviewers, validators, and optional fixers. Instead of piping a
-diff into a review-only LLM, it gives a real coding agent a real repository
-environment: inspect the code, question the change, run the build and tests,
-verify the finding, and only then report it.
+Reprove turns the coding agents you already work with - Codex, Claude Code,
+OpenCode - into autonomous PR reviewers, validators, and optional fixers.
+Instead of piping a diff into a review-only LLM, it gives a real coding agent a
+real repository environment: inspect the code, question the change, run the
+build and tests, verify the finding, and only then report it.
 
 ```text
 inspect → question → execute → verify → fix → re-prove
@@ -17,19 +17,27 @@ no code has been written yet.
 
 ## Why
 
-Most AI reviewers make the model and the review architecture the vendor's
-choice. Reprove makes them yours:
+Your reviewer should be the agent you already trust to write the code. Most AI
+reviewers make the model and the review architecture the vendor's choice;
+Reprove makes them yours:
 
-- **Harness choice** - Codex, Claude Code, or OpenCode.
+- **The agents you already use** - the same Codex, Claude Code, or OpenCode
+  your team builds with, reviewing the pull request with the same
+  capabilities: repository exploration, shell access, builds, tests, and
+  one-off reproduction scripts.
+- **Harness choice** - Codex, Claude Code, or OpenCode, behind one adapter.
 - **Model choice** - wherever the harness supports it, including OpenCode's
   broad provider support.
-- **Execution choice** - a self-hosted worker on your infrastructure, or a
-  hosted Vercel Sandbox.
-- **Bring your own setup** - use the agent authentication and subscriptions
-  you already have; self-hosted provider credentials never reach the control
-  plane.
 - **Verified findings** - the agent runs code to confirm a hypothesis before
-  it becomes a review comment.
+  it becomes a review comment, and a finding carries how far that got.
+- **Hosted or self-hosted** - a hosted worker running the same harnesses as a
+  managed service on brokered API/Gateway authentication, or a self-hosted
+  worker on your infrastructure that invokes your installed, unmodified CLI
+  with authentication you manage. That authentication never reaches the
+  control plane.
+- **Credential isolation** - untrusted repository code never shares an
+  execution environment with a password-equivalent agent credential. It is
+  what makes the rest safe to run on code you did not write.
 
 ## How it works
 
@@ -66,14 +74,18 @@ Three modes of increasing autonomy:
 
 ## Stack
 
-TypeScript, Node.js 22+ (ESM), AI SDK 7 `HarnessAgent`, Octokit, Vercel
-Sandbox and AI Gateway for hosted execution. Control-plane framework,
+TypeScript, Node.js 22+ (ESM), Octokit, and two invocation routes behind one
+adapter - AI SDK 7 `@ai-sdk/harness` with a brokered credential, or the
+installed CLI with authentication you manage. Vercel Sandbox and AI Gateway
+for hosted execution. Control-plane framework,
 database, and queue are still open - see the [PRD](docs/prd.md).
 
 ## Docs
 
 - [Product Requirements Document](docs/prd.md) - full product definition,
   architecture, roadmap, and open questions.
+- [Competitive landscape](docs/research/competitive-landscape.md) - a dated
+  survey of who else reviews pull requests with coding agents.
 
 ## Contributing
 

@@ -67,11 +67,10 @@ Review + validation + optional fixes
 
 Goals:
 
-- use existing coding-agent authentication where supported;
-- allow existing Codex or Claude subscriptions where supported;
+- run the Harnesses the user already has installed and authenticated;
+- use the authentication the user manages, whatever form it takes;
 - allow OpenCode provider/model configuration;
-- keep provider credentials on user-controlled infrastructure;
-- avoid forcing users to purchase separate model usage from Reprove.
+- keep provider credentials on user-controlled infrastructure, and out of the control plane.
 
 ### Hosted sandbox
 
@@ -218,28 +217,30 @@ This is a meaningful competitive distinction. CodeRabbit intentionally does not 
 
 ---
 
-## 4.4 Bring your existing AI setup
+## 4.4 Use the coding agents you already work with
 
-Self-hosted users can potentially use:
+The reviewer is not a new tool to evaluate. It is the Harness your team already builds with,
+pointed at the pull request.
 
 ```text
-Codex
-→ existing Codex / ChatGPT authentication
-
-Claude Code
-→ existing Claude authentication
-
-OpenCode
-→ existing provider configuration
+Codex        → the Codex you already use
+Claude Code  → the Claude Code you already use
+OpenCode     → the OpenCode you already use
 ```
 
+What "already use" covers depends on which Worker runs the Run:
+
+- **Self-hosted Worker.** The Harness, the Model, the authentication you manage, your
+  configuration, and your environment. The Native Auth Route invokes the installed,
+  unmodified CLI; Reprove never receives that authentication. See §22.
+- **Hosted Worker.** The same Harnesses and the same Model choice, run as a managed service
+  with brokered API/Gateway authentication and no setup to operate.
+
+The continuity that matters is the Harness. A Reviewer that is the same program your team
+already trusts to write code inherits its judgment about your repository - its conventions,
+its build, its tests - rather than approximating them from a diff.
+
 OpenCode additionally supports a broad provider catalog, custom providers, and local models.
-
-Exact unattended subscription usage remains:
-
-**[Needs Validation per provider]**
-
----
 
 ## 4.5 Open model/provider path through OpenCode
 
@@ -989,7 +990,7 @@ Supported platforms:
 
 # 22. Self-Hosted Authentication
 
-Provider credentials remain on the worker.
+Provider credentials remain on the Worker.
 
 The control plane knows:
 
@@ -1026,7 +1027,7 @@ Receive review jobs
 Example:
 
 ```text
-$ review-agent status
+$ reprove status
 
 Codex       ✓ authenticated
 Claude Code ✓ authenticated
@@ -1035,32 +1036,43 @@ OpenCode    ✓ configured
 Worker      ✓ connected
 ```
 
+## Provider authentication constraints
+
+State the mechanism plainly, and state what each provider has actually published. Reprove
+neither interprets a provider's terms on the user's behalf nor promises that any
+authentication path is cheaper, permanent, or guaranteed to remain supported.
+
+**What Reprove does.** A self-hosted Worker invokes the user's installed, unmodified Codex,
+Claude Code, or OpenCode CLI using authentication the user manages - the Native Auth Route
+([ADR 0003](adr/0003-two-invocation-routes.md)). Reprove does not receive, store, proxy, or
+intermediate that authentication: no ChatGPT token, no Claude token, no `~/.codex/auth.json`,
+no provider key, no credential cache reaches the control plane. Hosted Runs never use this Route; they use the Brokered Harness
+Route with managed API/Gateway authentication.
+
+**What the providers have documented.**
+
+- **OpenAI** explicitly documents ChatGPT-managed Codex authentication on automation runners,
+  supported on trusted private infrastructure. The accompanying guidance not to use that
+  workflow for public or open-source repositories is a credential-exposure warning about
+  untrusted code sharing an environment with the credential - the same hazard §23 addresses -
+  rather than a prohibition on account-authenticated automation.
+- **Anthropic** clarified in February 2026 that subscription OAuth tokens may not be used in
+  third-party tools or the Agent SDK. The carve-out is an end user signing in to the
+  unmodified Claude Code binary with their own subscription; a platform *hosting* that must
+  sign Anthropic's Commercial Terms and may not pay for, resell, or intermediate usage.
+  Reprove's hosted Runs stay on Gateway/API authentication and so do not enter that case.
+- **The unattended, webhook-triggered subscription Run** on a self-hosted Worker is the
+  combination Anthropic has not addressed as explicitly as OpenAI has. Reprove records this as
+  unvalidated rather than blessed. Whether a given subscription permits it is between the user
+  and their provider.
+
+**What Reprove does not claim.** That subscription authentication is a cost-avoidance
+strategy, that it will remain available, or that any Route is safe for `external` Provenance
+before the isolation boundary in §23 establishes and verifies it.
+
 ---
 
-# 23. Subscription-Backed Self Hosting
-
-Desired:
-
-```text
-Codex
-→ existing Codex/ChatGPT account
-
-Claude Code
-→ existing Claude account
-
-OpenCode
-→ existing provider configuration
-```
-
-Whether consumer subscription authentication can be used safely and permissibly for unattended workers:
-
-**[Needs Validation per provider]**
-
-Do not assume consumer subscriptions are interchangeable with API credentials.
-
----
-
-# 24. Self-Hosted Security Boundary
+# 23. Self-Hosted Security Boundary
 
 Unsafe:
 
@@ -1094,11 +1106,14 @@ Alternatives:
 
 **[Needs Research]**
 
-This remains one of the primary technical blockers for production-safe self-hosted subscription execution.
+This remains one of the primary technical blockers for production-safe self-hosted execution.
+It is not a subscription problem: an API key worth thousands a month is as password-equivalent
+as a consumer login, and both are equally exposed by sharing an environment with untrusted
+repository code.
 
 ---
 
-# 25. Execution Mode B: Hosted Sandbox
+# 24. Execution Mode B: Hosted Sandbox
 
 ```text
 Control Plane
@@ -1118,7 +1133,7 @@ AI SDK's harness layer is designed to run these established harnesses in sandbox
 
 ---
 
-# 26. OpenCode Configuration
+# 25. OpenCode Configuration
 
 For self-hosted OpenCode users, provider configuration should preferably remain OpenCode's responsibility.
 
@@ -1142,7 +1157,7 @@ Review-specific model overrides may still be useful.
 
 ---
 
-# 27. Review Workflow
+# 26. Review Workflow
 
 ```text
 1. Receive PR event
@@ -1189,7 +1204,7 @@ For multi-agent strategies, steps 9 through 15 may execute through more than one
 
 ---
 
-# 28. Normalized Review Result
+# 27. Normalized Review Result
 
 ```text
 ReviewResult
@@ -1221,7 +1236,7 @@ Do not make parsing arbitrary Markdown the core integration contract.
 
 ---
 
-# 29. Verification Status
+# 28. Verification Status
 
 Potential statuses:
 
@@ -1251,7 +1266,7 @@ This can provide an important trust signal to reviewers.
 
 ---
 
-# 30. Fix Workflow
+# 29. Fix Workflow
 
 ```text
 Finding
@@ -1283,7 +1298,7 @@ GitHub delivery method:
 
 ---
 
-# 31. Repository Configuration
+# 30. Repository Configuration
 
 Potential configuration:
 
@@ -1318,7 +1333,7 @@ Exact schema:
 
 ---
 
-# 32. Repository-Specific Validation
+# 31. Repository-Specific Validation
 
 Repositories may already know the correct verification commands.
 
@@ -1346,7 +1361,7 @@ Final behavior:
 
 ---
 
-# 33. Incremental Reviews
+# 32. Incremental Reviews
 
 Each run binds to:
 
@@ -1369,7 +1384,7 @@ Finding reconciliation algorithm:
 
 ---
 
-# 34. Worker Protocol
+# 33. Worker Protocol
 
 Worker responsibilities:
 
@@ -1395,7 +1410,7 @@ Transport:
 
 ---
 
-# 35. GitHub Repository Access
+# 34. GitHub Repository Access
 
 Private repositories require temporary worker access.
 
@@ -1431,7 +1446,7 @@ Final implementation:
 
 ---
 
-# 36. Security Requirements
+# 35. Security Requirements
 
 ## Both modes
 
@@ -1470,7 +1485,7 @@ Network policy:
 
 ---
 
-# 37. Persistence
+# 36. Persistence
 
 Likely entities:
 
@@ -1497,7 +1512,7 @@ Private repository contents should not be permanently stored unless required.
 
 ---
 
-# 38. Observability
+# 37. Observability
 
 Each run should record:
 
@@ -1532,19 +1547,92 @@ Self-hosted usage visibility:
 
 ---
 
-# 39. Competitive Positioning
+# 38. Competitive Positioning
+
+## The thesis
+
+> **Turn the coding agents you already use into autonomous reviewers.**
+
+Not "another AI reviewer with a better model," and not "a reviewer that happens to support
+several agents." The claim is continuity: the Harness your team already trusts to *write* the
+software becomes the Reviewer that examines it, keeping the general capabilities that made it
+useful in the first place - repository exploration, shell execution, builds, tests, one-off
+scripts, reproduction, verification, and eventually fixes.
+
+Reprove then supplies the product layer that a coding agent does not have on its own:
+
+- GitHub-native automatic review on a pull request;
+- structured Findings anchored to a location;
+- Verification and Evidence semantics, so a claim's standing reflects what the Reviewer did;
+- Harness and Model choice;
+- cross-harness and adversarial Strategies;
+- hosted and self-hosted Workers;
+- credential isolation between the Reviewer's authentication and the code it executes;
+- review UX that fits how the team already reads a pull request;
+- fix and re-verify workflows.
 
 ## Do not position solely around code execution
 
-Modern competitors are increasingly adding execution, verification, and autofix capabilities.
-
-The product should not rely on:
+Execution is no longer a differentiator. Managed reviewers already run code: at least one
+runs its reviews inside an isolated microVM where it writes and executes shell scripts. The
+product must not rely on:
 
 > "We run tests and they don't."
 
-as its primary differentiation.
+## Do not position solely around being multi-harness
 
-## Position around openness, control, and composable general-purpose agents
+Harness choice is also claimed elsewhere, including by open-source projects. Reprove is not
+differentiated by supporting several Harnesses; it is differentiated by what that support is
+*for* - a Reviewer that is the agent you already use, with execution-backed Findings, arriving
+automatically on a pull request, under Strategies that let two Harnesses challenge each other.
+
+## What is actually unclaimed
+
+Four properties, and the position is their combination rather than any one of them:
+
+1. the user's choice of full coding-agent Harnesses as the Reviewer;
+2. cross-harness and adversarial review between them;
+3. a real Workspace in a Sandbox, with execution as the evidentiary basis for a Finding;
+4. both a hosted and a self-hosted Worker, over one GitHub experience.
+
+Individually, each is claimed by somebody. Verified together, they are not - see
+[`docs/research/competitive-landscape.md`](research/competitive-landscape.md), a dated
+snapshot that should be re-verified rather than trusted indefinitely. That survey found
+genuine open-source prior art on three of the four axes, which Reprove should acknowledge
+plainly rather than write around.
+
+One asymmetry is structural rather than a matter of feature parity: **the vendor-native
+reviewers cannot offer Harness choice.** A single-vendor reviewer that let a user pick a
+competitor's coding agent would be shipping that competitor's product. That axis is closed to
+the largest incumbents by construction.
+
+## Hosted and self-hosted state the claim differently
+
+The unifying claim is the **Harness**, not the local setup. Say both halves rather than
+blurring them:
+
+- **Hosted Reprove** runs the same coding-agent Harnesses as a managed service, using
+  brokered API/Gateway authentication.
+- **Self-hosted Reprove** runs those same Harnesses on infrastructure you control, and can
+  use the authentication and configuration you manage.
+
+Hosted preserves the Harness experience; self-hosted additionally preserves your environment
+and authentication. Neither is the lesser tier - hosted targets the same developers with less
+operational work.
+
+## Why credential isolation is not the headline
+
+Reprove's strongest architectural claim is that untrusted repository code never shares an
+execution environment with a password-equivalent Harness credential (§23,
+[`SECURITY.md`](../SECURITY.md)). That is a real differentiator, and it is deliberately not
+the lead.
+
+It is an *enabling* property: it is the reason the product can be trusted, not the reason a
+developer wants it. The first-order reason to want Reprove is that the coding agents you
+already work with become your reviewers. Isolation is what makes that safe to run on code you
+did not write. Lead with the promise; support it with the architecture.
+
+## Positioning against managed reviewers
 
 ### Traditional managed reviewer
 
@@ -1564,7 +1652,7 @@ Provider infrastructure
 Reprove
    ↓
 User chooses:
-  execution
+  worker
   harness
   model
   strategy
@@ -1573,30 +1661,20 @@ User chooses:
 Codex / Claude Code / OpenCode
 ```
 
-Key differentiators:
-
-- open source;
-- harness choice;
-- model choice where supported;
-- self-hosted or hosted execution;
-- existing subscriptions/configuration where supported;
-- broad provider/model flexibility through OpenCode;
-- agentic repository execution;
-- targeted verification;
-- optional remediation;
-- cross-harness/adversarial review;
-- ability to compose multiple agents later;
-- normalized GitHub workflow independent of the runtime.
-
-CodeRabbit explicitly takes a managed-model approach and argues that its users should not need to choose the underlying LLM. Reprove intentionally makes that choice available.
+CodeRabbit explicitly takes a managed-model approach and argues that its users should not need
+to choose the underlying model. Reprove intentionally makes that choice available. That is a
+real difference in philosophy, but it is a supporting argument, not the thesis - and it is the
+wrong primary comparison, because the closest architectural prior art is open source, not
+managed.
 
 ### Core message
 
-> Use the coding agents and models you already trust as autonomous PR reviewers, validators, and optional fixers.
+> Use the coding agents you already work with as autonomous PR reviewers, validators, and
+> optional fixers - with real repository execution behind every finding.
 
 ---
 
-# 40. MVP
+# 39. MVP
 
 Minimum useful loop:
 
@@ -1639,7 +1717,7 @@ Even before GitHub write-back exists, the agent should be allowed to modify its 
 
 ---
 
-# 41. Development Roadmap
+# 40. Development Roadmap
 
 ## Phase 0: Foundation
 
@@ -1821,7 +1899,7 @@ Potential future work begins after this phase:
 
 ---
 
-# 42. Major Open Questions
+# 41. Major Open Questions
 
 ## Blocking
 
@@ -1831,8 +1909,11 @@ Potential future work begins after this phase:
 2. **Self-hosted sandbox**
    - Common sandbox or runtime-specific implementation?
 
-3. **Subscription automation**
-   - Which Codex and Claude authentication workflows are appropriate for unattended workers?
+3. ~~**Subscription automation**~~ - **Resolved.** Reprove states the mechanism and records
+   each provider's published position rather than ruling on their terms; whether a given
+   subscription permits an unattended Run is between the user and their provider. The
+   unattended, webhook-triggered Claude Code subscription case stays marked unvalidated.
+   See §22, *Provider authentication constraints*.
 
 4. **OpenCode configuration**
    - Which provider/model settings should be delegated versus overridden?
@@ -1895,7 +1976,7 @@ Potential future work begins after this phase:
 
 ---
 
-# 43. Core Design Principles
+# 42. Core Design Principles
 
 ## 1. The harness is not just a model backend
 
