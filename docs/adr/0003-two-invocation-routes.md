@@ -1,5 +1,12 @@
 # Two invocation Routes behind the Adapter
 
+> **Partially superseded by [ADR 0004](0004-sandbox-boundary-and-credential-isolation.md):** the
+> Route-based gating clause below is replaced by gating on `Exposure`, `Isolation` and
+> `Provenance`. The substance survives - a co-located user-managed credential still restricts a
+> Run to `internal` Provenance by default - but Route is no longer the axis the control plane
+> decides on, which is what `CONTEXT.md`'s definition of Route always required. Everything else in
+> this ADR stands.
+
 [#3](https://github.com/nick-neely/reprove/issues/3) and [#4](https://github.com/nick-neely/reprove/issues/4)
 independently established that `@ai-sdk/harness` has no subscription authentication: grepping
 `auth.json`, `.credentials`, `oauth`, `ChatGPT` and `subscription` across all three adapters and
@@ -52,9 +59,13 @@ Route serves.
 - **Provenance is a risk classification, not a security guarantee.** `internal` means an attacker
   would have to be a collaborator, which is materially weaker than an open door but is not a closed
   one.
-- **The Native Auth Route serves `internal` Provenance only** by default. Anything else requires an
-  explicit per-Repository opt-in that names the risk.
-  [#10](https://github.com/nick-neely/reprove/issues/10) owns the full policy surface.
+- ~~**The Native Auth Route serves `internal` Provenance only** by default. Anything else requires
+  an explicit per-Repository opt-in that names the risk.~~ **Superseded by
+  [ADR 0004](0004-sandbox-boundary-and-credential-isolation.md)**, which gates on `Exposure` rather
+  than Route: a Native Route Run carrying a `scoped` credential on `container-rootless` Isolation
+  is `external`-eligible by opt-in, and one carrying an `account` credential is `internal`-only
+  with no opt-in at all. [#10](https://github.com/nick-neely/reprove/issues/10) resolved the full
+  policy surface.
 - **A denied Run fails loudly.** The failure is reported through a GitHub Check or status rather
   than a pull request comment, because no review occurred and a comment would imply one did. Falling
   back to the Brokered Route is permitted only when explicitly configured, never inferred. Worker
@@ -83,7 +94,10 @@ Route serves.
   validation and repair path, which is worth landing when that layer is mature rather than new.
 - **This ADR does not fix the Native Auth Route's per-Harness isolation shape.** That is
   [#10](https://github.com/nick-neely/reprove/issues/10)'s, including the conclusion that some
-  native Routes remain credential-co-located and `internal`-only permanently.
+  native Routes remain credential-co-located and `internal`-only permanently. **Resolved by
+  [ADR 0004](0004-sandbox-boundary-and-credential-isolation.md):** the rule is the least-powerful
+  officially supported user-managed credential per Harness, and Codex on a Plus/Pro plan does
+  remain `account`-class and `internal`-only.
 
 ## Considered options
 

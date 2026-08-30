@@ -132,13 +132,24 @@ invocation, not of who operates the Worker; both are open to a self-hosted Worke
 _Avoid_: mode, path, transport, invocation method
 
 **Sandbox**:
-The isolation boundary a Run executes inside: the boundary untrusted repository code must not
-cross outward, and a harness credential must not cross inward. Vercel Sandbox is one implementation.
+The isolation boundary a Run executes inside, defined by properties rather than by a technology:
+its own network, PID and mount namespaces, no host bind mounts and no runtime socket, seccomp and
+resource limits, ephemeral storage, egress only through Reprove's proxy, and teardown after the
+Run. Repository code must not cross it outward; whether a credential sits inside it is what
+Exposure records. A Harness's own sandbox is never this boundary.
 _Avoid_: container, VM, jail
+
+**Isolation**:
+How strongly a Sandbox is separated from its host and from the credential, as a ladder the Worker
+computes and advertises rather than declares: `microvm`, `container-rootless`, `container`. Below
+`container` there is no Sandbox and no Run.
+_Avoid_: isolation level, hardening, security level
 
 **Workspace**:
 The repository checkout inside a Sandbox, pinned to a Run's base and head SHA, which a Reviewer
-may mutate only under `fix` autonomy.
+may mutate only under `fix` autonomy. It is self-contained and sandbox-owned: the Worker
+materializes it with every remote and host reference stripped, so it carries no authority to reach
+GitHub and nothing inside the Sandbox can fetch what the Worker did not put there.
 _Avoid_: working tree, clone, repo
 
 **Project commands**:
@@ -165,6 +176,14 @@ branch of the same Repository and its Author is an owner, member or collaborator
 classifies risk rather than conferring safety - `internal` means an attacker would have to be a
 collaborator, not that there is no attacker.
 _Avoid_: trust level, trusted, author association
+
+**Exposure**:
+What a fully compromised Sandbox would yield, as a ladder: `none` (no usable credential is inside
+it), `scoped` (a model-only credential revocable without disturbing the user's own login),
+`account` (a credential that can act as the user beyond this Run). It is computed from the
+resolved credential rather than configured, and it is the mirror of Provenance: one classifies the
+risk coming in, the other the blast radius going out.
+_Avoid_: credential class, blast radius, risk level
 
 **Threshold**:
 A Repository's policy about which Findings reach GitHub, expressed over Severity and Verification.

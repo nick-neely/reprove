@@ -47,15 +47,53 @@ hosted service to attack. What exists is a specification
 ([`docs/adr/`](docs/adr/)).
 
 Reports against the *design* are in scope and genuinely wanted right now. If you
-read [ADR 0003](docs/adr/0003-two-invocation-routes.md) and see a way through
-the boundary it draws, that is worth more today than it will be after the code
-exists. Design reports may be discussed in the open at our discretion, since
+read [ADR 0003](docs/adr/0003-two-invocation-routes.md) or
+[ADR 0004](docs/adr/0004-sandbox-boundary-and-credential-isolation.md) and see a
+way through the boundary they draw, that is worth more today than it will be
+after the code exists. Design reports may be discussed in the open at our discretion, since
 there is nothing deployed to protect - we will ask you first.
 
 ### Supported versions
 
 None yet. Once releases begin, this table will name the supported ones; until
 then, the `main` branch is the only thing that exists.
+
+## What Reprove claims, and what it does not
+
+The scope list below is only meaningful against a stated posture, so here it is.
+The architecture behind it is
+[ADR 0004](docs/adr/0004-sandbox-boundary-and-credential-isolation.md).
+
+**Three claims, each falsifiable:**
+
+1. **On the Brokered Route, no usable credential enters the Sandbox.** The
+   Sandbox receives a placeholder; the real credential is spliced in at an
+   egress proxy outside it. Upstream this is default-off and degrades on a
+   `console.warn`, so Reprove enforces it with a guard that throws on any
+   non-placeholder value, covered by a regression test.
+2. **The Sandbox has no GitHub authority.** The Worker materializes a
+   self-contained repository with every remote and host reference stripped and
+   copies it in. Nothing inside can fetch, push, or reach a ref the Worker did
+   not put there.
+3. **A weakened posture never runs quietly.** A missing hard requirement is a
+   refusal; a missing strength signal narrows which pull requests the Worker may
+   review. Both are visible in the Worker's advertised capabilities and both
+   surface on a GitHub Check.
+
+**And one non-claim, stated as plainly as the claims: Reprove does not isolate
+repository execution from the Reviewer.** The Harness, the Workspace and any
+code that Workspace runs share one Sandbox. Separating them would require
+relocating a Harness's tool execution, which two of the three Harnesses do not
+support at all. On the Native Auth Route the user's own credential is inside
+that Sandbox and Reprove does not claim otherwise; what bounds the risk there is
+Provenance, Isolation and the credential's revocability, not separation.
+
+**The residual, recorded rather than argued away:** a compromised Sandbox cannot
+steal a brokered credential, but it may spend the Run's remaining budget against
+the endpoint the Run is allowed to reach, or attempt exfiltration through a
+destination the Repository explicitly permitted. Credential brokering converts
+credential *theft* into bounded authorized-service *abuse*. It does not
+eliminate it. Reports that widen those bounds are in scope.
 
 ## Scope
 
@@ -84,12 +122,15 @@ act outside its Autonomy is in scope. Note that repo-local `CLAUDE.md` is loaded
 into the reviewer's context with no upstream way to disable it - see
 [issue #4](https://github.com/nick-neely/reprove/issues/4).
 
-**Provenance misclassification.** Provenance (`internal` vs `external`) gates
-which Route may run. Anything that makes an external pull request classify as
-internal is in scope. Note that `internal` is a *risk classification, not a
-guarantee* - it means an attacker would have to be a collaborator, not that
-there is no attacker - so "a collaborator could abuse it" is a known and
-accepted property rather than a vulnerability.
+**Dispatch-gate misclassification.** Three computed axes decide whether a Run may
+happen at all: `Provenance` (`internal` vs `external`), `Exposure` (what a
+compromised Sandbox would yield) and `Isolation` (how strong the Sandbox is).
+Anything that makes an external pull request classify as internal, understates
+what a credential can do, or overstates a Worker's isolation is in scope, since
+each moves a Run into a cell it should never have reached. Note that `internal`
+is a *risk classification, not a guarantee* - it means an attacker would have to
+be a collaborator, not that there is no attacker - so "a collaborator could abuse
+it" is a known and accepted property rather than a vulnerability.
 
 **Tenancy and access control.** One Owner reading another's Runs, Results,
 Findings, Evidence, Workers or settings. Reprove derives what a User may see
@@ -104,8 +145,10 @@ Installation does not grant.
 self-hosted Worker made to execute a Run it was never assigned, or a Worker
 registration that claims capabilities it does not have.
 
-**Silent downgrade.** Reprove is designed to fail loudly: a denied Route
-surfaces as a failed GitHub Check, never as a quiet fallback to a weaker one.
+**Silent downgrade.** Reprove is designed to fail loudly: a denied dispatch
+surfaces as a failed GitHub Check, never as a quiet fallback to a weaker one,
+and a Worker that misses a hard isolation requirement is refused rather than
+warned about.
 Any path that weakens the security posture of a Run without surfacing it is in
 scope, and we consider this a security property rather than a usability one.
 
