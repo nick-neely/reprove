@@ -1079,15 +1079,22 @@ Two operational consequences follow, and both are product concerns rather than f
 [`docs/research/provider-auth-and-usage.md`](research/provider-auth-and-usage.md); cite that
 file rather than restating terms from memory.
 
-- **OpenAI** documents ChatGPT-account authentication for Codex on automation runners, and
-  frames it narrowly: *"The right way to authenticate automation is with an API key. Use this
-  guide only if you specifically need to run the workflow as your Codex account."* It is
-  described as *"an advanced workflow for enterprise and other trusted private automation"*,
-  conditioned on *"trusted private infrastructure"* and a serialized job stream. **Reprove
-  describes this path as documented and narrow, never as recommended.**
-- **OpenAI additionally excludes public repositories from that workflow:** *"Do not use this
-  workflow for public or open-source repositories."* This constrains Reprove directly and is
-  addressed in §23.
+- **OpenAI documents non-interactive Codex for automation.** *"Non-interactive mode lets you
+  run Codex from scripts (for example, continuous integration (CI) jobs)… You invoke it with
+  `codex exec`"*, and its own use-case list names *"Run as part of a pipeline (CI, pre-merge
+  checks, scheduled jobs)."* This is the mechanism the Native Auth Route uses.
+- **`codex exec` reuses the user's existing login:** *"`codex exec` reuses saved CLI
+  authentication by default."* No credential is supplied by Reprove.
+- **API keys are OpenAI's recommended default for automation:** *"The right way to authenticate
+  automation is with an API key"*, and *"API keys are still the recommended option for most
+  CI/CD jobs."* **Reprove describes the Native Auth Route as documented and supported, never as
+  the provider's recommendation.**
+- **A separate advanced page** documents a different pattern - creating `auth.json` on a trusted
+  machine, placing it on a CI runner, and persisting the refreshed file between jobs - and warns
+  that *"this workflow"* must not be used for public or open-source repositories. **That warning
+  is bound to that pattern**, and the Native Auth Route is not it: nothing is seeded onto a
+  runner, persisted, or refreshed on Reprove's behalf. **Do not generalize it into a
+  repository-visibility restriction.** See §23.
 - **Anthropic** restricts OAuth subscription authentication to ordinary use of native
   applications, and forbids developers from offering Claude.ai login in their own applications,
   routing requests on a user's behalf, or collecting, storing or intermediating credentials or
@@ -1154,22 +1161,44 @@ It is not a subscription problem: an API key worth thousands a month is as passw
 as a consumer login, and both are equally exposed by sharing an environment with untrusted
 repository code.
 
-## Repository visibility is a second axis, and Provenance does not cover it
+## A note on provider automation guidance
 
-Provenance ([ADR 0003](adr/0003-two-invocation-routes.md)) gates the Native Auth Route by
-**author association** - is the head a branch of the same Repository, and is the Author an
-owner, member or collaborator? OpenAI's guidance for account-authenticated Codex constrains a
-different axis entirely: *"Do not use this workflow for public or open-source repositories."*
+OpenAI's guidance for account-authenticated Codex is worth reading precisely, because it is
+easy to over-generalize - an earlier draft of this document did exactly that. What the
+documentation establishes is four narrow facts:
 
-These do not coincide. A public open-source repository whose own maintainer opens a pull
-request from a branch is `internal` Provenance, passes the Native Route gate as currently
-specified, and still sits squarely inside the case OpenAI says not to use. **Provenance alone
-does not implement this guidance**, and Reprove is itself an open-source project whose users
-will predominantly run it on public repositories.
+1. **Non-interactive Codex is explicitly supported for automation**, named for CI, pre-merge
+   checks and scheduled jobs.
+2. **`codex exec` reuses saved CLI authentication by default.**
+3. **API keys are OpenAI's recommended default** for automation.
+4. **A separate advanced page** documents seeding a ChatGPT-managed `auth.json` onto a CI runner
+   and persisting the refreshed file between jobs, and warns that *"this workflow"* must not be
+   used for public or open-source repositories.
 
-Whether the Native Route additionally gates on repository visibility - and whether that gate is
-per-Harness, since it derives from OpenAI's guidance rather than Anthropic's - is an open
-decision, not a settled one. It is not resolved here.
+Reprove's Native Auth Route is fact 1 and 2, not fact 4. The user authenticates their Codex
+installation normally, on infrastructure they control, and the Worker invokes the already
+authenticated CLI:
+
+```text
+The warned-against pattern              The Native Auth Route
+──────────────────────────              ─────────────────────
+codex login on a trusted machine        user logs in to their own Codex
+copy auth.json onto the CI runner       nothing is copied
+persist it between jobs                 nothing is persisted by Reprove
+Codex refreshes it on the runner        the already-authenticated CLI is invoked
+```
+
+One sentence on OpenAI's general auth page - *"Don't expose Codex execution in untrusted or
+public environments"* - is genuinely ambiguous between execution infrastructure and repository
+visibility, and the documentation never disambiguates it. Reprove records both readings rather
+than resolving it in its own favour.
+
+**Nothing in the provider guidance found so far establishes a repository-visibility restriction
+that Reprove must enforce**, and this document does not invent one. What survives is a security
+question rather than a terms question, and it is the same one this section already poses: the
+credential and the untrusted repository code must not share an execution environment. That is
+sharper when the repository is public and anyone may open a pull request, which makes
+repository visibility a **risk input to the isolation design**, not a policy gate on the Route.
 
 ---
 
@@ -1766,11 +1795,10 @@ Five limits on the claim, all of which must survive any rewording:
 4. **Reprove does not exist to circumvent API billing.** The mechanism is the user's own
    authenticated Harness on their own infrastructure; the usage model follows from that,
    rather than being the goal it was designed to reach.
-5. **Provider guidance narrows where the Route is appropriate.** OpenAI describes
-   account-authenticated Codex automation as an advanced workflow for trusted private
-   infrastructure and excludes public and open-source repositories from it outright. Reprove
-   presents the Route as documented and narrow, never as recommended, and never states or
-   implies that it is available for every repository. See §23.
+5. **API keys are the provider's recommended default for automation.** Reprove presents the
+   Native Auth Route as a documented and supported path, never as the one the provider
+   recommends. It does not claim provider endorsement it has not been given - and equally,
+   does not invent restrictions the provider has not stated. See §23.
 
 Never quote a numeric usage allowance. Both vendors deliberately publish limits on pricing
 pages rather than in documentation, precisely because they change.

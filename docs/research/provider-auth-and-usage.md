@@ -29,10 +29,10 @@ moved four times in seven months (§5). The **unmodified-CLI carve-out Reprove d
 not moved**, and the reversals concern Agent SDK and third-party-app usage, which the Native
 Auth Route does not use - but nothing here should be described as settled.
 
-**[V] OpenAI's automation guidance is more cautionary than previously recorded**, and one line
-in it lands directly on Reprove: *"Do not use this workflow for public or open-source
-repositories."* See §5 - this is the one finding here that constrains the product rather than
-supporting it.
+**[V] OpenAI's automation guidance is more cautionary than previously recorded** - API keys are
+its recommended default for automation - **but its public/open-source warning is scoped to a
+specific pattern Reprove does not use**, and must not be read as a general restriction. See §5,
+which was corrected after an initial over-reading.
 
 ---
 
@@ -110,39 +110,113 @@ the widely quoted "zero markup" framing for Zen** - it could not be confirmed on
 
 ## 5. Automation, CI, and unattended use
 
-### OpenAI: API keys are the recommended path, and public repos are excluded
+### OpenAI: four narrow facts, and nothing beyond them
 
-All **[V]**, from
+**Fact 1 - non-interactive Codex is explicitly documented for automation. [V]** From
+[developers.openai.com/codex/noninteractive](https://developers.openai.com/codex/noninteractive):
+
+> "Non-interactive mode lets you run Codex from scripts (for example, continuous integration
+> (CI) jobs) without opening the interactive TUI. You invoke it with `codex exec`."
+
+Its "When to use `codex exec`" list names, verbatim: *"Run as part of a pipeline (CI, pre-merge
+checks, scheduled jobs)."* The same page carries a worked "Autofix CI failures in GitHub
+Actions" example. **[V]** The list does **not** use the words "code review" or "cron"; quote it
+as written.
+
+**Fact 2 - `codex exec` reuses the existing login. [V]** Same page, under "Authenticate in
+automation":
+
+> "`codex exec` reuses saved CLI authentication by default. In CI, it's common to provide
+> credentials explicitly:"
+
+**Fact 3 - API keys are the recommended default for automation. [V]** From
 [learn.chatgpt.com/docs/auth/ci-cd-auth](https://learn.chatgpt.com/docs/auth/ci-cd-auth):
+*"The right way to authenticate automation is with an API key"*, and *"API keys are still the
+recommended option for most CI/CD jobs."*
 
-> "The right way to authenticate automation is with an API key. Use this guide only if you
-> specifically need to run the workflow as your Codex account."
+**Fact 4 - the public/open-source warning, and exactly what it is bound to. [V]** The same page
+states its pattern as five numbered steps:
 
-> "This is an advanced workflow for enterprise and other trusted private automation. API keys
-> are still the recommended option for most CI/CD jobs."
+> "1. Create `auth.json` once on a trusted machine with `codex login`. 2. Put that file on the
+> runner. 3. Run Codex normally. 4. Let Codex refresh the session when it becomes stale.
+> 5. Keep the refreshed `auth.json` for the next run."
+
+and immediately after, in full:
 
 > "Treat `~/.codex/auth.json` like a password: it contains access tokens. Don't commit it,
 > paste it into tickets, or share it in chat. **Do not use this workflow for public or
-> open-source repositories.**"
+> open-source repositories.** If `codex login` is not an option on the runner, seed `auth.json`
+> through secure storage, run Codex on the runner so Codex refreshes it in place, and persist
+> the updated file between runs."
 
-Preconditions it names: *"the runner is trusted private infrastructure"* and *"only one machine
-or serialized job stream will use a given `auth.json` copy."* And from the auth page: *"Use API
-key authentication for programmatic Codex CLI workflows, such as CI/CD jobs. Don't expose
-Codex execution in untrusted or public environments."*
+Its "When to use this" gate is entirely about runner conditions - *"`codex login` cannot run on
+the remote runner"*, *"the runner is trusted private infrastructure"*, *"you can preserve the
+refreshed `auth.json` between runs"*, *"only one machine or serialized job stream will use a
+given `auth.json` copy"* - and its "Operational rules that matter" are `auth.json`-handling
+hygiene throughout.
 
-**[I] Correction to how Reprove had characterized this.** Reading the public-repo line purely
-as a credential-exposure warning was too generous. It sits in a security paragraph, so the
-*motivation* is exposure - but OpenAI states plainly that API keys are "the right way" and this
-path is for "trusted private automation." Reprove should describe account-authenticated Codex
-automation as **documented, supported, and narrow**, never as recommended.
+**[V] Nothing on that page, or anywhere else fetched, generalizes the warning** beyond the
+`auth.json`-on-a-runner pattern. No source states that account-authenticated Codex must not run
+non-interactively against a public repository as a standalone rule.
 
-**[I] This exposes a gap in Reprove's own gating.** Provenance ([ADR 0003](../adr/0003-two-invocation-routes.md))
-classifies by *author association* - is the head a branch of the same Repository, and is the
-Author an owner, member or collaborator? OpenAI's constraint is about **repository
-visibility**, which is a different axis. A public open-source repository whose maintainer opens
-a PR from a branch is `internal` Provenance and would pass the Native Route gate, while sitting
-squarely inside the case OpenAI says not to use. **Provenance alone does not implement this
-guidance.**
+**The one ambiguous sentence. [V]** From [learn.chatgpt.com/docs/auth](https://learn.chatgpt.com/docs/auth),
+in a passage about sign-in methods:
+
+> "Use API key authentication for programmatic Codex CLI workflows, such as CI/CD jobs. Don't
+> expose Codex execution in untrusted or public environments."
+
+**[I] "Public environments" is genuinely ambiguous** and the docs never disambiguate it. It sits
+in a section about *how the process authenticates and runs* rather than about the target
+codebase, and "untrusted or public environments" reads most naturally as infrastructure and
+network trust - matching OpenAI's neighbouring guidance about not running untrusted code in the
+same process environment. But a reader could argue it loosely covers operating against a public
+repository. **Record both readings; do not resolve it in Reprove's favour.** Note also the
+register: the word is *"Don't"*, the same soft imperative used for "don't commit it, paste it
+into tickets" - guidance phrasing, not "must not" or "prohibited."
+
+**Not verified. [V]** No precedence rule was found anywhere for a saved ChatGPT login versus an
+`OPENAI_API_KEY` / `CODEX_API_KEY` environment variable. Unlike Anthropic, which documents that
+an API key wins, **OpenAI's precedence is undocumented** - so a Native Auth Route Worker should
+not assume either way and should verify empirically which credential a Run actually used.
+
+### Read that warning narrowly - what "this workflow" refers to
+
+**[I] Two corrections, in opposite directions, and the second matters more.**
+
+**First**, describing the public-repo line as *purely* a credential-exposure note was too
+generous. OpenAI states plainly that API keys are "the right way" to authenticate automation
+and that the account path is for "trusted private automation." Reprove should call the Native
+Auth Route **documented and supported**, never **recommended**.
+
+**Second - and this reverses an earlier conclusion in this file** - the warning does **not**
+establish that account-authenticated Codex may not be used non-interactively against public
+repositories. "This workflow" is a demonstrative, and its antecedent is what that page
+documents: **seeding a ChatGPT-managed `auth.json` onto a CI/CD runner and persisting it there
+between jobs**, where Codex then refreshes it. The page is titled for that pattern and the
+warning sits inside it.
+
+Reprove's Native Auth Route is a materially different arrangement:
+
+```text
+The documented CI/CD workflow          Reprove's Native Auth Route
+─────────────────────────────          ───────────────────────────
+log in on a trusted machine            user logs in to their own Codex
+copy auth.json to the CI runner        (no credential is copied anywhere)
+persist it between CI jobs             (nothing is seeded or persisted by Reprove)
+Codex refreshes it on the runner       Worker invokes the already-authenticated CLI
+```
+
+**[I] So no repository-visibility restriction is established**, and this file previously drew
+one. That inference has been withdrawn. The correct posture is to record the four narrow facts
+in §5 and go no further. If a source is later found stating that account-authenticated Codex
+itself must not be run non-interactively against public repositories, that would change the
+conclusion - none has been found.
+
+**What survives is a security concern, not a terms one.** The *reason* the warning exists -
+untrusted code sharing an environment with a password-equivalent credential - applies to
+Reprove regardless of who documents it, and is sharper on a public repository where anyone may
+open a pull request. That makes repository visibility **a risk input to the isolation design**
+([#10](https://github.com/nick-neely/reprove/issues/10)), not a policy gate on the Route.
 
 ### Anthropic: the carve-out is explicit, and survives platform hosting
 
