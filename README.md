@@ -78,9 +78,10 @@ database, and queue are still open - see the [PRD](docs/prd.md).
 ## Contributing
 
 Reprove is open source and contributions are welcome. Start with
-[CONTRIBUTING.md](CONTRIBUTING.md) for how the repo is organized, how decisions
-get made, and the DCO sign-off every commit needs. Everyone participating is
-held to the [Code of Conduct](CODE_OF_CONDUCT.md).
+[CONTRIBUTING.md](CONTRIBUTING.md) for how the repo is organized and how
+decisions get made. There is no CLA and no sign-off to remember - open a pull
+request. Everyone participating is held to the
+[Code of Conduct](CODE_OF_CONDUCT.md).
 
 Found a security problem? Do not open an issue - see [SECURITY.md](SECURITY.md).
 

@@ -21,7 +21,6 @@ plainly that you didn't run anything.
 
 ## Checklist
 
-- [ ] Every commit is signed off (`git commit -s`) - see [CONTRIBUTING.md](../blob/main/CONTRIBUTING.md#developer-certificate-of-origin)
 - [ ] Uses the vocabulary in [CONTEXT.md](../blob/main/CONTEXT.md), including its `_Avoid_` lists
 - [ ] Docs this change invalidates are updated in the same PR (PRD, glossary, ADR)
 - [ ] If it contradicts an existing ADR, that is stated explicitly above rather than left silent

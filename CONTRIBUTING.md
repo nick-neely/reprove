@@ -92,50 +92,31 @@ Ordinary contributions do not need to follow that convention.
   say so explicitly rather than silently overriding it.
 - Fill in the pull request template. The "why" matters more than the "what";
   the diff already says what.
-- Every commit needs a DCO sign-off (see below).
 
-## Developer Certificate of Origin
+## Licensing of contributions
 
-Reprove uses the [Developer Certificate of Origin](https://developercertificate.org)
-rather than a Contributor License Agreement. Sign off every commit:
+There is nothing to sign. Reprove requires **no CLA and no DCO sign-off** -
+open a pull request and that is the whole process.
 
-```bash
-git commit -s -m "Your message"
-```
+Contributions are licensed inbound under the same terms as the project's
+outbound license. Apache-2.0 Section 5 says so directly: a contribution
+submitted for inclusion in the work is under the terms of the license, absent
+an explicit statement otherwise. Section 3 carries an explicit patent grant
+from each contributor along with it. So by opening a pull request you are
+licensing that work to the project under [Apache-2.0](LICENSE), and confirming
+you have the right to do so.
 
-That appends a line to the commit message:
+That leaves one consequence worth stating plainly, because it is a promise
+rather than an oversight: **Reprove cannot unilaterally relicense contributed
+code, and does not intend to.** A CLA is the instrument that would grant that
+right, and the project deliberately does not collect one. Reprove Cloud stays
+proprietary by keeping billing and multi-tenant management in unpublished
+packages - by what gets published, not by holding rights over what is
+contributed here.
 
-```text
-Signed-off-by: Your Name <your.email@example.com>
-```
-
-It certifies that you wrote the contribution or otherwise have the right to
-submit it under Apache-2.0. Use your real name and an address you can be
-reached at. If you forget, `git commit --amend -s` fixes the last commit and
-`git rebase --signoff main` fixes a branch.
-
-### Why DCO and not a CLA
-
-A CLA exists to give a project rights that its license does not already grant -
-almost always the right to relicense or dual-license contributed code. Reprove
-does not need that right:
-
-- **Apache-2.0 already grants what a CLA would collect.** Section 5 makes every
-  contribution inbound under the same terms as the outbound license, and Section
-  3 carries an explicit patent grant from each contributor. The gap a CLA
-  usually closes is closed by the license itself.
-- **The open-core boundary is drawn by what gets published, not by what is
-  licensed.** Reprove Cloud stays proprietary by keeping billing and
-  multi-tenant management in unpublished packages, not by holding relicensing
-  rights over this repository. No contribution here ever needs to be relicensed
-  for Cloud to work.
-- **A CLA has a real cost.** It puts a signature step in front of a first-time
-  contributor's one-line fix, and it needs a bot and a signature store to
-  administer. Paying that to acquire a right the project has no use for is a bad
-  trade.
-
-The consequence is deliberate and worth stating plainly: Reprove **cannot**
-unilaterally relicense contributed code, and does not intend to.
+If you are contributing on behalf of an employer, make sure you have the right
+to do that before you open the pull request. That is between you and them; the
+project takes your submission at face value.
 
 ## Reviewing your own work
 
