@@ -1,0 +1,16 @@
+{
+  "name": "prototype-13-run-result-finding",
+  "private": true,
+  "type": "module",
+  "description": "THROWAWAY prototype for wayfinder ticket #13. Not shipped code.",
+  "scripts": {
+    "start": "tsx scenarios.ts"
+  },
+  "dependencies": {
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.0",
+    "tsx": "^4.0.0"
+  }
+}

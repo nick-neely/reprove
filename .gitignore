@@ -31,3 +31,7 @@ Thumbs.db
 coverage/
 .cache/
 .turbo/
+
+# Prototype scratch
+prototypes/**/node_modules/
+prototypes/**/package-lock.json
