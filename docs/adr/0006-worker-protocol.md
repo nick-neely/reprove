@@ -1,5 +1,16 @@
 # The worker protocol and its trust direction
 
+> **Clarified by [ADR 0010](0010-package-graph-and-open-core-boundary.md):** "what the two lifecycles
+> share is the **Result and progress contract and the acceptance code path**" was ambiguous, because
+> "acceptance" named two different operations at two different trust boundaries. What the lifecycles
+> share is the Worker core's Result construction and **Evidence cross-check**, plus the Result and
+> progress contracts. **Acceptance** - the stale-result boundary below - is control-plane-side only
+> and is not something a Worker participates in; both words are now defined in `CONTEXT.md`. This
+> clarifies rather than changes the decision: the boundary was always control-plane-side, which is
+> what makes it hold against a hostile Worker. ADR 0010 also fixes how the compatibility window is
+> expressed (version-family subpaths in `@reprove/protocol`) and splits the two execution lifecycles
+> into sibling packages, `@reprove/worker` and `@reprove/worker-hosted`.
+
 [ADR 0001](0001-one-worker-concept.md) collapsed `ReviewExecutor` and the worker protocol into a
 single **Worker** concept and left one question open: which parts of the protocol the hosted path
 exercises. [ADR 0004](0004-sandbox-boundary-and-credential-isolation.md) then fixed where the

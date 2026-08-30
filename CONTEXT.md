@@ -44,6 +44,14 @@ carrying no Findings publishes no Review at all, because an unfinished review mu
 as a clean bill of health.
 _Avoid_: ReviewResult, output, report
 
+**Acceptance**:
+The control plane's decision to absorb a submitted Result into its Run, permitted only while that
+Run is still eligible to accept one. Acceptance is the stale-result boundary: a Run that is terminal
+or superseded rejects a later Result however the Worker behaves, so a Worker cooperating with a
+cancellation is never what stops a stale result. It is distinct from the validation a Worker
+performs on its own output, and it happens only in the control plane.
+_Avoid_: ingest, absorb, commit, accept a Run
+
 **Pass**:
 One harness invocation inside a Run. A Run is not assumed to be a single Pass; composing
 several is what a Strategy does.
@@ -76,6 +84,13 @@ GitHub cannot anchor - one outside the diff - is not projected as a Comment at a
 structurally in the Review body under the same thresholds.
 _Avoid_: annotation, note
 
+**Reconciliation**:
+The control plane's comparison of a Run's Findings against those of the most recent prior Run that
+published, bucketing them so that a Comment can be suppressed as a duplicate. It is a cross-Run
+operation needing the database, so it never happens on a Worker, and it suppresses a Comment rather
+than a Finding. It is not the Evidence cross-check.
+_Avoid_: dedupe, matching, Finding identity
+
 **Patch**:
 An optional proposed change carried by a Finding. A GitHub suggestion block is one way to
 render a Patch, not another name for it.
@@ -86,6 +101,14 @@ The structured record of what a Reviewer executed while verifying a Finding - th
 code and its output - captured whether the attempt settled the claim or not. A Finding cannot be
 `verified` without it.
 _Avoid_: proof, artifact, logs
+
+**Evidence cross-check**:
+The Worker-side comparison of the Evidence a Reviewer claimed against the tool activity the Adapter
+observed, which is what turns a claim into Evidence Reprove will carry. It runs outside the Sandbox,
+proves only that the Harness observed the execution rather than that its output is trustworthy, and
+never rewrites a Finding's Verification. It is not Reconciliation, which is a cross-Run control-plane
+operation.
+_Avoid_: reconciliation, validation, verification
 
 **Verify**:
 To demonstrate a claim by executing code, whether the claim is a Finding's or a Patch's.
