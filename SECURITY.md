@@ -64,7 +64,7 @@ The scope list below is only meaningful against a stated posture, so here it is.
 The architecture behind it is
 [ADR 0004](docs/adr/0004-sandbox-boundary-and-credential-isolation.md).
 
-**Three claims, each falsifiable:**
+**Four claims, each falsifiable:**
 
 1. **On the Brokered Route, no usable credential enters the Sandbox.** The
    Sandbox receives a placeholder; the real credential is spliced in at an
@@ -79,6 +79,9 @@ The architecture behind it is
    refusal; a missing strength signal narrows which pull requests the Worker may
    review. Both are visible in the Worker's advertised capabilities and both
    surface on a GitHub Check.
+4. **Pull-request-controlled content has no authority.** It cannot enter a
+   privileged instruction or configuration channel, grant tools, change
+   Autonomy, alter permissions or increase the authority available to a Run.
 
 **And one non-claim, stated as plainly as the claims: Reprove does not isolate
 repository execution from the Reviewer.** The Harness, the Workspace and any
@@ -104,6 +107,17 @@ destination the Repository explicitly permitted. Credential brokering converts
 credential *theft* into bounded authorized-service *abuse*. It does not
 eliminate it. Reports that widen those bounds are in scope.
 
+**Pull-request-controlled content has no authority, but it can influence
+reasoning.** Reprove prevents that content from entering privileged instruction
+or configuration channels or from increasing the authority available to a Run.
+Reviewers must still read untrusted code and selected pull request narrative, so
+that content can influence a Model's reasoning within the authority the Run
+already has. Reprove labels that material as non-authoritative review data and
+regression-tests supported Reviewer configurations against adversarial steering,
+but does not guarantee immunity from prompt injection, missed Findings, or false
+Findings. The boundary and the non-claim are specified in
+[ADR 0012](docs/adr/0012-author-controlled-narrative-input.md).
+
 ## Scope
 
 ### In scope
@@ -122,14 +136,21 @@ make Reprove silently run unbrokered is in scope.
 **Sandbox escape.** Anything that lets Workspace code reach the host, the
 control plane, another Owner's Run, or the network beyond the egress allowlist.
 
-**Repository-controlled instructions.** A Reviewer reads the repository under
-review, and some of what it reads is instruction-shaped: `CLAUDE.md`,
-`AGENTS.md`, other harness configuration files, pull request descriptions,
-commit messages, code comments. A crafted repository that makes a Reviewer
-suppress a real Finding, fabricate a false one, run an attacker's command, or
-act outside its Autonomy is in scope. Note that repo-local `CLAUDE.md` is loaded
-into the reviewer's context with no upstream way to disable it - see
-[issue #4](https://github.com/nick-neely/reprove/issues/4).
+**Privileged-channel or authority injection.** Reprove suppresses head-controlled
+Harness instructions and configuration, then re-admits only selected base-ref
+conventions through a subordinate trusted channel, as specified by
+[ADR 0009](docs/adr/0009-repo-controlled-instruction-boundary.md). Pull request
+narrative and head Workspace content are non-authoritative review data. Any path
+that places them into a privileged channel, grants tools, changes Autonomy,
+alters permissions, weakens Sandbox or egress policy, acquires GitHub authority,
+or otherwise increases a Run's authority is in scope.
+
+Prompt injection is a mechanism, not the classification. A model-mediated chain
+that escapes the Sandbox, exposes a credential, exceeds the egress boundary, or
+defeats deterministic Result, Evidence or Acceptance controls is in scope
+because of the concrete invariant it violates. Persuading a Reviewer to run a
+command it was already allowed to run is not a security boundary failure by
+itself; what the command achieves decides the classification.
 
 **Dispatch-gate misclassification.** Three computed axes decide whether a Run may
 happen at all: `Provenance` (`internal` vs `external`), `Exposure` (what a
@@ -169,8 +190,16 @@ scope, and we consider this a security property rather than a usability one.
   claims to hold*, that is in scope here as well - report it to both.
 - **Vulnerabilities in third-party infrastructure** (Vercel, Neon, GitHub,
   Cloudflare). Report to the vendor. Reprove *misusing* one of them is in scope.
+- **Narrative steering within assigned authority.** If pull-request-controlled
+  data remains non-authoritative but persuades a Reviewer to miss a real
+  Finding, invent a false Finding, investigate the wrong thing, or skip useful
+  verification, that is a review-integrity bug rather than a security report by
+  itself. Report it through the ordinary issue tracker. If the same chain
+  crosses a boundary Reprove claims to hold, report the boundary failure
+  privately instead.
 - **The quality of review output.** A missed bug, a false positive, or a Finding
-  with a Severity you disagree with is a bug report, not a security report.
+  with a Severity you disagree with is otherwise a bug report, not a security
+  report.
 - **Anything requiring an already-compromised host.** A self-hosted Worker's
   operator can read their own credentials by definition; Reprove does not
   defend a machine against its own owner.
