@@ -69,6 +69,8 @@ Goals:
 
 - run the Harnesses the user already has installed and authenticated;
 - use the authentication the user manages, whatever form it takes;
+- consume the provider usage that authentication already carries, rather than requiring
+  separate Reprove-metered API usage;
 - allow OpenCode provider/model configuration;
 - keep provider credentials on user-controlled infrastructure, and out of the control plane.
 
@@ -231,14 +233,21 @@ OpenCode     → the OpenCode you already use
 What "already use" covers depends on which Worker runs the Run:
 
 - **Self-hosted Worker.** The Harness, the Model, the authentication you manage, your
-  configuration, and your environment. The Native Auth Route invokes the installed,
-  unmodified CLI; Reprove never receives that authentication. See §22.
+  configuration, your environment, **and your provider usage**. The Native Auth Route invokes
+  the installed, unmodified CLI; Reprove never receives that authentication. See §22.
 - **Hosted Worker.** The same Harnesses and the same Model choice, run as a managed service
   with brokered API/Gateway authentication and no setup to operate.
 
 The continuity that matters is the Harness. A Reviewer that is the same program your team
 already trusts to write code inherits its judgment about your repository - its conventions,
 its build, its tests - rather than approximating them from a diff.
+
+That continuity extends to how the Run is paid for. On the Native Auth Route, a Run consumes
+the provider usage the configured Harness already has - the same account and the same plan,
+triggered by a pull request instead of by a person - rather than requiring separate
+Reprove-metered API usage. This is a current capability of that Route and not a guarantee
+about future provider pricing, limits, or authentication policy, and it does not apply to
+hosted Runs. See §22 and §38.
 
 OpenCode additionally supports a broad provider catalog, custom providers, and local models.
 
@@ -1049,22 +1058,48 @@ intermediate that authentication: no ChatGPT token, no Claude token, no `~/.code
 no provider key, no credential cache reaches the control plane. Hosted Runs never use this Route; they use the Brokered Harness
 Route with managed API/Gateway authentication.
 
-**What the providers have documented.**
+**The usage model.** A Run on this Route consumes the provider usage the configured Harness
+already carries. Where that authentication is subscription-backed, the Run draws on the plan's
+included allowance rather than requiring separate Reprove-metered API usage. Both major
+providers document this directly - OpenAI: *"Your plan's included usage is used first"*, and
+*"When you sign in with an API key, Codex uses standard API pricing instead of included ChatGPT
+plan credits"*; Anthropic documents the inverse, that an `ANTHROPIC_API_KEY` in the environment
+diverts Claude Code onto API billing *"rather than using your subscription's included usage"*.
 
-- **OpenAI** explicitly documents ChatGPT-managed Codex authentication on automation runners,
-  supported on trusted private infrastructure. The accompanying guidance not to use that
-  workflow for public or open-source repositories is a credential-exposure warning about
-  untrusted code sharing an environment with the credential - the same hazard §23 addresses -
-  rather than a prohibition on account-authenticated automation.
-- **Anthropic** clarified in February 2026 that subscription OAuth tokens may not be used in
-  third-party tools or the Agent SDK. The carve-out is an end user signing in to the
-  unmodified Claude Code binary with their own subscription; a platform *hosting* that must
-  sign Anthropic's Commercial Terms and may not pay for, resell, or intermediate usage.
-  Reprove's hosted Runs stay on Gateway/API authentication and so do not enter that case.
-- **The unattended, webhook-triggered subscription Run** on a self-hosted Worker is the
-  combination Anthropic has not addressed as explicitly as OpenAI has. Reprove records this as
-  unvalidated rather than blessed. Whether a given subscription permits it is between the user
-  and their provider.
+Two operational consequences follow, and both are product concerns rather than footnotes:
+
+- **A Worker on this Route must not set `ANTHROPIC_API_KEY` in the Harness environment**, and
+  should warn when one is present. Otherwise a user who chose the Native Route specifically to
+  use their subscription is silently billed API rates.
+- **Claude limits are pooled across Claude Code and Claude.ai.** An unattended Run consumes the
+  same allowance the developer uses interactively, so concurrency and rate limits on this Route
+  affect a human's own experience, not just Reprove's throughput.
+
+**What the providers have documented.** Verbatim sources are collected in
+[`docs/research/provider-auth-and-usage.md`](research/provider-auth-and-usage.md); cite that
+file rather than restating terms from memory.
+
+- **OpenAI** documents ChatGPT-account authentication for Codex on automation runners, and
+  frames it narrowly: *"The right way to authenticate automation is with an API key. Use this
+  guide only if you specifically need to run the workflow as your Codex account."* It is
+  described as *"an advanced workflow for enterprise and other trusted private automation"*,
+  conditioned on *"trusted private infrastructure"* and a serialized job stream. **Reprove
+  describes this path as documented and narrow, never as recommended.**
+- **OpenAI additionally excludes public repositories from that workflow:** *"Do not use this
+  workflow for public or open-source repositories."* This constrains Reprove directly and is
+  addressed in §23.
+- **Anthropic** restricts OAuth subscription authentication to ordinary use of native
+  applications, and forbids developers from offering Claude.ai login in their own applications,
+  routing requests on a user's behalf, or collecting, storing or intermediating credentials or
+  session tokens. It then carves out precisely the case Reprove implements: *"Nor does it
+  prevent an end user from signing in to the unmodified Claude Code binary with their own Claude
+  subscription, including where a platform hosts Claude Code"*, provided the binary is
+  unmodified and each end user authenticates with their own credentials, billed directly to
+  them. **The Native Auth Route satisfies every one of those conditions by construction.**
+- **The unattended, webhook-triggered Run** remains the gap. Neither vendor's documentation uses
+  the words "unattended" or "webhook-triggered", and Anthropic notes that advertised limits
+  *"assume ordinary, individual usage"*. Reprove records this combination as **unaddressed
+  rather than blessed or prohibited**, and does not resolve it on the user's behalf.
 
 **What Reprove does not claim.** That subscription authentication is a cost-avoidance
 strategy, that it will remain available, or that any Route is safe for `external` Provenance
@@ -1110,6 +1145,23 @@ This remains one of the primary technical blockers for production-safe self-host
 It is not a subscription problem: an API key worth thousands a month is as password-equivalent
 as a consumer login, and both are equally exposed by sharing an environment with untrusted
 repository code.
+
+## Repository visibility is a second axis, and Provenance does not cover it
+
+Provenance ([ADR 0003](adr/0003-two-invocation-routes.md)) gates the Native Auth Route by
+**author association** - is the head a branch of the same Repository, and is the Author an
+owner, member or collaborator? OpenAI's guidance for account-authenticated Codex constrains a
+different axis entirely: *"Do not use this workflow for public or open-source repositories."*
+
+These do not coincide. A public open-source repository whose own maintainer opens a pull
+request from a branch is `internal` Provenance, passes the Native Route gate as currently
+specified, and still sits squarely inside the case OpenAI says not to use. **Provenance alone
+does not implement this guidance**, and Reprove is itself an open-source project whose users
+will predominantly run it on public repositories.
+
+Whether the Native Route additionally gates on repository visibility - and whether that gate is
+per-Harness, since it derives from OpenAI's guidance rather than Anthropic's - is an open
+decision, not a settled one. It is not resolved here.
 
 ---
 
@@ -1551,13 +1603,38 @@ Self-hosted usage visibility:
 
 ## The thesis
 
-> **Turn the coding agents you already use into autonomous reviewers.**
+> **Reprove combines the experience of manually asking Codex or Claude Code to deeply review
+> your code with the automation and GitHub workflow of a dedicated PR review bot.**
+
+Two things developers already do separately, joined:
+
+```text
+What you do by hand today          What a review bot does today
+─────────────────────────          ────────────────────────────
+open Codex / Claude Code           arrives on every pull request
+point it at the repository         posts anchored comments
+ask it to review the change        applies severity and policy
+it explores, builds, tests         dedupes across pushes
+you read its answer                a review a team already reads
+
+              ↓ Reprove is both ↓
+
+PR opened
+ → Reprove dispatches the Run
+ → your existing Codex / Claude Code / OpenCode performs it
+ → with its full normal capabilities and your provider usage
+ → Findings return as a GitHub Review
+```
 
 Not "another AI reviewer with a better model," and not "an orchestrator that can also touch a
 pull request." The claim is continuity: the Harness your team already trusts to *write* the
 software becomes the Reviewer that examines it, keeping the general capabilities that made it
 useful in the first place - repository exploration, shell execution, builds, tests, one-off
 scripts, reproduction, verification, and eventually fixes.
+
+The short form, for a headline rather than a spec:
+
+> **Turn the coding agents you already use into autonomous reviewers.**
 
 Reprove then supplies the product layer that a coding agent does not have on its own:
 
@@ -1646,6 +1723,47 @@ blurring them:
 Hosted preserves the Harness experience; self-hosted additionally preserves your environment
 and authentication. Neither is the lesser tier - hosted targets the same developers with less
 operational work.
+
+### The Native Auth Route's usage model is a first-class benefit
+
+On the Native Auth Route, the Run consumes the provider usage the user's Harness already has.
+This is a real and deliberate property of the design, not an incidental side effect, and it
+belongs in the positioning:
+
+> A self-hosted Worker on the Native Auth Route uses the authentication and provider usage
+> model of the user's configured Harness. Where that authentication is backed by an existing
+> subscription or included usage allowance, review Runs consume that allowance rather than
+> requiring Reprove-specific metered API usage.
+
+It is the economic consequence of the thesis rather than a separate pitch: if the Reviewer
+really is the Codex or Claude Code you already run, then it bills the way that Codex or Claude
+Code already bills. Nothing is being circumvented - the same account, the same plan, the same
+provider terms, triggered by a pull request instead of by a person.
+
+The mechanics are verified rather than assumed - OpenAI documents that a plan's *"included
+usage is used first"* and that API-key sign-in bills *"standard API pricing instead of included
+ChatGPT plan credits"*; Anthropic documents the same boundary from the other side. Sources are
+in [`docs/research/provider-auth-and-usage.md`](research/provider-auth-and-usage.md).
+
+Five limits on the claim, all of which must survive any rewording:
+
+1. **It is a current capability, not a guarantee** about future provider pricing, limits, or
+   authentication policy. Providers may change any of these at any time.
+2. **It does not apply to the Brokered Harness Route.** Hosted Runs use managed API/Gateway
+   authentication and are metered accordingly.
+3. **It is not a claim that Reprove is cheaper**, and never a comparison against a named
+   competitor's pricing. What the user's plan allows is between the user and their provider.
+4. **Reprove does not exist to circumvent API billing.** The mechanism is the user's own
+   authenticated Harness on their own infrastructure; the usage model follows from that,
+   rather than being the goal it was designed to reach.
+5. **Provider guidance narrows where the Route is appropriate.** OpenAI describes
+   account-authenticated Codex automation as an advanced workflow for trusted private
+   infrastructure and excludes public and open-source repositories from it outright. Reprove
+   presents the Route as documented and narrow, never as recommended, and never states or
+   implies that it is available for every repository. See §23.
+
+Never quote a numeric usage allowance. Both vendors deliberately publish limits on pricing
+pages rather than in documentation, precisely because they change.
 
 ## Why credential isolation is not the headline
 

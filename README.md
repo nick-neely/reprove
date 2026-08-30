@@ -2,11 +2,15 @@
 
 **Open-source agentic code review for GitHub pull requests.**
 
-Reprove turns the coding agents you already work with - Codex, Claude Code,
-OpenCode - into autonomous PR reviewers, validators, and optional fixers.
+Reprove combines the experience of manually asking Codex or Claude Code to
+deeply review your code with the automation and GitHub workflow of a dedicated
+PR review bot.
+
 Instead of piping a diff into a review-only LLM, it gives a real coding agent a
 real repository environment: inspect the code, question the change, run the
-build and tests, verify the finding, and only then report it.
+build and tests, verify the finding, and only then report it. On a self-hosted
+worker, that agent is *your* Codex, Claude Code, or OpenCode - your
+authentication, your configuration, your provider usage.
 
 ```text
 inspect → question → execute → verify → fix → re-prove
@@ -25,6 +29,13 @@ Reprove makes them yours:
   your team builds with, reviewing the pull request with the same
   capabilities: repository exploration, shell access, builds, tests, and
   one-off reproduction scripts.
+- **The plan you already pay for** - on a self-hosted worker, Reprove runs
+  your configured harness using authentication you manage. Where that
+  authentication is backed by an existing subscription or included usage
+  allowance, reviews consume that allowance rather than requiring separate
+  metered API usage from Reprove. Subject to your provider's current terms,
+  limits, and guidance on automated use; hosted reviews use managed
+  API/Gateway authentication instead.
 - **Harness choice** - Codex, Claude Code, or OpenCode, behind one adapter.
 - **Model choice** - wherever the harness supports it, including OpenCode's
   broad provider support.
@@ -86,6 +97,9 @@ database, and queue are still open - see the [PRD](docs/prd.md).
   architecture, roadmap, and open questions.
 - [Competitive landscape](docs/research/competitive-landscape.md) - a dated
   survey of who else reviews pull requests with coding agents.
+- [Provider auth and usage](docs/research/provider-auth-and-usage.md) - what
+  OpenAI, Anthropic, and OpenCode actually document about subscription
+  authentication, included usage, and automated use.
 
 ## Contributing
 
