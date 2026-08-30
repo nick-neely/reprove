@@ -178,14 +178,23 @@ Review with:
 
 The user decides which coding-agent runtime they trust for the repository or individual review.
 
-This can be configured at:
+This is configured at two authored layers, settled by
+[ADR 0011](adr/0011-repository-configuration-contract.md):
 
-- account level;
-- organization level;
-- repository level;
-- individual review run.
+```text
+Reprove defaults
+  -> Owner layer          (the GitHub user or organization; "account" and "organization"
+                           above are one thing, and Reprove's tenant is the Owner)
+  -> Repository file      (.reprove.yml, read whole from the base ref)
+```
 
-Exact precedence: **[Undecided]**
+For ordinary quality keys the Repository value wins. For security keys the effective value is the
+narrowest the layers permit, and the Owner layer is a **Ceiling** rather than a default: it lets a
+Repository request something, and can never switch it on.
+
+**Per-run configuration is not a layer.** A Run pins `harness`, `model`, `strategy` and `autonomy`
+at creation and a re-run is a new Run, so a per-run override needs a dashboard surface that is out
+of the foundation map's scope.
 
 ---
 
@@ -502,7 +511,9 @@ review:
 
 Exact configuration format:
 
-**[Undecided]**
+Settled by [ADR 0011](adr/0011-repository-configuration-contract.md). Note that `mode` is not the
+key: `CONTEXT.md` bans the word, and the three choices above are `worker`, `autonomy` and
+`strategy`. `execution` is `worker`. See §30.
 
 ---
 
@@ -1389,64 +1400,101 @@ GitHub delivery method:
 
 # 30. Repository Configuration
 
-Potential configuration:
+Settled by [ADR 0011](adr/0011-repository-configuration-contract.md). `.reprove.yml` at the
+repository root: inert YAML 1.2 core schema, no custom tags, merge keys or aliases, size- and
+depth-bounded, one strict zod schema in which **unknown keys are rejected**. Executable
+configuration is ruled out, because base configuration is read host-side on the Worker, outside
+the Sandbox. The normative schema is [`docs/spec/repository-configuration.ts`](spec/repository-configuration.ts).
+
+**The whole file is read from the base ref.** There is no split rule:
+
+> A pull request cannot change the configuration used to review itself.
+
+Two sections carry two resolution rules, so the rule follows the section rather than a list kept
+in merge code:
 
 ```yaml
-review:
+review:                      # Repository value beats Owner value beats Reprove default
   enabled: true
-
-  execution: self-hosted
+  worker: self-hosted        # resolves onto the Run's spec.placement
   harness: codex
-  model: [optional]
+  model: [catalogue id]
   strategy: standard
-  mode: verify
-
+  autonomy: verify
+  budget: [number]
+  deadline: [duration]
+  event: COMMENT             # REQUEST_CHANGES is opt-in
+  threshold:
+    severity: medium
+    verification: any
   ignore:
     - generated/**
-    - vendor/**
+  commands:                  # Project commands; see §31
+    install: pnpm install
+    build: pnpm build
+    test: pnpm test
+    typecheck: pnpm typecheck
+  baseConventions: true      # ADR 0009's re-admission switch
+  harnessOptions: {}         # ADR 0005's typed options; empty at launch
+  overrides:                 # last match wins; path-local keys only
+    - paths: [packages/web/**]
+      threshold: { severity: high }
+
+security:                    # meet(Reprove boundary, Owner ceiling, Repository request)
+  maxExposure: account
+  allowExternalProvenance: false
+  installScripts: deny
+  allowHostedFallback: false
+  egress: []
 ```
 
-Potential additional settings:
+In `security:` the Owner layer is a **Ceiling, never a default**: it permits a Repository to
+request something, and never switches it on. A key belongs there only if its type has a defined
+narrowing operation, which is why Threshold does not.
 
-- review instructions;
-- validation commands;
-- timeout;
-- allowed tools;
-- network permissions;
-- model/provider override;
-- adversarial reviewer.
+`ignore` binds at publication: matching Findings are kept internally and not projected onto
+GitHub. It does not remove files from the Workspace, restrict what the Reviewer reads, or change
+verification. Cost belongs to `budget`.
 
-Exact schema:
+**Route is deliberately absent.** An Owner constrains `maxExposure`, not which Routes are
+permitted; configuration constrains the properties Reprove gates on, never how an Adapter
+achieves them.
 
-**[Undecided]**
+Invalid configuration is a `Refusal` with a failing Check and no Run, never a fall back to
+defaults. A pull request that changes `.reprove.yml` gets an independent **`Reprove config`**
+Check validating the head file prospectively without applying it, which runs even where review
+execution does not.
 
 ---
 
-# 31. Repository-Specific Validation
+# 31. Project Commands
 
-Repositories may already know the correct verification commands.
-
-Potential:
+Repositories may already know the correct commands for their own toolchain. `CONTEXT.md` calls
+these **Project commands**; the word `validation` is reserved for zod schema validation and is not
+used here.
 
 ```yaml
-validation:
-  install: pnpm install
-  build: pnpm build
-  test: pnpm test
-  typecheck: pnpm typecheck
+review:
+  commands:
+    install: pnpm install
+    build: pnpm build
+    test: pnpm test
+    typecheck: pnpm typecheck
 ```
 
-Likely direction:
+Settled by [ADR 0011](adr/0011-repository-configuration-contract.md):
 
-```text
-configured commands take priority
-+
-agent may discover additional targeted checks
-```
-
-Final behavior:
-
-**[Undecided]**
+- a **fixed set of four keys**, never an open map, because an open map is an arbitrary-string
+  escape hatch and every field in the configuration snapshot must declare a retention class;
+- **resolved from the base ref**, like the rest of the file;
+- **hygiene, not a control.** Under `verify` Autonomy the Reviewer holds a shell and can run
+  anything the head contains. The control is the Sandbox ([ADR 0004](adr/0004-sandbox-boundary-and-credential-isolation.md)).
+  Configured commands save the Reviewer from rediscovering the toolchain; they do not constrain it,
+  and a Reviewer may still run additional targeted checks;
+- the **only content-bearing fields** in the configuration. Command strings can carry credentials,
+  URLs or literal data, so they are purged from the Run's stored `resolvedConfig` at 90 days under
+  [ADR 0008](adr/0008-persistence-tenancy-and-retention.md)'s clock while the rest of the
+  configuration is preserved indefinitely.
 
 ---
 
@@ -2141,7 +2189,7 @@ Potential future work begins after this phase:
 23. Automatic review default: **[Undecided]**
 24. Severity model: **[Undecided]**
 25. Confidence model: **[Undecided]**
-26. Configuration format: **[Undecided]**
+26. Configuration format: **Resolved** - `.reprove.yml`, base ref only, `review:` / `security:` sections ([ADR 0011](adr/0011-repository-configuration-contract.md)).
 27. Dashboard scope: **[Undecided]**
 28. Hosted billing: **[Undecided]**
 

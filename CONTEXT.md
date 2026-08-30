@@ -211,10 +211,14 @@ nobody pays.
 _Avoid_: cost, spend, tokens
 
 **Refusal**:
-A decision not to dispatch, made before execution begins, because a requirement was not met: a
-missing hard Sandbox property, an ineligible combination of Exposure, Isolation and Provenance, or
-a capability probe too stale to trust. It names the requirement that failed rather than degrading
-quietly, and it is a protocol message rather than a log line.
+A decision not to execute, made before execution begins, because a requirement was not met. It
+arises in the control plane - configuration that is invalid or cannot be resolved - or in a
+Worker, from a missing hard Sandbox property, an ineligible combination of Exposure, Isolation and
+Provenance, or a capability probe too stale to trust. It names the requirement that failed rather
+than degrading quietly, and it is always visible on a Check rather than a log line; the Worker
+protocol message is one way a Refusal originates, not what the word means. Narrowing a request to
+an Owner's ceiling is not a Refusal, because it moves toward the safe position rather than away
+from it.
 _Avoid_: rejection, denial, error
 
 **Failure**:
@@ -258,6 +262,19 @@ It is applied when a Review is published rather than when a Finding is made, so 
 requires a new Run.
 _Avoid_: filter, gate, minimum severity
 
+**Ceiling**:
+The most permissive value an Owner allows its Repositories to request for a security control. It
+permits rather than activates, so a Repository that asks for nothing gets the safe default whatever
+the Ceiling says, and a Repository can never exceed it. An Owner has no way to switch a permission
+on across its repositories, only to take one away.
+_Avoid_: policy, org default, override, restriction
+
+**Ignore**:
+A Repository's list of path globs whose Findings are kept but not published. Like Threshold it
+binds at publication, so it changes what GitHub shows and never what the Reviewer reads, which
+files exist in the Workspace, or whether verification runs.
+_Avoid_: exclude, skip, blocklist
+
 ### Tenancy
 
 **Owner**:
@@ -275,8 +292,9 @@ starting a new one.
 _Avoid_: GitHubInstallation, app install, connection
 
 **Repository**:
-A repository owned by an Owner, in scope when an Installation grants it, carrying its own
-settings directly.
+A repository owned by an Owner, in scope when an Installation grants it. Its review policy is not
+held in Reprove's database but read from `.reprove.yml` at the base ref of each pull request, so
+a pull request cannot change the configuration used to review itself.
 _Avoid_: repo, project, RepositorySettings
 
 **User**:
