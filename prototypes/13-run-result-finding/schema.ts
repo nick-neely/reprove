@@ -26,7 +26,7 @@ export const LIMITS = {
   findingBodyChars: 4_000,
   evidencePerFinding: 10,
   evidenceExcerptChars: 2_000,
-  anchoredTextChars: 2_000,
+  anchoredTextChars: 512, // exact cap is implementation policy; the bound is not
   patchChars: 8_000,
 } as const;
 
@@ -50,9 +50,11 @@ export const Verification = z.enum(["verified", "inconclusive", "static"]);
 export const Placement = z.enum(["self_hosted", "hosted"]);
 
 /**
- * PROPOSAL (open): Route is recorded on the Run for audit, even though ADR 0005
- * keeps it out of the Adapter's public identity. Without it, "why was Exposure
- * `account`?" is unanswerable after the fact.
+ * Recorded on the Run as an immutable AUDIT FACT, even though ADR 0005 keeps
+ * Route out of the Adapter's public identity and ADR 0004 moved dispatch gating
+ * off it. Nothing branches or gates on the historical field, and nothing infers
+ * it later from `(Harness, Exposure)` - a Run stores what actually executed
+ * rather than reconstructing it from today's architecture.
  */
 export const Route = z.enum(["brokered", "native"]);
 
@@ -118,11 +120,12 @@ export const Finding = z
     verification: Verification,
     location: Location,
     /**
-     * PROPOSAL (open): the source text the claim is about, as read at headSha.
-     * This is the reconciliation key's input - see fingerprint() below. It rides
-     * across the protocol so the CONTROL PLANE computes the fingerprint, which
-     * means the algorithm can change without shipping every self-hosted Worker a
-     * new build. Bounded, and a Comment would quote this code anyway.
+     * The source text the claim is about, as read at headSha. Input to
+     * bucketKey() below. It rides across the protocol so the CONTROL PLANE owns
+     * canonicalization, which means reconciliation can evolve without waiting
+     * for every self-hosted Worker to upgrade - and ADR 0006 says a Worker
+     * "will lag the control plane by months". Tightly bounded, and counted
+     * inside the Result size budget.
      */
     anchoredText: z.string().max(LIMITS.anchoredTextChars),
     evidence: z.array(Evidence).max(LIMITS.evidencePerFinding),
@@ -296,8 +299,11 @@ export const RunStatus = z.enum([
   "queued", // claimable, no Worker holds it
   "claimed", // a Worker holds a Lease; dispatch happened
   "executing", // at least one Pass started
-  "completed", // a terminal Result was accepted (complete OR partial)
-  "unscheduled", // claimableUntil expired; never dispatched. Carries Refusals.
+  "completed", // a complete Result was accepted
+  "incomplete", // a PARTIAL Result was accepted - acceptable, so not a Failure
+  // claimableUntil expired; never dispatched. Carries Refusals. Projects to a
+  // `failure` Check but is NOT Reprove `Failure` vocabulary - nothing executed.
+  "unscheduled",
   "failed", // began executing, no acceptable Result
   "superseded", // a newer Run exists for this pull request
   "cancelled",
@@ -311,12 +317,16 @@ export const RunStatus = z.enum([
  * have to move the Run backwards. So the Review is a record hanging off the Run,
  * absent until GitHub accepts it, and replaceable.
  */
+/**
+ * A Run publishes at most one LOGICAL Review; a retry targets that same one and
+ * never creates a second. The persisted shape - pending and failed publication
+ * attempts, `appliedThreshold`, `suppressedFindingCount`, and what happens when
+ * a Threshold changes after GitHub already accepted a Review - is #14's.
+ */
 export const ReviewRecord = z.object({
   githubReviewId: z.number().int().positive(),
   event: z.enum(["COMMENT", "REQUEST_CHANGES"]),
   submittedAt: Instant,
-  /** Findings suppressed by Threshold or by dedupe against an earlier Run. */
-  suppressedFindingCount: z.number().int().nonnegative(),
 });
 
 export const RunState = z.object({
@@ -349,22 +359,16 @@ export type Run = z.infer<typeof Run>;
 // ---------------------------------------------------------------------------
 
 /**
- * PROPOSAL: the key is the anchored SOURCE, never the line number and never the
- * model-written title.
+ * The bucket KEY. Deliberately not a Finding identity.
  *
- * - Line numbers move on every unrelated edit above them, so keying on them
- *   reports every Finding as new after any push.
- * - Titles are model prose and are not stable across two Runs of the same
- *   Reviewer, let alone across Harnesses.
- * - The anchored source is the thing the claim is ABOUT. If it changed, the
- *   claim is stale by definition and re-asserting it is the correct behaviour.
+ * Keyed on the anchored source because line numbers move on any unrelated edit
+ * above them, and a model-written title is the least stable field a Finding has.
+ * Severity is excluded on purpose: the same defect rated `high` on one Run and
+ * `medium` on the next must not become a different Finding.
  */
-export function fingerprint(f: Finding): string {
-  const normalized = f.anchoredText
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
-  return `${f.location.path}::${f.severity}::${hash(normalized)}`;
+export function bucketKey(f: Finding): string {
+  const normalized = f.anchoredText.replace(/\s+/g, " ").trim().toLowerCase();
+  return `${f.location.path}::${hash(normalized)}`;
 }
 
 function hash(s: string): string {
@@ -373,57 +377,91 @@ function hash(s: string): string {
   return (h >>> 0).toString(16).padStart(8, "0");
 }
 
+/** Current side. Drives Comment dedupe and nothing else. */
+export const Disposition = z.enum(["new", "recurring"]);
+
 /**
- * PROPOSAL: `resolved` and `not_reproduced` are different facts and collapsing
- * them is the mistake worth avoiding.
+ * Prior side. INTERNAL ONLY. Neither value may become user-facing prose.
  *
- * An agentic Reviewer is nondeterministic. A Finding vanishing from Run N is
- * NOT evidence it was fixed. Only a Finding whose anchored region actually
- * changed between the two head SHAs earned `resolved`.
+ * `anchor_changed` proves the claim's anchor is stale. It does NOT prove the
+ * defect was fixed - code moves, and a rewrite can preserve a bug. Telling an
+ * author "resolved" needs evidence the claim no longer holds, which is a
+ * stronger thing than an anchor disappearing.
  */
-export const Disposition = z.enum([
-  "new", // not present in the prior accepted Run
-  "recurring", // same fingerprint as the prior Run - Comment suppressed, Finding still recorded
-  "resolved", // gone, and the region it anchored to changed
-  "not_reproduced", // gone, and nothing it anchored to changed
-]);
+export const PriorDisposition = z.enum(["anchor_changed", "not_reproduced"]);
 
 export type Reconciliation = {
-  fingerprint: string;
-  disposition: z.infer<typeof Disposition>;
+  bucket: string;
   title: string;
+  disposition: z.infer<typeof Disposition>;
 };
 
+export type PriorReconciliation = {
+  bucket: string;
+  title: string;
+  disposition: z.infer<typeof PriorDisposition>;
+};
+
+function groupByBucket(fs: Finding[]): Map<string, Finding[]> {
+  const m = new Map<string, Finding[]>();
+  for (const f of fs) {
+    const k = bucketKey(f);
+    (m.get(k) ?? m.set(k, []).get(k)!).push(f);
+  }
+  return m;
+}
+
+/**
+ * Cardinality-only matching. 1:1 inside a bucket is `recurring`; every other
+ * cardinality makes each current Finding `new`.
+ *
+ * A wrong `new` costs a duplicate Comment. A wrong `recurring` suppresses a
+ * Comment about a real defect. The asymmetry is why this fails open, and why
+ * there is no title-similarity threshold anywhere in it - a magic number that
+ * gets re-tuned by whoever last saw a duplicate is not falsifiable.
+ *
+ * `anchorStillPresent` stands in for the control plane checking each prior
+ * anchor at the new head. In production that is ONE fetch per distinct file,
+ * reconciling every prior anchor in it locally - never one fetch per Finding.
+ */
 export function reconcile(
   prior: Finding[],
   current: Finding[],
-  changedPaths: ReadonlySet<string>,
-): Reconciliation[] {
-  const priorByFp = new Map(prior.map((f) => [fingerprint(f), f]));
+  anchorStillPresent: (f: Finding) => boolean,
+): { current: Reconciliation[]; prior: PriorReconciliation[] } {
+  const priorBuckets = groupByBucket(prior);
+  const currentBuckets = groupByBucket(current);
+
+  const matchedPrior = new Set<Finding>();
   const out: Reconciliation[] = [];
 
-  for (const f of current) {
-    const fp = fingerprint(f);
-    out.push({
-      fingerprint: fp,
+  for (const [bucket, cur] of currentBuckets) {
+    const pri = priorBuckets.get(bucket) ?? [];
+    const unambiguous = pri.length === 1 && cur.length === 1;
+    if (unambiguous) matchedPrior.add(pri[0]);
+    for (const f of cur) {
+      out.push({
+        bucket,
+        title: f.title,
+        disposition: unambiguous ? "recurring" : "new",
+      });
+    }
+  }
+
+  const priorOut: PriorReconciliation[] = [];
+  for (const f of prior) {
+    if (matchedPrior.has(f)) continue;
+    priorOut.push({
+      bucket: bucketKey(f),
       title: f.title,
-      disposition: priorByFp.has(fp) ? "recurring" : "new",
+      // An ambiguous bucket lands here too. Unmatched is unmatched, and naming
+      // *why* we failed to match would put the matcher's internals on the
+      // product surface.
+      disposition: anchorStillPresent(f) ? "not_reproduced" : "anchor_changed",
     });
   }
 
-  const currentFps = new Set(current.map(fingerprint));
-  for (const [fp, f] of priorByFp) {
-    if (currentFps.has(fp)) continue;
-    out.push({
-      fingerprint: fp,
-      title: f.title,
-      disposition: changedPaths.has(f.location.path)
-        ? "resolved"
-        : "not_reproduced",
-    });
-  }
-
-  return out;
+  return { current: out, prior: priorOut };
 }
 
 // ---------------------------------------------------------------------------
@@ -435,8 +473,14 @@ export function reconcile(
 // ---------------------------------------------------------------------------
 
 export type CommentPlan =
-  | { kind: "anchored"; path: string; line: number; findingTitle: string }
-  | { kind: "summary_only"; findingTitle: string; because: string }
+  /** A Comment: the line-anchored GitHub projection of exactly one Finding. */
+  | { kind: "comment"; path: string; line: number; findingTitle: string }
+  /**
+   * NOT a Comment. Renders as a structured entry in the Review body under its
+   * own heading, carrying path:line, severity and verification - kept clear of
+   * the prose summary so it stays actionable rather than buried narrative.
+   */
+  | { kind: "review_body"; findingTitle: string; because: string }
   | { kind: "suppressed"; findingTitle: string; because: string };
 
 export function planComments(
@@ -446,7 +490,7 @@ export function planComments(
   threshold: z.infer<typeof Severity>,
 ): CommentPlan[] {
   const rank = { critical: 0, high: 1, medium: 2, low: 3 } as const;
-  const byFp = new Map(recon.map((r) => [r.fingerprint, r]));
+  const byBucket = new Map(recon.map((r) => [r.bucket, r]));
 
   return result.findings.map((f): CommentPlan => {
     if (rank[f.severity] > rank[threshold]) {
@@ -456,7 +500,7 @@ export function planComments(
         because: `severity ${f.severity} is below the ${threshold} Threshold`,
       };
     }
-    if (byFp.get(fingerprint(f))?.disposition === "recurring") {
+    if (byBucket.get(bucketKey(f))?.disposition === "recurring") {
       return {
         kind: "suppressed",
         findingTitle: f.title,
@@ -465,13 +509,13 @@ export function planComments(
     }
     if (!diffPaths.has(f.location.path)) {
       return {
-        kind: "summary_only",
+        kind: "review_body",
         findingTitle: f.title,
         because: `${f.location.path} is not in the diff, so GitHub cannot anchor a review comment`,
       };
     }
     return {
-      kind: "anchored",
+      kind: "comment",
       path: f.location.path,
       line: f.location.endLine,
       findingTitle: f.title,
@@ -516,36 +560,56 @@ export function acceptForRun(
 }
 
 /**
- * PROPOSAL (the sharpest open question in this ticket): a PARTIAL Result with
- * zero Findings must never publish as a clean review.
+ * The Check reports EXECUTION, not verdict.
+ *
+ * ADR 0002's `COMMENT` default means Reprove does not block a merge because it
+ * found defects. It does not mean Reprove may report its own timeout as though
+ * nothing failed: a repository that marks this Check required is saying "do not
+ * merge until Reprove completes", and `neutral` would quietly void that choice.
+ * Findings move the Review; execution moves the Check.
+ */
+export function checkConclusion(
+  status: z.infer<typeof RunStatus>,
+  stoppedBy: Result["stoppedBy"],
+): "success" | "timed_out" | "cancelled" | "failure" | null {
+  switch (status) {
+    case "completed":
+      return "success";
+    case "incomplete":
+      return stoppedBy === "budget_exhausted" ? "timed_out" : "cancelled";
+    case "failed":
+    case "unscheduled": // a `failure` CONCLUSION - not Reprove `Failure` vocabulary
+      return "failure";
+    case "superseded":
+    case "cancelled":
+      return "cancelled";
+    default:
+      return null; // still in progress
+  }
+}
+
+/**
+ * A partial Result with zero Findings must never publish as a clean review.
  *
  * ADR 0005 already refuses to let a malformed Pass become an empty Result,
  * because "empty means review completed with no Findings and malformed means
- * review failed". A budget-exhausted Run with nothing found is the same
- * confusion one level up.
+ * review failed". This is that same confusion one level up.
  */
 export function publicationDecision(result: Result): {
   publishReview: boolean;
-  check: "success" | "neutral" | "failure";
   note: string;
 } {
   if (result.completeness === "complete") {
-    return {
-      publishReview: true,
-      check: result.findings.length === 0 ? "success" : "neutral",
-      note: "complete Result - the Reviewer finished",
-    };
+    return { publishReview: true, note: "complete Result - the Reviewer finished" };
   }
   if (result.findings.length === 0) {
     return {
       publishReview: false,
-      check: "failure",
       note: `partial Result (${result.stoppedBy}) with no Findings - publishing this would assert a clean bill of health the Reviewer never gave`,
     };
   }
   return {
     publishReview: true,
-    check: "neutral",
     note: `partial Result (${result.stoppedBy}) - Findings publish, and the summary must say the review did not finish`,
   };
 }

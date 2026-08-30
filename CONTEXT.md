@@ -38,6 +38,10 @@ _Avoid_: report, verdict, result
 **Result**:
 The normalized payload a Run returns - a summary and its Findings - absorbed into the Run
 once accepted. It is what crosses the Worker boundary, not something that outlives the crossing.
+It is either `complete` or `partial`; a partial Result is still acceptable and still publishes
+its Findings, so a Run that returns one is `incomplete` rather than a Failure. A partial Result
+carrying no Findings publishes no Review at all, because an unfinished review must never read
+as a clean bill of health.
 _Avoid_: ReviewResult, output, report
 
 **Pass**:
@@ -66,7 +70,10 @@ _Avoid_: verificationStatus, confidence, partially verified
 
 **Comment**:
 The line-anchored artifact GitHub renders. It is a projection of at most one Finding, and a
-Finding may be suppressed by thresholds or by dedupe against an earlier Run.
+Finding may be suppressed by thresholds or by dedupe against an earlier Run - dedupe suppresses
+a Comment, never a Finding. Line-anchoring is what the word means, so a Finding at a location
+GitHub cannot anchor - one outside the diff - is not projected as a Comment at all; it renders
+structurally in the Review body under the same thresholds.
 _Avoid_: annotation, note
 
 **Patch**:
