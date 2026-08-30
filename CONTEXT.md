@@ -122,9 +122,23 @@ _Avoid_: authoring agent, implementation agent
 
 **Worker**:
 The process that executes a Run and returns its Result. A hosted Worker is operated by Reprove
-and provisioned per Run; a self-hosted Worker is operated by the user, is long-lived, and
-registers its capabilities and health.
+and provisioned per Run, holds no durable identity, and neither enrolls nor advertises anything;
+a self-hosted Worker is operated by the user, is long-lived, and enrolls once before advertising
+its capabilities and health. Both drive one Worker core, so neither is a different kind of thing.
 _Avoid_: executor, ReviewExecutor, runner, backend, execution mode
+
+**Enrollment**:
+The one-time exchange by which a self-hosted Worker binds to an Owner and receives the durable
+identity and credential it keeps across restarts. A Worker enrolls once and registers repeatedly;
+a restarted Worker is the same Worker.
+_Avoid_: registration, onboarding, pairing
+
+**Lease**:
+A Worker's live hold on a Run, taken when it claims one and renewed while it executes. Renewal is
+the single mechanism that retains the claim, proves the Run's executor is alive, and carries a
+cancellation back to the Worker, so a Run cannot be actively held twice and a silent Pass is not
+mistaken for a dead one.
+_Avoid_: lock, reservation, heartbeat
 
 **Route**:
 How an Adapter invokes a Harness, and which credential that invocation carries: `brokered` drives
@@ -158,6 +172,13 @@ _Avoid_: working tree, clone, repo
 The install, build, test and typecheck commands a repository declares for its own toolchain,
 which a Reviewer may run while verifying.
 _Avoid_: checks, validation commands, scripts
+
+**Usage**:
+What a Run consumed from its Provider, normalized by Reprove from what the Harness reports. Cost
+is derived from Usage only where a marginal price exists: a Run on the Native Route draws on
+allowance the user already holds, so quoting an API-equivalent price for it would state a cost
+nobody pays.
+_Avoid_: cost, spend, tokens
 
 **Refusal**:
 A decision not to dispatch, made before execution begins, because a requirement was not met: a

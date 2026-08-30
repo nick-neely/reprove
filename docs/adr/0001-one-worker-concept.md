@@ -22,6 +22,15 @@ security requirements, drifting into second-class status.
 - The hosted path runs the same Worker implementation as the self-hosted path, inside a
   Sandbox that Reprove provisions. This makes [#6](https://github.com/nick-neely/reprove/issues/6)'s
   single callback contract a structural property rather than a convention two code paths agree to honour.
+
+  > **Amended by [ADR 0006](0006-worker-protocol.md).** "Inside a Sandbox" is wrong: ADR 0004 puts
+  > the Worker outside the Sandbox and ADR 0005 puts the Adapter and Result validation outside it
+  > too, so a hosted Worker inside one would co-locate the Adapter, the reconciliation step and the
+  > GitHub token with repository code. The correct shape is **one Worker core with two execution
+  > lifecycles** - a long-lived daemon self-hosted, Vercel Workflow steps hosted - which preserves
+  > this ADR's substance: one core, so the self-hosted path cannot drift into second-class status.
+  > What the two share is the Result and progress contract and the acceptance code path, not a
+  > mandatory HTTP hop.
 - `ReviewExecutor` is deleted from the vocabulary; "where it runs" is carried by the Worker's
   operator, expressed as `worker: hosted | self-hosted`.
 - A hosted Worker is not a persisted entity. Only self-hosted Workers register, so the Worker
