@@ -1,5 +1,17 @@
 # The Adapter boundary
 
+> **Partially superseded by [ADR 0009](0009-repo-controlled-instruction-boundary.md):**
+> `canSuppressRepoInstructions` is renamed `canEnforceRepoInstructionBoundary` and promoted from an
+> advisory capability field to a hard dispatch gate; it is **no longer credential-dependent**, since
+> `--safe-mode` replaces `--bare` and leaves authentication working normally, which removes the
+> reason the field was split across the registration and dispatch views. "Unknown or raw
+> configuration is rejected, not forwarded" gains a **carve-out for Adapter-owned suppression keys**,
+> because as written it forbids `codexConfig`, the only Brokered-Route suppression Codex has. The
+> `skills` channel deferral is resolved in principle: the seam is preserved for trusted base-ref
+> skills, enabled per Harness only after that Harness's skill tool and permission semantics are
+> verified. Everything else in this ADR stands, including instruction ownership, which ADR 0009
+> inherits as a premise.
+
 [#4](https://github.com/nick-neely/reprove/issues/4) established the real capability surface of
 `@ai-sdk/harness`, and [ADR 0003](0003-two-invocation-routes.md) then split invocation into two
 Routes behind one Adapter, closing with the observation that "whether the Adapter seam survives the

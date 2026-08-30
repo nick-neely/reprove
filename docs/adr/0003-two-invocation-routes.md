@@ -7,6 +7,14 @@
 > decides on, which is what `CONTEXT.md`'s definition of Route always required. Everything else in
 > this ADR stands.
 
+> **Suppression table corrected by [ADR 0009](0009-repo-controlled-instruction-boundary.md):** the
+> "Suppress repo-local instructions" row is wrong in two of its three cells, measured against the
+> same CLI versions. Codex's `--ignore-rules` and `--ignore-user-config` suppress neither `AGENTS.md`
+> nor skills; the working levers are config keys. Claude Code's `--bare` suppresses instruction
+> surfaces but leaves `.mcp.json` discovery **on**, and `--safe-mode` is the correct flag. The
+> OpenCode cell, recorded as "unverified", is environment variables only, no CLI flag, and it takes
+> two variables rather than one.
+
 [#3](https://github.com/nick-neely/reprove/issues/3) and [#4](https://github.com/nick-neely/reprove/issues/4)
 independently established that `@ai-sdk/harness` has no subscription authentication: grepping
 `auth.json`, `.credentials`, `oauth`, `ChatGPT` and `subscription` across all three adapters and

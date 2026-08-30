@@ -239,6 +239,11 @@ Everything else in ADR 0003 stands unchanged.
   `ANTHROPIC_API_KEY` or an `apiKeyHelper` instead."* On the Native Route it is one or the other.
   Recorded here; the mitigation belongs to
   [#16](https://github.com/nick-neely/reprove/issues/16), which has to solve `AGENTS.md` anyway.
+  **Resolved, and no longer binding, by
+  [ADR 0009](0009-repo-controlled-instruction-boundary.md):** `--safe-mode` disables the same
+  customizations as `--bare`, leaves authentication working normally, and additionally closes
+  `.mcp.json` discovery, which `--bare` leaves open. The conflict is real but Reprove never has to
+  choose between them.
 - **`Isolation` and `Exposure` are new fields on the Run**, alongside `Provenance`, because a
   dispatch decision must be auditable after the fact. This lands on
   [#13](https://github.com/nick-neely/reprove/issues/13) and
