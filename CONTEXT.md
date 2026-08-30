@@ -240,11 +240,15 @@ _Avoid_: filter, gate, minimum severity
 **Owner**:
 The GitHub user or organization that owns repositories, and Reprove's tenant. Runs, Workers
 and settings hang off an Owner, which survives an Installation being removed and re-added.
+An Owner has no identity independent of GitHub, so it is identified by GitHub's durable
+numeric id rather than by a login, which may change.
 _Avoid_: Account, organization, team, tenant
 
 **Installation**:
 A live grant of the Reprove GitHub App on an Owner, carrying the source of short-lived
-repository tokens. It may be removed and re-added, and it is not the tenant.
+repository tokens. It may be removed and re-added, and it is not the tenant. Removing it
+revokes the grant and destroys nothing, so a reinstall resumes the same Owner rather than
+starting a new one.
 _Avoid_: GitHubInstallation, app install, connection
 
 **Repository**:
