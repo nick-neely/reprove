@@ -88,6 +88,15 @@ support at all. On the Native Auth Route the user's own credential is inside
 that Sandbox and Reprove does not claim otherwise; what bounds the risk there is
 Provenance, Isolation and the credential's revocability, not separation.
 
+**Revocability there is yours, not ours.** Reprove neither mints nor can revoke a
+Native Auth Route credential. Where one can be revoked, you revoke it in the
+harness vendor's own surface - for `claude setup-token` that is per-token
+deletion at `claude.ai/settings/claude-code`, which Anthropic describes in a
+support article rather than in its documentation, and nowhere states to be
+immediate or to leave your interactive login intact. Treat revocation as a real
+but user-driven and vendor-documented-at-best control, not as something Reprove
+guarantees on your behalf.
+
 **The residual, recorded rather than argued away:** a compromised Sandbox cannot
 steal a brokered credential, but it may spend the Run's remaining budget against
 the endpoint the Run is allowed to reach, or attempt exfiltration through a

@@ -29,8 +29,15 @@ must provide:
 **The Harness's own sandbox is never this boundary.** Codex's `--sandbox workspace-write` grants
 full-disk *read* in every non-`danger` mode ([#3](https://github.com/nick-neely/reprove/issues/3)
 verified `~/.codex/auth.json` readable under it), Claude Code's sandbox restricts Bash while Read,
-Edit and Write bypass it, and OpenCode has no sandbox at all and says so. Those controls are
-defence in depth *inside* the boundary and are configured as such; none of them is load-bearing.
+Edit and Write bypass it, and OpenCode ships no sandbox at all - its own repository
+`SECURITY.md` says outright that *"OpenCode does **not** sandbox the agent ... it is not designed to
+provide security isolation."* Those controls are defence in depth *inside* the boundary and are
+configured as such; none of them is load-bearing.
+
+The OpenCode citation is narrower than it first read. #19 re-checked it at `v1.18.25`: the *absence*
+is verified by a repo-wide grep for `seccomp|bubblewrap|bwrap|landlock|namespaces|chroot`, which
+returns only unrelated hits, but the *statement* lives in the repository's `SECURITY.md`, not in the
+published documentation, where #19 could not find it. Cite the file, not the docs site.
 
 Seccomp and resource limits are hard requirements rather than strength signals because a pull
 request that can fork-bomb the Worker or reach an unrestricted syscall surface is attacking the
@@ -103,14 +110,56 @@ boundary itself, not merely the Run.
 
   | Harness | Preferred credential | `Exposure` |
   | --- | --- | --- |
-  | Claude Code | `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token` - one year, never written to disk, *"can only make model requests"* | `scoped` |
-  | Codex, Business/Enterprise | `CODEX_ACCESS_TOKEN`, a short-lived workload token | `scoped` |
+  | Claude Code | `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token` - one year, never written to disk, *"can only make model requests"* | `scoped`, with the revocability caveat below |
+  | Codex, Business/Enterprise | `codex login --with-access-token`, which stores an Agent Identity JWT, not a bearer token | **unestablished** - see below |
   | Codex, Plus/Pro | the saved ChatGPT authentication path, which is the actual Native Auth use case | `account` |
-  | OpenCode | the narrowest supported configured provider credential | per credential |
+  | OpenCode | a dedicated, separately-revocable provider API key, supplied as that provider's single models.dev environment variable, with no `auth.json` in the Sandbox and no config file holding a literal key | `scoped`; a mounted `auth.json` is categorically `account` |
+
+  **Three corrections on that table**, found by
+  [#19](https://github.com/nick-neely/reprove/issues/19) while answering a different question and
+  recorded in [`docs/research/codex-credential-reduction.md`](../research/codex-credential-reduction.md).
+  None of them changes a decision in this ADR.
+
+  **The Codex Business/Enterprise row is unestablished, not `scoped`.** This ADR previously called
+  `CODEX_ACCESS_TOKEN` *"a short-lived workload token"*. What `codex login --with-access-token`
+  actually writes carries no `tokens` object at all: either an `at-…` personal access token, or an
+  Agent Identity JWT whose `agent_private_key` claim *is* the Ed25519 signing key, used to mint a
+  fresh assertion per request with no bearer token on the wire. Anyone holding that JWT can mint
+  assertions for the account for the key's lifetime. Whether that is `scoped` turns on how narrowly
+  OpenAI scopes an agent identity and how independently it can be revoked, and **neither was
+  established**. It is recorded as unestablished rather than reclassified in either direction,
+  because moving it would be a decision on evidence nobody has gathered - and nobody needs it until
+  an Enterprise Codex user exists. What does follow from rules this ADR already states: `Exposure`
+  is computed from the resolved credential at dispatch, and *nothing warns and runs*, so an
+  unestablished class may not resolve to the favourable one on the strength of this row.
+
+  **The revocability half of `scoped` is inferred for Claude Code, not documented.** All three
+  claims in the Claude Code row are verbatim-verified against Anthropic's authentication page, and
+  inference-only scope is corroborated in the shipped artifact - the credential carries
+  `["user:inference"]`, and runtime messages refuse Remote Control and connectors to exactly this
+  kind of token. Revocability is not. Per-token deletion at `claude.ai/settings/claude-code` appears
+  only in a support article; Anthropic nowhere states that it leaves the interactive login intact or
+  that it takes effect immediately, the security documentation does not mention credential
+  revocation at all, and there is a community-reported, unverified issue alleging claude.ai-side
+  revocation did not invalidate a token. The row stands. What does not stand is Reprove asserting
+  revocability as a property of Reprove, so `SECURITY.md` states it as a user-driven action on a
+  surface the vendor does not document.
+
+  **On OpenCode every bit of narrowing is provider-side.** OpenCode has no `setup-token` analogue -
+  no derived, scope-reduced, harness-issued credential exists - which is why the row now names a
+  provider-issued key and the conditions around it rather than a harness mechanism. `Auth.all()`
+  reads every entry in `auth.json` together, so mounting that file exposes every provider the user
+  has ever connected, including stale OAuth grants that still carry refresh tokens; an `oauth`-type
+  OpenCode credential is `account` for the same reason Codex's `auth.json` is. Two consequences also
+  refine the per-Run limits clause below: a model allowlist is enforceable at Reprove's proxy but
+  not at the credential (OpenCode's `blacklist` config is a picker filter, not a control), and a
+  spend budget exists only where the provider offers one.
 
   Requiring `scoped` universally was considered and rejected: it would have made Codex Native Auth
   Enterprise-only at launch, which is designing away the feature the Route exists to provide, and
-  ADR 0003 already accepted co-location as the Native Route's premise.
+  ADR 0003 already accepted co-location as the Native Route's premise. The first correction above
+  only strengthens that rejection - with the Enterprise row unestablished, a universal `scoped`
+  requirement would remove Codex Native Auth on every plan rather than narrowing it to one.
 
 - **Egress is default-deny and phased, restricted by host *and* method *and* path.** Every phase
   gets only the destinations it needs; Repository policy may add explicit destinations; there is
