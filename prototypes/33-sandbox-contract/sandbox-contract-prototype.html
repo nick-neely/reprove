@@ -1,0 +1,857 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reprove local Sandbox contract prototype</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #17221f;
+      --muted: #66716d;
+      --paper: #f4f2ec;
+      --panel: #fffefa;
+      --line: #d8d7cf;
+      --accent: #126b50;
+      --accent-soft: #e0f1e9;
+      --warn: #8b5a0e;
+      --warn-soft: #f7edd8;
+      --danger: #a3372e;
+      --danger-soft: #f8e7e4;
+      --code: #14201c;
+      --shadow: 0 12px 32px rgb(23 34 31 / 8%);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.5;
+    }
+
+    button, textarea { font: inherit; }
+    button { cursor: pointer; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { max-width: 1020px; margin-bottom: 14px; font-size: clamp(2.2rem, 5vw, 5rem); line-height: 0.98; letter-spacing: -0.045em; }
+    h2 { margin-bottom: 8px; font-size: 1.25rem; letter-spacing: -0.02em; }
+    h3 { margin-bottom: 6px; font-size: 0.96rem; }
+    code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: 0.9em; }
+
+    .shell {
+      width: min(1480px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 44px 0 72px;
+    }
+
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--accent);
+      font-size: 0.75rem;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .lede { max-width: 980px; color: var(--muted); font-size: 1.05rem; }
+
+    .question, .panel, .contract-card, .walkthrough, .verdict {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+
+    .question {
+      margin: 28px 0;
+      padding: 20px 22px;
+      border-left: 4px solid var(--accent);
+    }
+
+    .question p:last-child { margin-bottom: 0; }
+
+    .contract-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 28px;
+    }
+
+    .contract-card { padding: 18px; }
+    .contract-card strong { display: block; margin-bottom: 6px; }
+    .contract-card p { margin: 0; color: var(--muted); font-size: 0.86rem; }
+    .contract-card .owner { margin-top: 12px; color: var(--accent); font: 700 0.74rem/1.4 "SFMono-Regular", Consolas, monospace; }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 8px;
+      margin-bottom: 28px;
+    }
+
+    .flow-node {
+      min-height: 128px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--panel);
+    }
+
+    .flow-node strong { display: block; margin-bottom: 7px; }
+    .flow-node p { margin: 0; color: var(--muted); font-size: 0.78rem; }
+    .flow-node.active { border-color: var(--accent); background: var(--accent-soft); }
+    .flow-node.active p { color: #31594a; }
+    .flow-node.blocked { border-color: var(--danger); background: var(--danger-soft); }
+    .flow-node.blocked p { color: #72251f; }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(290px, 0.72fr) minmax(600px, 1.55fr);
+      gap: 16px;
+      align-items: start;
+    }
+
+    .panel { overflow: hidden; }
+    .panel-head { padding: 18px 20px 12px; border-bottom: 1px solid var(--line); }
+    .panel-head p { margin: 0; color: var(--muted); font-size: 0.86rem; }
+    .panel-body { padding: 16px 20px 20px; }
+
+    .group + .group { margin-top: 20px; }
+    .group-label {
+      margin-bottom: 8px;
+      color: var(--muted);
+      font-size: 0.72rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .action-list { display: grid; gap: 7px; }
+    .action {
+      width: 100%;
+      padding: 10px 11px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: #fff;
+      color: var(--ink);
+      text-align: left;
+    }
+
+    .action:hover { border-color: var(--accent); background: var(--accent-soft); }
+    .action span { display: block; margin-top: 2px; color: var(--muted); font-size: 0.76rem; }
+    .action.danger:hover { border-color: var(--danger); background: var(--danger-soft); }
+
+    .state-summary {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+
+    .state-cell { padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+    .state-cell dt { color: var(--muted); font-size: 0.66rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; }
+    .state-cell dd { margin: 3px 0 0; font-size: 0.82rem; font-weight: 700; overflow-wrap: anywhere; }
+    .ok { color: var(--accent); }
+    .bad { color: var(--danger); }
+    .pending { color: var(--warn); }
+
+    .message {
+      margin-bottom: 14px;
+      padding: 12px 13px;
+      border-radius: 10px;
+      font-size: 0.88rem;
+    }
+
+    .message.ok { background: var(--accent-soft); }
+    .message.bad { background: var(--danger-soft); }
+    .message.pending { background: var(--warn-soft); }
+
+    .evidence-table { width: 100%; border-collapse: collapse; margin-bottom: 14px; font-size: 0.78rem; }
+    .evidence-table th, .evidence-table td { padding: 8px 7px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    .evidence-table th { color: var(--muted); font-size: 0.66rem; letter-spacing: 0.06em; text-transform: uppercase; }
+    .badge { display: inline-flex; padding: 2px 7px; border-radius: 999px; font-weight: 800; }
+    .badge.pass { background: var(--accent-soft); color: var(--accent); }
+    .badge.fail { background: var(--danger-soft); color: var(--danger); }
+    .badge.wait { background: var(--warn-soft); color: var(--warn); }
+
+    .code-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .code-label { margin: 0 0 6px; color: var(--muted); font-size: 0.7rem; font-weight: 800; letter-spacing: 0.07em; text-transform: uppercase; }
+    pre {
+      min-height: 320px;
+      max-height: 580px;
+      margin: 0;
+      padding: 14px;
+      overflow: auto;
+      border-radius: 10px;
+      background: var(--code);
+      color: #e8f1ec;
+      font: 0.75rem/1.55 "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      tab-size: 2;
+    }
+
+    .walkthroughs { margin-top: 28px; }
+    .tab-list { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+    .tab {
+      padding: 8px 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+      color: var(--ink);
+    }
+
+    .tab[aria-selected="true"] { border-color: var(--accent); background: var(--accent); color: #fff; }
+    .walkthrough { display: none; padding: 18px; }
+    .walkthrough.active { display: block; }
+    .walkthrough p { max-width: 980px; color: var(--muted); }
+    .steps { display: flex; flex-wrap: wrap; gap: 8px; }
+    .step {
+      padding: 9px 12px;
+      border: 1px solid var(--accent);
+      border-radius: 9px;
+      background: #fff;
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    .step:hover { background: var(--accent-soft); }
+    .step.done { border-color: var(--line); background: #f0efe9; color: var(--muted); text-decoration: line-through; }
+
+    .proof {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 28px;
+    }
+
+    .proof .panel-body p { color: var(--muted); font-size: 0.85rem; }
+    .proof ul { margin: 0; padding-left: 18px; font-size: 0.8rem; }
+    .proof li + li { margin-top: 6px; }
+
+    .verdict { margin-top: 28px; padding: 22px; }
+    .verdict-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 16px 0; }
+    .verdict-item { padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+    .verdict-item p { min-height: 66px; margin-bottom: 10px; font-size: 0.86rem; }
+    .choice-row { display: flex; gap: 7px; }
+    .choice { flex: 1; padding: 7px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+    .choice.selected.yes { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+    .choice.selected.no { border-color: var(--danger); background: var(--danger-soft); color: var(--danger); }
+    textarea { width: 100%; min-height: 118px; padding: 12px; border: 1px solid var(--line); border-radius: 9px; resize: vertical; color: var(--ink); background: #fff; }
+    .copy { margin-top: 8px; padding: 9px 13px; border: 0; border-radius: 9px; background: var(--accent); color: #fff; font-weight: 700; }
+    .footnote { margin-top: 18px; color: var(--muted); font-size: 0.78rem; }
+
+    @media (max-width: 1120px) {
+      .contract-grid, .proof { grid-template-columns: 1fr 1fr; }
+      .workspace { grid-template-columns: 1fr; }
+      .flow { grid-template-columns: repeat(3, 1fr); }
+    }
+
+    @media (max-width: 720px) {
+      .shell { width: min(100% - 20px, 1480px); padding-top: 24px; }
+      .contract-grid, .proof, .verdict-grid, .flow { grid-template-columns: 1fr; }
+      .state-summary { grid-template-columns: 1fr 1fr; }
+      .code-grid { grid-template-columns: 1fr; }
+      pre { min-height: 240px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <p class="eyebrow">Throwaway prototype for Prove the local broker-capable Sandbox contract</p>
+    <h1>Execution begins only after the box proves itself</h1>
+    <p class="lede">Drive a Docker or Podman Sandbox through capability probing, per-instance attestation, dispatch, and verified teardown. The prototype tests whether these seams are enough to make every hard-property loss an explicit Refusal before repository code runs.</p>
+
+    <section class="question" aria-labelledby="question-title">
+      <h2 id="question-title">Question under test</h2>
+      <p><strong>Proposal:</strong> split evidence into a cached host capability probe and a fresh attestation of the exact Sandbox instance. <code>@reprove/sandbox-container</code> owns both and exposes an attested <code>HarnessV1SandboxProvider</code>. <code>@reprove/worker-core</code> alone turns the attestation plus Run facts into authorization or a protocol <code>Refusal</code>. No Harness process starts before authorization.</p>
+      <p><strong>Assumption to challenge:</strong> runtime configuration and <code>inspect</code> output are not enough. Each hard property also gets an adversarial canary from inside the created Sandbox, and cleanup gets a separate post-stop proof.</p>
+    </section>
+
+    <section class="contract-grid" aria-label="Proposed package seams">
+      <article class="contract-card">
+        <strong>1. Capability probe</strong>
+        <p>Fingerprint the provider build, runtime daemon, kernel, and cgroup mode. Establish what this host can create, not what one Sandbox currently enforces.</p>
+        <div class="owner">@reprove/sandbox-container</div>
+      </article>
+      <article class="contract-card">
+        <strong>2. Instance attestation</strong>
+        <p>Create one labeled Sandbox, inspect it outside, run canaries inside, and return closed check records tied to its instance id.</p>
+        <div class="owner">@reprove/sandbox-container</div>
+      </article>
+      <article class="contract-card">
+        <strong>3. Eligibility gate</strong>
+        <p>Combine attested Isolation with Exposure and Provenance. A failed hard check or ineligible cell produces a structured Refusal.</p>
+        <div class="owner">@reprove/worker-core</div>
+      </article>
+      <article class="contract-card">
+        <strong>4. Harness provider</strong>
+        <p>Expose ports, network policy, restricted handles, and request transformations. The credential callback rejects every real secret.</p>
+        <div class="owner">HarnessV1SandboxProvider adapter</div>
+      </article>
+    </section>
+
+    <section class="flow" aria-label="Sandbox lifecycle">
+      <article class="flow-node" data-phase="probe"><strong>Probe host</strong><p>Capability fingerprint and runtime strength.</p></article>
+      <article class="flow-node" data-phase="create"><strong>Create</strong><p>One ephemeral Sandbox with closed OCI settings.</p></article>
+      <article class="flow-node" data-phase="attest"><strong>Attest</strong><p>Outside inspection plus inside canaries.</p></article>
+      <article class="flow-node" data-phase="gate"><strong>Gate</strong><p>Hard checks and eligibility matrix.</p></article>
+      <article class="flow-node" data-phase="execute"><strong>Execute</strong><p>Harness begins only after authorization.</p></article>
+      <article class="flow-node" data-phase="teardown"><strong>Teardown</strong><p>Stop, destroy, and prove no labeled residue.</p></article>
+    </section>
+
+    <section class="workspace">
+      <aside class="panel" aria-labelledby="actions-title">
+        <div class="panel-head">
+          <h2 id="actions-title">Free play</h2>
+          <p>Buttons stay available so illegal orderings are visible.</p>
+        </div>
+        <div class="panel-body">
+          <div class="group">
+            <div class="group-label">Choose a proof fixture</div>
+            <div class="action-list">
+              <button class="action" data-action="reset" data-preset="docker-rootless">Docker rootless, brokered<span>Expected: Result and clean teardown</span></button>
+              <button class="action" data-action="reset" data-preset="podman-rootless">Podman rootless, brokered<span>Expected: same contract, different runtime evidence</span></button>
+              <button class="action" data-action="reset" data-preset="docker-account">Docker rootful, account credential<span>Expected: isolation eligibility Refusal</span></button>
+              <button class="action danger" data-action="reset" data-preset="broker-leak">Broker returns a real credential<span>Expected: credential boundary Refusal</span></button>
+              <button class="action danger" data-action="reset" data-preset="missing-seccomp">Seccomp is unconfined<span>Expected: hard-property Refusal</span></button>
+              <button class="action danger" data-action="reset" data-preset="cleanup-residue">Labeled network survives destroy<span>Expected: completed execution plus cleanup Failure and quarantine</span></button>
+            </div>
+          </div>
+
+          <div class="group">
+            <div class="group-label">Drive the lifecycle</div>
+            <div class="action-list">
+              <button class="action" data-action="probe">1. Probe host capabilities</button>
+              <button class="action" data-action="create">2. Create Sandbox instance</button>
+              <button class="action" data-action="attest">3. Attest exact instance</button>
+              <button class="action" data-action="gate">4. Apply execution gate</button>
+              <button class="action" data-action="execute">5. Start simulated Pass</button>
+              <button class="action" data-action="complete">6. Finish simulated Pass</button>
+              <button class="action" data-action="teardown">7. Stop and destroy</button>
+              <button class="action" data-action="verifyCleanup">8. Verify cleanup</button>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <section class="panel" aria-labelledby="state-title">
+        <div class="panel-head">
+          <h2 id="state-title">Current proof state</h2>
+          <p>Every click runs through a pure state machine. The full state is rendered below.</p>
+        </div>
+        <div class="panel-body">
+          <dl class="state-summary">
+            <div class="state-cell"><dt>Phase</dt><dd id="phase-value"></dd></div>
+            <div class="state-cell"><dt>Runtime</dt><dd id="runtime-value"></dd></div>
+            <div class="state-cell"><dt>Isolation</dt><dd id="isolation-value"></dd></div>
+            <div class="state-cell"><dt>Execution</dt><dd id="execution-value"></dd></div>
+            <div class="state-cell"><dt>Outcome</dt><dd id="outcome-value"></dd></div>
+          </dl>
+
+          <div class="message pending" id="message" role="status" aria-live="polite"></div>
+
+          <table class="evidence-table">
+            <thead><tr><th>Proof group</th><th>Status</th><th>Evidence source</th><th>Scope</th></tr></thead>
+            <tbody id="evidence-body"></tbody>
+          </table>
+
+          <div class="code-grid">
+            <div>
+              <p class="code-label">Proposed seam</p>
+              <pre id="contract-code" tabindex="0"></pre>
+            </div>
+            <div>
+              <p class="code-label">Full current state</p>
+              <pre id="state-code" tabindex="0"></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+    </section>
+
+    <section class="walkthroughs" aria-labelledby="walkthrough-title">
+      <h2 id="walkthrough-title">Guided walkthroughs</h2>
+      <p class="lede">Each tab resets to a known fixture. Press its steps in order and watch where authority is withheld.</p>
+      <div class="tab-list" role="tablist" aria-label="Sandbox proof scenarios">
+        <button class="tab" role="tab" aria-selected="true" data-tab="happy">Rootless brokered Pass</button>
+        <button class="tab" role="tab" aria-selected="false" data-tab="rootful">Rootful account Refusal</button>
+        <button class="tab" role="tab" aria-selected="false" data-tab="secret">Credential canary</button>
+        <button class="tab" role="tab" aria-selected="false" data-tab="teardown">Teardown residue</button>
+      </div>
+
+      <article class="walkthrough active" data-walkthrough="happy">
+        <h3>Rootless Docker establishes the whole contract</h3>
+        <p>The host probe earns only a capability claim. The created instance must still pass every canary before Worker core authorizes execution. Teardown is part of the observable outcome.</p>
+        <div class="steps" data-preset="docker-rootless" data-sequence="probe,create,attest,gate,execute,complete,teardown,verifyCleanup"></div>
+      </article>
+
+      <article class="walkthrough" data-walkthrough="rootful">
+        <h3>Rootful Docker is a Sandbox, but not for an account credential</h3>
+        <p>All hard properties pass and Isolation computes to <code>container</code>. Worker core then refuses the <code>account + container</code> combination before execution. Rootful is a strength fact, not a fake hard-property failure.</p>
+        <div class="steps" data-preset="docker-account" data-sequence="probe,create,attest,gate"></div>
+      </article>
+
+      <article class="walkthrough" data-walkthrough="secret">
+        <h3>The brokering regression cannot warn and continue</h3>
+        <p>The provider supports request transformations, but the Adapter credential callback observes a non-placeholder value. That is direct proof of the feared silent downgrade, so attestation refuses and execution stays impossible.</p>
+        <div class="steps" data-preset="broker-leak" data-sequence="probe,create,attest,gate"></div>
+      </article>
+
+      <article class="walkthrough" data-walkthrough="teardown">
+        <h3>A teardown call is not teardown proof</h3>
+        <p>The Pass finishes, then destroy leaves a labeled network behind. The completed candidate Result cannot turn cleanup failure into success. Worker core reports Failure and quarantines the capability fingerprint until cleanup succeeds.</p>
+        <div class="steps" data-preset="cleanup-residue" data-sequence="probe,create,attest,gate,execute,complete,teardown,verifyCleanup"></div>
+      </article>
+    </section>
+
+    <section class="proof" aria-label="Concrete Docker and Podman proof plan">
+      <article class="panel">
+        <div class="panel-head"><h2>Host capability probe</h2></div>
+        <div class="panel-body">
+          <p>Cache only against a fingerprint that changes with every relevant artifact.</p>
+          <ul>
+            <li>Provider build digest and probe schema version</li>
+            <li>Runtime kind, client and server versions, and rootless fact</li>
+            <li>Kernel, cgroup version, seccomp availability, and network backend</li>
+            <li>Support for ports, request transformations, and restricted handles</li>
+          </ul>
+        </div>
+      </article>
+      <article class="panel">
+        <div class="panel-head"><h2>Fresh instance attestation</h2></div>
+        <div class="panel-body">
+          <p>Bind every record to the created instance id and probe fingerprint.</p>
+          <ul>
+            <li>Inspect: unprivileged, minimal caps, seccomp, limits, mounts, labels</li>
+            <li>Inside canaries: namespace ids, no socket, no host sentinel or authority, protected inputs</li>
+            <li>Network canaries: direct traffic denied, allowed proxy path works, all unmatched requests fail</li>
+            <li>Broker canary: only a random placeholder is visible inside; transform occurs outside</li>
+          </ul>
+        </div>
+      </article>
+      <article class="panel">
+        <div class="panel-head"><h2>Adversarial contract tests</h2></div>
+        <div class="panel-body">
+          <p>Run the same black-box suite against Docker rootless, Docker rootful, and Podman rootless.</p>
+          <ul>
+            <li>Try to reach the runtime socket, host sentinel, and disallowed network targets</li>
+            <li>Try to read the real provider credential from env, files, process data, and echoed headers</li>
+            <li>Try fork, memory, CPU, and wall-clock limits</li>
+            <li>Kill and cancel at each lifecycle edge, then assert no labeled container, network, or volume remains</li>
+          </ul>
+        </div>
+      </article>
+      <article class="panel">
+        <div class="panel-head"><h2>Runtime evidence adapters</h2></div>
+        <div class="panel-body">
+          <p>Docker and Podman normalize different command output into the same closed check records.</p>
+          <ul>
+            <li>Host: <code>docker info</code> or <code>podman info --format json</code></li>
+            <li>Outside: <code>inspect</code> the exact id and retain only bounded security facts</li>
+            <li>Inside: <code>exec</code> the same versioned canary image and collect closed pass or fail codes</li>
+            <li>Cleanup: list containers, networks, and volumes by immutable Reprove label and require an empty set</li>
+          </ul>
+        </div>
+      </article>
+    </section>
+
+    <section class="verdict" aria-labelledby="verdict-title">
+      <h2 id="verdict-title">Your verdict</h2>
+      <p>These are the three decisions this prototype is trying to settle. Choose yes or no, then add any correction.</p>
+      <div class="verdict-grid">
+        <article class="verdict-item" data-verdict="split">
+          <p><strong>Evidence split:</strong> cached host capability plus fresh per-instance attestation is the right proof boundary.</p>
+          <div class="choice-row"><button class="choice" data-choice="yes">Yes</button><button class="choice" data-choice="no">No</button></div>
+        </article>
+        <article class="verdict-item" data-verdict="gate">
+          <p><strong>Authority split:</strong> the provider reports facts; Worker core alone decides authorization versus Refusal.</p>
+          <div class="choice-row"><button class="choice" data-choice="yes">Yes</button><button class="choice" data-choice="no">No</button></div>
+        </article>
+        <article class="verdict-item" data-verdict="teardown">
+          <p><strong>Teardown rule:</strong> residue after execution is a Failure and quarantines that capability fingerprint.</p>
+          <div class="choice-row"><button class="choice" data-choice="yes">Yes</button><button class="choice" data-choice="no">No</button></div>
+        </article>
+      </div>
+      <label for="verdict-notes"><strong>Corrections or missing cases</strong></label>
+      <textarea id="verdict-notes" placeholder="What feels wrong, too broad, or still unproved?"></textarea>
+      <button class="copy" id="copy-verdict">Copy verdict</button>
+      <p class="footnote">This file is intentionally throwaway. It proposes package and test seams only. It does not implement the supported provider, execute Docker or Podman, or add production types.</p>
+    </section>
+  </main>
+
+  <script>
+    // Portable logic module. It has no DOM dependency and can be lifted into a real module.
+    const SandboxProof = (() => {
+      const presets = {
+        "docker-rootless": {
+          runtime: "docker", rootless: true, route: "brokered", exposure: "none", provenance: "external",
+          seccomp: true, brokerPlaceholder: true, cleanupResidue: false
+        },
+        "podman-rootless": {
+          runtime: "podman", rootless: true, route: "brokered", exposure: "none", provenance: "external",
+          seccomp: true, brokerPlaceholder: true, cleanupResidue: false
+        },
+        "docker-account": {
+          runtime: "docker", rootless: false, route: "native", exposure: "account", provenance: "internal",
+          seccomp: true, brokerPlaceholder: null, cleanupResidue: false
+        },
+        "broker-leak": {
+          runtime: "docker", rootless: true, route: "brokered", exposure: "none", provenance: "external",
+          seccomp: true, brokerPlaceholder: false, cleanupResidue: false
+        },
+        "missing-seccomp": {
+          runtime: "podman", rootless: true, route: "brokered", exposure: "none", provenance: "external",
+          seccomp: false, brokerPlaceholder: true, cleanupResidue: false
+        },
+        "cleanup-residue": {
+          runtime: "docker", rootless: true, route: "brokered", exposure: "none", provenance: "external",
+          seccomp: true, brokerPlaceholder: true, cleanupResidue: true
+        }
+      };
+
+      const hardChecks = [
+        "separate_namespaces", "unprivileged", "minimal_capabilities", "runtime_socket_absent",
+        "host_bind_mounts_absent", "host_authority_absent", "seccomp_enforced", "resource_limits", "ephemeral_workspace",
+        "proxy_only_egress", "protected_inputs", "port_bridge", "credential_boundary"
+      ];
+
+      const copy = (value) => JSON.parse(JSON.stringify(value));
+
+      function initial(presetName = "docker-rootless") {
+        const fixture = copy(presets[presetName]);
+        return {
+          preset: presetName,
+          fixture,
+          phase: "unprobed",
+          message: "Choose a fixture or probe the host. Nothing is authorized yet.",
+          probe: null,
+          sandbox: null,
+          attestation: null,
+          authorization: null,
+          execution: { started: false, finished: false },
+          teardown: null,
+          outcome: null,
+          history: []
+        };
+      }
+
+      function transition(current, action) {
+        if (action.type === "reset") return initial(action.preset);
+        const state = copy(current);
+        const record = (message) => {
+          state.message = message;
+          state.history.push({ action: action.type, phase: state.phase, message });
+          return state;
+        };
+        const illegal = (expected) => record(`Illegal ordering: ${action.type} requires ${expected}. No state authority changed.`);
+
+        if (action.type === "probe") {
+          state.phase = "probed";
+          state.probe = {
+            fingerprint: `${state.fixture.runtime}:provider-1:runtime-1:kernel-1:cgroup-v2`,
+            runtime: state.fixture.runtime,
+            rootless: state.fixture.rootless,
+            isolationCeiling: state.fixture.rootless ? "container-rootless" : "container",
+            features: { ports: true, requestTransformations: true, restrictedHandle: true },
+            observedAt: "fresh-for-dispatch"
+          };
+          return record("Host capability fingerprint established. This is permission to create a probe instance, not to execute repository code.");
+        }
+
+        if (action.type === "create") {
+          if (!state.probe || !["probed", "created"].includes(state.phase)) return illegal("a fresh host capability probe");
+          state.phase = "created";
+          state.sandbox = {
+            id: `reprove-${state.fixture.runtime}-probe-001`,
+            label: "dev.reprove.probe=probe-001",
+            harnessStarted: false,
+            workspace: "sandbox-owned ephemeral volume"
+          };
+          return record("One labeled Sandbox exists. Its settings are claims until outside inspection and inside canaries agree.");
+        }
+
+        if (action.type === "attest") {
+          if (!state.sandbox || state.phase !== "created") return illegal("one created, unstarted Sandbox instance");
+          const checkResults = Object.fromEntries(hardChecks.map((name) => [name, true]));
+          checkResults.seccomp_enforced = state.fixture.seccomp;
+          checkResults.credential_boundary = state.fixture.route === "native" || state.fixture.brokerPlaceholder === true;
+          const failed = Object.entries(checkResults).filter(([, passed]) => !passed).map(([name]) => name);
+          state.attestation = {
+            sandboxId: state.sandbox.id,
+            probeFingerprint: state.probe.fingerprint,
+            isolation: state.probe.isolationCeiling,
+            checks: checkResults,
+            failed,
+            brokerEvidence: state.fixture.route === "brokered"
+              ? { insideValue: state.fixture.brokerPlaceholder ? "aisdkhc_<random>" : "real credential", transformedOutside: state.fixture.brokerPlaceholder }
+              : { notApplicable: true }
+          };
+          if (failed.length) {
+            state.phase = "refused_teardown_required";
+            state.outcome = {
+              kind: "Refusal",
+              reason: failed.includes("credential_boundary") ? "credential_boundary_unestablished" : "sandbox_property_missing",
+              requirement: failed[0],
+              required: "established",
+              actual: "failed"
+            };
+            return record(`Instance attestation failed: ${failed.join(", ")}. Refusal is fixed before execution; teardown is still mandatory.`);
+          }
+          state.phase = "attested";
+          return record("Every hard property passed for this exact instance. Worker core may now evaluate the Isolation, Exposure, and Provenance combination.");
+        }
+
+        if (action.type === "gate") {
+          if (!state.attestation || state.attestation.failed.length) return illegal("a passing per-instance attestation");
+          if (state.phase !== "attested") return illegal("the attested phase");
+          const { isolation } = state.attestation;
+          const { exposure, provenance } = state.fixture;
+          let eligible = false;
+          if (exposure === "none") eligible = isolation === "container-rootless" || provenance === "internal";
+          if (exposure === "scoped") eligible = isolation === "container-rootless" ? provenance === "internal" : provenance === "internal";
+          if (exposure === "account") eligible = isolation === "container-rootless" && provenance === "internal";
+          if (!eligible) {
+            state.phase = "refused_teardown_required";
+            state.authorization = { authorized: false, isolation, exposure, provenance };
+            state.outcome = {
+              kind: "Refusal",
+              reason: "isolation_insufficient",
+              requirement: "eligible Exposure x Isolation x Provenance cell",
+              required: exposure === "account" ? "container-rootless" : "eligible matrix cell",
+              actual: isolation
+            };
+            return record("Worker core refused this resolved security combination before the Harness started. Teardown remains mandatory.");
+          }
+          state.phase = "authorized";
+          state.authorization = { authorized: true, isolation, exposure, provenance };
+          return record("Worker core authorized execution. The provider attested facts; it did not make this policy decision.");
+        }
+
+        if (action.type === "execute") {
+          if (state.phase !== "authorized") return illegal("Worker-core authorization");
+          state.phase = "executing";
+          state.execution.started = true;
+          state.sandbox.harnessStarted = true;
+          return record("Simulated Harness started. This is the first point at which repository-controlled code may execute.");
+        }
+
+        if (action.type === "complete") {
+          if (state.phase !== "executing") return illegal("an executing simulated Pass");
+          state.phase = "execution_complete";
+          state.execution.finished = true;
+          state.outcome = { kind: "ResultCandidate", completeness: "complete", findings: 0 };
+          return record("The simulated Pass produced a candidate Result. It is not the final observable outcome until teardown is proved.");
+        }
+
+        if (action.type === "teardown") {
+          if (!state.sandbox) return illegal("a created Sandbox");
+          if (state.teardown?.destroyCalled) return illegal("teardown to be called only once");
+          state.phase = "teardown_pending_proof";
+          state.teardown = { stopCalled: true, destroyCalled: true, verified: false, residue: null };
+          return record("Stop and destroy returned. Calls are not proof; the runtime must now show no labeled container, network, volume, proxy, or broker remains.");
+        }
+
+        if (action.type === "verifyCleanup") {
+          if (!state.teardown?.destroyCalled) return illegal("a completed stop and destroy call");
+          state.teardown.verified = true;
+          state.teardown.residue = state.fixture.cleanupResidue ? ["network:reprove-probe-001"] : [];
+          if (state.teardown.residue.length) {
+            state.phase = "quarantined";
+            state.outcome = {
+              kind: "Failure",
+              reason: "sandbox_teardown_incomplete",
+              capabilityFingerprintQuarantined: state.probe.fingerprint,
+              residue: state.teardown.residue
+            };
+            return record("Cleanup proof failed after execution. The outcome is Failure and this capability fingerprint is quarantined.");
+          }
+          state.phase = "closed";
+          if (state.outcome?.kind === "ResultCandidate") state.outcome.kind = "Result";
+          return record(state.outcome?.kind === "Refusal"
+            ? "Cleanup proved. The structured Refusal remains the final outcome and no execution occurred."
+            : "Cleanup proved. The normalized Result is now the final outcome.");
+        }
+
+        return record(`Unknown action: ${action.type}`);
+      }
+
+      return { initial, transition };
+    })();
+
+    const actionNames = {
+      probe: "Probe host", create: "Create instance", attest: "Attest instance", gate: "Apply gate",
+      execute: "Start Pass", complete: "Finish Pass", teardown: "Destroy", verifyCleanup: "Prove cleanup"
+    };
+
+    const contractText = `type CapabilityProbe = {
+  fingerprint: Provider + Runtime + Kernel + Cgroup;
+  isolationCeiling: Isolation;
+  features: { ports: true; requestTransformations: true; restrictedHandle: true };
+};
+
+type SandboxAttestation = {
+  sandboxId: string;
+  probeFingerprint: string;
+  isolation: Isolation;
+  checks: Record<HardProperty, ObservedCheck>;
+};
+
+interface AttestedProvider {
+  probeHost(): CapabilityProbe;
+  createProbe(): SandboxHandle;
+  attest(handle): SandboxAttestation;
+  asHarnessV1Provider(attestation): HarnessV1SandboxProvider;
+  teardown(handle): CleanupProof;
+}
+
+workerCore.authorize(runSpec, attestation)
+  -> AuthorizedSandbox | Refusal;
+
+credentialForwarding(value)
+  -> placeholder | throw Refusal;
+
+finalize(candidate, cleanupProof)
+  -> Result | Refusal | Failure;`;
+
+    let state = SandboxProof.initial();
+    const verdicts = { split: null, gate: null, teardown: null };
+    let activeWalkthrough = "happy";
+    let walkthroughStep = 0;
+
+    function statusClass(value) {
+      if (["Result", "closed", "authorized", "attested"].includes(value)) return "ok";
+      if (["Refusal", "Failure", "quarantined", "refused_teardown_required"].includes(value)) return "bad";
+      return "pending";
+    }
+
+    function proofRows() {
+      const groupStatus = (group) => {
+        if (group === "host") return state.probe ? ["pass", "observed"] : ["wait", "not run"];
+        if (group === "instance") {
+          if (!state.attestation) return ["wait", "not run"];
+          return state.attestation.failed.length ? ["fail", state.attestation.failed.join(", ")] : ["pass", "all hard checks"];
+        }
+        if (group === "gate") {
+          if (!state.authorization && state.outcome?.kind !== "Refusal") return ["wait", "not evaluated"];
+          return state.authorization?.authorized ? ["pass", "authorized"] : ["fail", "Refusal"];
+        }
+        if (group === "cleanup") {
+          if (!state.teardown?.verified) return ["wait", "not proved"];
+          return state.teardown.residue.length ? ["fail", state.teardown.residue.join(", ")] : ["pass", "no labeled residue"];
+        }
+      };
+      return [
+        ["Host capability", ...groupStatus("host"), "runtime info + provider probe", "fingerprint cache"],
+        ["Exact instance", ...groupStatus("instance"), "outside inspect + inside canaries", "Sandbox instance id"],
+        ["Execution gate", ...groupStatus("gate"), "Isolation x Exposure x Provenance", "Run dispatch"],
+        ["Cleanup", ...groupStatus("cleanup"), "runtime inventory by immutable label", "post-stop instance resources"]
+      ];
+    }
+
+    function render() {
+      document.getElementById("phase-value").textContent = state.phase;
+      document.getElementById("runtime-value").textContent = `${state.fixture.runtime} ${state.fixture.rootless ? "rootless" : "rootful"}`;
+      document.getElementById("isolation-value").textContent = state.attestation?.isolation ?? state.probe?.isolationCeiling ?? "unestablished";
+      document.getElementById("execution-value").textContent = state.execution.started ? (state.execution.finished ? "finished" : "started") : "not started";
+      document.getElementById("outcome-value").textContent = state.outcome?.kind ?? "none";
+
+      for (const id of ["phase-value", "isolation-value", "execution-value", "outcome-value"]) {
+        const element = document.getElementById(id);
+        element.className = statusClass(element.textContent);
+      }
+
+      const message = document.getElementById("message");
+      message.textContent = state.message;
+      message.className = `message ${statusClass(state.outcome?.kind ?? state.phase)}`;
+
+      document.getElementById("evidence-body").innerHTML = proofRows().map(([name, badge, detail, source, scope]) => `
+        <tr><td><strong>${name}</strong></td><td><span class="badge ${badge}">${detail}</span></td><td>${source}</td><td>${scope}</td></tr>
+      `).join("");
+
+      document.getElementById("contract-code").textContent = contractText;
+      document.getElementById("state-code").textContent = JSON.stringify(state, null, 2);
+
+      const phaseIndex = {
+        unprobed: 0, probed: 0, created: 1, attested: 2, authorized: 3, executing: 4,
+        execution_complete: 4, refused_teardown_required: 3, teardown_pending_proof: 5, closed: 5, quarantined: 5
+      }[state.phase] ?? 0;
+      document.querySelectorAll(".flow-node").forEach((node, index) => {
+        node.classList.toggle("active", index === phaseIndex);
+        node.classList.toggle("blocked", state.phase === "refused_teardown_required" && index === 3 || state.phase === "quarantined" && index === 5);
+      });
+    }
+
+    function dispatch(type, preset) {
+      state = SandboxProof.transition(state, type === "reset" ? { type, preset } : { type });
+      render();
+    }
+
+    document.querySelectorAll("[data-action]").forEach((button) => {
+      button.addEventListener("click", () => dispatch(button.dataset.action, button.dataset.preset));
+    });
+
+    function buildWalkthrough(container) {
+      const sequence = container.dataset.sequence.split(",");
+      container.innerHTML = sequence.map((action, index) => `<button class="step" data-index="${index}" data-step-action="${action}">${index + 1}. ${actionNames[action]}</button>`).join("");
+      container.querySelectorAll(".step").forEach((button) => {
+        button.addEventListener("click", () => {
+          const index = Number(button.dataset.index);
+          if (index === 0 || walkthroughStep === 0) {
+            dispatch("reset", container.dataset.preset);
+            container.querySelectorAll(".step").forEach((step) => step.classList.remove("done"));
+            walkthroughStep = 0;
+          }
+          if (index !== walkthroughStep) {
+            state.message = `Guided ordering: press step ${walkthroughStep + 1} next, or use Free play to explore illegal transitions.`;
+            render();
+            return;
+          }
+          dispatch(button.dataset.stepAction);
+          button.classList.add("done");
+          walkthroughStep += 1;
+        });
+      });
+    }
+
+    document.querySelectorAll(".steps").forEach(buildWalkthrough);
+
+    document.querySelectorAll(".tab").forEach((tab) => {
+      tab.addEventListener("click", () => {
+        activeWalkthrough = tab.dataset.tab;
+        walkthroughStep = 0;
+        document.querySelectorAll(".tab").forEach((item) => item.setAttribute("aria-selected", String(item === tab)));
+        document.querySelectorAll(".walkthrough").forEach((item) => item.classList.toggle("active", item.dataset.walkthrough === activeWalkthrough));
+        const active = document.querySelector(`[data-walkthrough="${activeWalkthrough}"] .steps`);
+        dispatch("reset", active.dataset.preset);
+        active.querySelectorAll(".step").forEach((step) => step.classList.remove("done"));
+      });
+    });
+
+    document.querySelectorAll(".verdict-item").forEach((item) => {
+      item.querySelectorAll(".choice").forEach((button) => {
+        button.addEventListener("click", () => {
+          const key = item.dataset.verdict;
+          verdicts[key] = button.dataset.choice;
+          item.querySelectorAll(".choice").forEach((choice) => {
+            choice.classList.toggle("selected", choice === button);
+            choice.classList.toggle("yes", choice === button && button.dataset.choice === "yes");
+            choice.classList.toggle("no", choice === button && button.dataset.choice === "no");
+          });
+        });
+      });
+    });
+
+    document.getElementById("copy-verdict").addEventListener("click", async () => {
+      const notes = document.getElementById("verdict-notes").value.trim() || "None";
+      const summary = `Sandbox contract prototype verdict\n\n- Evidence split: ${verdicts.split ?? "not answered"}\n- Authority split: ${verdicts.gate ?? "not answered"}\n- Teardown rule: ${verdicts.teardown ?? "not answered"}\n- Corrections: ${notes}`;
+      await navigator.clipboard.writeText(summary);
+      const button = document.getElementById("copy-verdict");
+      button.textContent = "Copied";
+      setTimeout(() => { button.textContent = "Copy verdict"; }, 1200);
+    });
+
+    render();
+  </script>
+</body>
+</html>
