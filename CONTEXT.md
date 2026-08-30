@@ -106,8 +106,9 @@ independence from the Author is the point of cross-harness review.
 _Avoid_: ReviewAgent, agent, bot
 
 **Adapter**:
-Reprove's per-Harness code, wrapping the third-party harness layer and supplying what that
-layer does not: the model catalogue and the capability descriptor.
+Reprove's per-Harness code, driving a Harness by whichever Route applies and supplying what no
+Route provides: the model catalogue, the capability descriptor, and validation of the Result.
+A Route is an implementation detail of an Adapter, not something its callers choose between.
 _Avoid_: driver, plugin, integration
 
 **Author**:
@@ -122,6 +123,13 @@ The process that executes a Run and returns its Result. A hosted Worker is opera
 and provisioned per Run; a self-hosted Worker is operated by the user, is long-lived, and
 registers its capabilities and health.
 _Avoid_: executor, ReviewExecutor, runner, backend, execution mode
+
+**Route**:
+How an Adapter invokes a Harness, and which credential that invocation carries: `brokered` drives
+it through `@ai-sdk/harness` with an API or Gateway credential the Sandbox never holds, `native`
+drives the installed CLI with authentication the user manages. A Route is a property of the
+invocation, not of who operates the Worker; both are open to a self-hosted Worker.
+_Avoid_: mode, path, transport, invocation method
 
 **Sandbox**:
 The isolation boundary a Run executes inside: the boundary untrusted repository code must not
@@ -149,6 +157,14 @@ _Avoid_: mode, review mode, permission level
 How Reviewers are composed within a Run - one Reviewer, or several arranged to challenge
 each other.
 _Avoid_: mode, review strategy
+
+**Provenance**:
+Where the code under review came from, as a risk classification: `internal` when the head is a
+branch of the same Repository and its Author is an owner, member or collaborator of it, and
+`external` otherwise. It is computed from the pull request rather than configured, and it
+classifies risk rather than conferring safety - `internal` means an attacker would have to be a
+collaborator, not that there is no attacker.
+_Avoid_: trust level, trusted, author association
 
 **Threshold**:
 A Repository's policy about which Findings reach GitHub, expressed over Severity and Verification.
