@@ -2,12 +2,16 @@
   "name": "proto38-workflow-dispatch",
   "private": true,
   "type": "module",
-  "workspaces": ["packages/*", "apps/*"],
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "scripts": {
     "db": "docker compose up -d --wait",
     "prototype": "npm run db && vitest run --reporter=basic",
     "boundary": "tsx tools/boundary.ts",
-    "world": "tsx tools/world-schemas.ts"
+    "world": "tsx tools/world-schemas.ts",
+    "nextcheck": "cd nextcheck && npm install && npm run build"
   },
   "devDependencies": {
     "@workflow/vitest": "4.0.21",

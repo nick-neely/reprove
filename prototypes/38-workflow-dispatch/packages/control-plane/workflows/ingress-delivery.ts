@@ -12,10 +12,19 @@
 // not chosen.
 import { RetryableError, FatalError } from 'workflow';
 import { start } from 'workflow/api';
-import { withOwner } from '../db.ts';
-import { createRunForDelivery, type Disposition, type Phase0RunProfile } from '../ingress.ts';
-import { resolveGitHubPort } from '../step-config.ts';
+import type { Disposition, Phase0RunProfile } from '../ingress.ts';
 import { runLifecycle } from './run-lifecycle.ts';
+
+// Type-only imports above; everything with a Node dependency is loaded inside
+// a step. See run-lifecycle.ts for why the shared workflow bundle forces this.
+async function cpApi() {
+  const [db, ingress, stepConfig] = await Promise.all([
+    import('../db.ts'),
+    import('../ingress.ts'),
+    import('../step-config.ts'),
+  ]);
+  return { ...db, ...ingress, ...stepConfig };
+}
 
 export async function ingressDelivery(
   deliveryId: number,
@@ -33,6 +42,7 @@ export async function ingressDelivery(
 
 async function processDelivery(deliveryId: number, ownerId: number, profile: Phase0RunProfile) {
   'use step';
+  const { createRunForDelivery, resolveGitHubPort } = await cpApi();
   const out = await createRunForDelivery(deliveryId, ownerId, profile, resolveGitHubPort());
   // `contended` and `transient` are retried by the platform. Throwing is the
   // whole mechanism: there is no Reprove-owned backoff table to get wrong.
@@ -50,6 +60,7 @@ async function processDelivery(deliveryId: number, ownerId: number, profile: Pha
 async function dispatchRun(runId: string, ownerId: number, claimableUntil: string) {
   'use step';
   const run = await start(runLifecycle, [runId, ownerId, claimableUntil]);
+  const { withOwner } = await cpApi();
   const claimed = await withOwner(ownerId, (c) =>
     c.query(
       `update run set workflow_run_id = $1 where id = $2 and workflow_run_id is null returning id`,
@@ -65,6 +76,7 @@ async function dispatchRun(runId: string, ownerId: number, claimableUntil: strin
 
 async function closeLedger(deliveryId: number, ownerId: number, disposition: Disposition) {
   'use step';
+  const { withOwner } = await cpApi();
   await withOwner(ownerId, (c) =>
     c.query(
       `update ingress_delivery

@@ -10,7 +10,18 @@ import { join, resolve } from 'node:path';
 
 const ROOT = resolve(import.meta.dirname, '..');
 
-type Rule = { dir: string; name: string; mayNotReach: string[] };
+type Rule = {
+  dir: string;
+  name: string;
+  /** Must not appear in package.json, nor in any import statement. */
+  mayNotReach: string[];
+  /**
+   * Must not appear anywhere in the resolved dependency closure. This is the
+   * stronger property, and the only one that matches ADR 0010's own test:
+   * "verify with `pnpm why` instead of having to believe it".
+   */
+  mayNotResolve?: string[];
+};
 
 const MATRIX: Rule[] = [
   { dir: 'packages/protocol', name: '@proto38/protocol', mayNotReach: ['@proto38/', 'ai-sdk-harness-stub', 'workflow', 'pg'] },
@@ -18,9 +29,51 @@ const MATRIX: Rule[] = [
   { dir: 'packages/worker-hosted', name: '@proto38/worker-hosted', mayNotReach: ['@proto38/control-plane', 'pg'] },
   // The headline property: a control plane that dispatches only to self-hosted
   // Workers installs no harness code at all.
-  { dir: 'packages/control-plane', name: '@proto38/control-plane', mayNotReach: ['@proto38/worker-core', '@proto38/worker-hosted', 'ai-sdk-harness-stub'] },
+  {
+    dir: 'packages/control-plane',
+    name: '@proto38/control-plane',
+    mayNotReach: ['@proto38/worker-core', '@proto38/worker-hosted', 'ai-sdk-harness-stub'],
+    mayNotResolve: ['@proto38/worker-core', '@proto38/worker-hosted', 'ai-sdk-harness-stub'],
+  },
   { dir: 'apps/control-plane', name: '@proto38/app-control-plane', mayNotReach: ['pg', 'ai-sdk-harness-stub'] },
+  // The app-owned composition is permitted to depend on BOTH packages. That is
+  // what makes a static-import step legal, and why the HTTP shape is not forced.
+  // A hosted-capable app legitimately resolves harness code; what it may not do
+  // is reach past worker-hosted to worker-core or @ai-sdk/* directly.
+  { dir: 'apps/control-plane-appowned', name: '@proto38/app-appowned', mayNotReach: ['pg', '@proto38/worker-core', 'ai-sdk-harness-stub'] },
+  // The self-hosted deployment: a separate package that must not reach harness
+  // code at all, in declared dependencies OR in the resolved closure.
+  {
+    dir: 'apps/control-plane-selfhosted',
+    name: '@proto38/app-selfhosted',
+    mayNotReach: ['pg', '@proto38/worker-hosted', '@proto38/worker-core', 'ai-sdk-harness-stub'],
+    mayNotResolve: ['@proto38/worker-hosted', '@proto38/worker-core', 'ai-sdk-harness-stub'],
+  },
 ];
+
+/**
+ * ADR 0010's headline claim is about what an operator can verify with `pnpm why`,
+ * so it is about the resolved dependency *closure*, not just direct declarations.
+ * Walking it is what the first version of this check was missing.
+ */
+function closure(pkgName: string, seen = new Set<string>()): Set<string> {
+  if (seen.has(pkgName)) return seen;
+  seen.add(pkgName);
+  const dir = MATRIX.find((r) => r.name === pkgName)?.dir ?? LOCAL.get(pkgName);
+  if (!dir) return seen;
+  const pkg = JSON.parse(readFileSync(join(ROOT, dir, 'package.json'), 'utf8'));
+  for (const dep of Object.keys(pkg.dependencies ?? {})) closure(dep, seen);
+  return seen;
+}
+
+const LOCAL = new Map<string, string>([
+  ['@proto38/protocol', 'packages/protocol'],
+  ['@proto38/worker-core', 'packages/worker-core'],
+  ['@proto38/worker-hosted', 'packages/worker-hosted'],
+  ['@proto38/control-plane', 'packages/control-plane'],
+  ['@proto38/app-appowned', 'apps/control-plane-appowned'],
+  ['ai-sdk-harness-stub', 'stubs/ai-sdk-harness'],
+]);
 
 function sources(dir: string): string[] {
   const out: string[] = [];
@@ -77,8 +130,27 @@ for (const rule of MATRIX) {
       }
     }
   }
-  if (ruleViolations === 0)
-    lines.push(`  [OK]   ${rule.name} reaches none of: ${rule.mayNotReach.join(', ')}`);
+  // The closure check: not "does it declare it" but "does installing it pull it in".
+  const reachable = closure(rule.name);
+  reachable.delete(rule.name);
+  for (const forbidden of rule.mayNotResolve ?? []) {
+    if (reachable.has(forbidden)) {
+      violations++;
+      ruleViolations++;
+      lines.push(
+        `  [BAD]  ${rule.name} resolves ${forbidden} transitively (closure: ${[...reachable].join(', ')})`,
+      );
+    }
+  }
+
+  if (ruleViolations === 0) {
+    lines.push(`  [OK]   ${rule.name} imports none of: ${rule.mayNotReach.join(', ')}`);
+    if (rule.mayNotResolve)
+      lines.push(
+        `  [OK]   ${rule.name} RESOLVES none of: ${rule.mayNotResolve.join(', ')}` +
+          `\n         closure: ${[...reachable].sort().join(', ') || '(none)'}`,
+      );
+  }
 }
 
 console.log('\nADR 0010 dependency matrix\n');

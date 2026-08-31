@@ -6,6 +6,7 @@ import type { Server } from 'node:http';
 import { getRun } from 'workflow/api';
 import { waitForSleep } from '@workflow/vitest';
 import {
+  configureDb,
   migrate,
   withOwner,
   closeDb,
@@ -89,6 +90,7 @@ async function runRow(runId: string) {
 }
 
 beforeAll(async () => {
+  configureDb(process.env.PROTO38_REPROVE_URL ?? 'postgres://world:world@localhost:55438/reprove');
   await migrate();
   await withOwner(OWNER, async (c) => {
     await c.query(`insert into owner values ($1,'acme') on conflict do nothing`, [OWNER]);

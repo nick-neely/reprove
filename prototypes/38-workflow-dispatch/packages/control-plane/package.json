@@ -3,7 +3,11 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./index.ts"
+    ".": "./index.ts",
+    "./acceptance": "./acceptance.ts",
+    "./db": "./db.ts",
+    "./workflows/run-lifecycle": "./workflows/run-lifecycle.ts",
+    "./workflows/ingress-delivery": "./workflows/ingress-delivery.ts"
   },
   "dependencies": {
     "@proto38/protocol": "*",

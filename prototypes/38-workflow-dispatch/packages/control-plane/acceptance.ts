@@ -121,3 +121,46 @@ export async function acceptRefusal(env: SubmissionEnvelope): Promise<Acceptance
       : { accepted: false as const, rejection: 'not_eligible' as const };
   });
 }
+
+/**
+ * A hosted Worker's internal Failure, absorbed by a conditional control-plane
+ * transition.
+ *
+ * Three properties make this safe, and all three were requirements from the
+ * adversarial review rather than conveniences:
+ *
+ *  - It is NOT a protocol v1 message. #35 settled that Failure has no wire
+ *    form, and nothing here changes that: no schema, no route, no version.
+ *  - It absorbs no Result, so Acceptance remains the only path by which a
+ *    Result enters a Run. The stale-result boundary is untouched.
+ *  - It is a conditional UPDATE with the same eligibility window Acceptance
+ *    uses, so a Worker reporting a Failure for a Run that is terminal,
+ *    superseded, or held under a different lease changes nothing. The Worker
+ *    signals; the control plane decides.
+ *
+ * "Hosted-only" is structural rather than policy: this function is reachable
+ * by static import from an app that composes worker-hosted, and there is no
+ * endpoint that exposes it. A self-hosted Worker has no way to call it, which
+ * is the point - it is exactly the party ADR 0006 declines to trust.
+ */
+export async function reportHostedFailure(env: {
+  ownerId: number;
+  runId: string;
+  leaseToken: string;
+  code: string;
+}): Promise<{ recorded: boolean; reason?: string }> {
+  return withOwner(env.ownerId, async (c) => {
+    const w = await c.query(
+      `update run set status = 'failed', failure_reason = $1
+        where id = $2 and owner_id = $3
+          and status in ('claimed','executing')
+          and lease_token = $4
+          and accepted_at is null
+        returning id`,
+      [env.code, env.runId, env.ownerId, env.leaseToken],
+    );
+    return w.rowCount === 1
+      ? { recorded: true }
+      : { recorded: false, reason: 'not_eligible' };
+  });
+}

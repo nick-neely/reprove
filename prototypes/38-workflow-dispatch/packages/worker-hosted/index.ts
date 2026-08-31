@@ -12,6 +12,12 @@ import { hostedPass, type Ingest } from './workflows/hosted-pass.ts';
 export type { Ingest };
 export { hostedPass };
 
+/**
+ * The hosted Pass as an ordinary function, for a composition that owns its own
+ * workflow. Same worker-core entry, no durable run of its own, no transport.
+ */
+export { executeRun as executePass } from '@proto38/worker-core';
+
 export function createHostedDispatcher(opts: { fault?: FaultProfile } = {}) {
   return {
     protocolVersion: PROTOCOL_VERSION,

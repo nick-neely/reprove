@@ -262,7 +262,10 @@ export async function dispatchHosted(runId: string, ownerId: number) {
     protocolVersion: cfg.hosted.protocolVersion,
     workerBuildVersion: cfg.hosted.workerBuildVersion,
   });
-  if (!claim.claimed) return { dispatched: false as const, reason: claim.reason };
+  // Written without relying on discriminated-union narrowing: it behaves
+  // differently under `strict: false`, which is what Next.js writes by default.
+  if (claim.claimed !== true)
+    return { dispatched: false as const, reason: (claim as { reason: string }).reason };
   const { workflowRunId } = await cfg.hosted.dispatch(claim.spec, {
     resultUrl: `${cfg.ingestBaseUrl}/v1/runs/${runId}/result`,
     refusalUrl: `${cfg.ingestBaseUrl}/v1/runs/${runId}/refusal`,

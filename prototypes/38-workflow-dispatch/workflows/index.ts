@@ -6,3 +6,6 @@
 // consuming app's build.
 export { runLifecycle, ingressDelivery } from '@proto38/control-plane';
 export { hostedPass } from '@proto38/worker-hosted/workflows';
+
+// The app-owned alternative composition (see scenarios/composition.scenario.ts).
+export { appOwnedRun } from '@proto38/app-appowned/workflows';

@@ -5,12 +5,44 @@
 // owner-scoped rows and a transaction that carries the tenant.
 import { Pool, type PoolClient } from 'pg';
 
-export const REPROVE_URL =
-  process.env.PROTO38_REPROVE_URL ?? 'postgres://world:world@localhost:55438/reprove';
-
+// The package reads no environment variables (ADR 0010). The caller supplies
+// the connection string, and "the caller" now has to include whatever module
+// graph a workflow step is compiled from - which is the whole finding.
 let pool: Pool | undefined;
+export function configureDb(connectionString: string): Pool {
+  pool ??= new Pool({ connectionString, max: 8 });
+  return pool;
+}
+/**
+ * Whether a step shares this module instance with the composition root is
+ * BUILDER-DEPENDENT, which is the sharpest thing this prototype learned:
+ *
+ *  - Under Next.js/Turbopack, a `await import()` inside a step body resolves
+ *    through Node's own module registry, so the step sees the very pool the
+ *    route handler configured. Measured: the route's MODULE_INSTANCE and the
+ *    step's were identical.
+ *  - Under @workflow/vitest (esbuild, prebuilt step bundles), it does not: the
+ *    step gets its own copy, unconfigured.
+ *
+ * So a package that owns steps cannot *rely* on being configured by its caller,
+ * and equally cannot be said to require the environment. It needs a documented
+ * fallback the deployment can satisfy either way. This is the narrow version of
+ * the claim; "ADR 0010's no-environment rule is false" was too strong.
+ */
+export const STEP_ENV_DATABASE_URL = 'PROTO38_REPROVE_URL';
+
 export function db(): Pool {
-  pool ??= new Pool({ connectionString: REPROVE_URL, max: 8 });
+  if (!pool) {
+    const fallback = process.env[STEP_ENV_DATABASE_URL];
+    if (!fallback)
+      throw new Error(
+        `configureDb() was not called in this module instance and ` +
+          `${STEP_ENV_DATABASE_URL} is unset. A workflow step may or may not share ` +
+          `the composition root's module instance depending on the builder, so a ` +
+          `package that owns steps needs both paths.`,
+      );
+    pool = new Pool({ connectionString: fallback, max: 8 });
+  }
   return pool;
 }
 export async function closeDb() {

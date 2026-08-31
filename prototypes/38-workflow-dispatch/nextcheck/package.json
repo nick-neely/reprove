@@ -1,0 +1,25 @@
+{
+  "name": "proto38-nextcheck",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "next build",
+    "start": "next start -p 3838"
+  },
+  "dependencies": {
+    "@proto38/control-plane": "file:../packages/control-plane",
+    "@proto38/protocol": "file:../packages/protocol",
+    "@proto38/worker-core": "file:../packages/worker-core",
+    "@proto38/worker-hosted": "file:../packages/worker-hosted",
+    "ai-sdk-harness-stub": "file:../stubs/ai-sdk-harness",
+    "next": "16.3.3",
+    "pg": "^8.13.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "workflow": "4.8.5",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.18"
+  }
+}
