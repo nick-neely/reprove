@@ -24,7 +24,8 @@ nothing from the isolation it buys.
 Six rules, all load-bearing:
 
 1. Every Owner-scoped query executes inside an **explicit transaction**.
-2. Tenant context is set with **transaction-local state only** (`SET LOCAL app.owner_id`).
+2. Tenant context is set with **transaction-local state only**
+   (`set_config('app.owner_id', $1, true)`).
 3. The runtime uses an **interactive-transaction-capable driver**, not the Neon HTTP driver.
 4. The runtime role is **not the table owner, not superuser, and has no `BYPASSRLS`**.
 5. The migration and admin role is **separate** and never used by ordinary application traffic.
@@ -32,10 +33,31 @@ Six rules, all load-bearing:
 
 Rules 2 and 3 exist because Neon runs PgBouncer in transaction mode: a bare `SET` is silently
 lost when the connection returns to the pool, which is a tenant-context leak rather than an
-error, while `SET LOCAL` is scoped to the transaction and cannot outlive it. Drizzle's
-`db.transaction(async tx => ...)` needs the WebSocket or Pool driver, because the HTTP driver
-offers only non-interactive one-shot transactions. The pooled endpoint is still correct; it is
-the driver that changes.
+error, while transaction-local state is scoped to the transaction and cannot outlive it.
+Drizzle's `db.transaction(async tx => ...)` needs the WebSocket or Pool driver, because the HTTP
+driver offers only non-interactive one-shot transactions. The pooled endpoint is still correct;
+it is the driver that changes.
+
+The leak is not hypothetical. [#37](https://github.com/nick-neely/reprove/issues/37) reproduced
+it against PgBouncer in transaction mode: a client issues a bare `SET`, releases the connection,
+and the next client - which set nothing - reads the first client's tenant, with no error, warning
+or notice raised anywhere.
+
+**The mechanism is `set_config`, not the literal `SET LOCAL`, and the reason is injection rather
+than style.** PostgreSQL will not bind a parameter into a `SET` statement, so `SET LOCAL
+app.owner_id = ...` forces string interpolation of a value that arrives from a webhook payload.
+`set_config('app.owner_id', $1, true)` is the parameterized equivalent, with identical
+transaction scoping. Where this ADR writes `SET LOCAL` it means transaction-local tenant state,
+not that statement form.
+
+**The policy predicate must be `nullif(current_setting('app.owner_id', true), '')::bigint`.** The
+bare cast is a latent outage behind a pooler and correct everywhere else, which is the worst
+possible distribution of a defect. `RESET ALL`, and PgBouncer's `DISCARD ALL` where it is
+enabled, do not remove a custom GUC - they set it to the **empty string** - and `''::bigint` then
+raises `invalid input syntax for type bigint: ""` from inside the policy. The table stops being
+deniable and becomes unqueryable, so the failure mode is an outage rather than a leak, but it
+surfaces only on a pooled connection and only after a reset. The boot assertion must evaluate the
+**same expression** the policies use, or it measures something the boundary does not depend on.
 
 Rule 4 exists because `neon_superuser` carries `BYPASSRLS` and is granted to roles created
 through the Neon console, CLI or API, including the default project role. Connect as that role
@@ -52,14 +74,39 @@ All access is intended to run through a single entry point of the shape `withOwn
 => ...)`, so that a tenant-scoped query written outside a tenant transaction is difficult to
 write by accident rather than merely forbidden by convention.
 
+Rule 6's assertion set is **seven checks, six read from the catalog and one behavioural**: the
+role is neither superuser nor `BYPASSRLS`; it owns no table in the schema; every table is
+classified; every tenant table has RLS enabled *and* forced; every tenant table has a policy
+reaching this role; the schema is not behind the migration journal; and a tenant table actually
+reads empty with no Owner context. The last one is not redundant with the other six - catalog
+flags can all be correct while the predicate is wrong - and it is what caught the empty-string
+cast above.
+
+**"Every table is classified" is what keeps the Better Auth exemption from becoming the allowlist
+this ADR rejects.** The check is not "these four tables are exempt" but "every table in the schema
+appears in exactly one of the two declared sets", so a table nobody classified **refuses boot**
+rather than landing silently outside the tenant boundary. The list cannot grow without a table
+name appearing in the schema module, in a reviewable diff, next to the rule that says why.
+
 **Not** Neon RLS (formerly Neon Authorize): it is JWT-based via `pg_session_jwt` and expects a
 per-request signed token from an external issuer, while Better Auth issues an opaque cookie
 session. Using it would mean minting JWTs solely to satisfy Postgres. Plain GUC-driven RLS is
 standard Postgres, fully supported on Neon, and independent of that feature.
 
-Drizzle's RLS API moved from `.enableRLS()` to `pgTable.withRLS()` across majors, so it takes
-the same exact-pin treatment [ADR 0005](0005-adapter-boundary.md) applies to churning upstream
-packages.
+Drizzle's RLS API is churning across majors, so it takes the same exact-pin treatment
+[ADR 0005](0005-adapter-boundary.md) applies to churning upstream packages. The pin is against
+the **registry, not the documentation**, because the two disagree: `drizzle-orm@latest` is
+`0.45.2` and exposes **`.enableRLS()`**, while the published docs describe `pgTable.withRLS()`,
+which exists only on the unreleased `1.0.0-rc` line. Following the docs on the newest stable
+release produces a `TypeError`. Better Auth independently requires `drizzle-orm >= 0.45.2`, so
+the floor is not Reprove's to choose.
+
+**Drizzle emits `ENABLE ROW LEVEL SECURITY` and the policies, but never `FORCE`.** Forcing is a
+DDL alteration with no Drizzle representation, so it lives in hand-written migration SQL - which
+means nothing at authoring time guarantees that a newly added Owner-scoped table is forced, and
+the boot assertion is the only thing that catches it. That is a refusal in a deployment rather
+than a failure on the pull request that introduced it, and closing the gap is
+[#40](https://github.com/nick-neely/reprove/issues/40).
 
 ### The tenant key is GitHub's numeric Owner id
 
@@ -85,7 +132,7 @@ Only the two Worker paths lacked a locator, and both are credentials Reprove its
 credential = <ownerLocator>.<secret>
 
 begin transaction
-  -> SET LOCAL app.owner_id = ownerLocator
+  -> set_config('app.owner_id', ownerLocator, true)
   -> verify the credential inside that tenant
   -> only after verification may normal work execute
 ```
@@ -460,6 +507,11 @@ Neon-created roles inherit the privileges that defeat this design. Where the `mi
 `bootstrap` commands physically live is packaging, and belongs to
 [#20](https://github.com/nick-neely/reprove/issues/20).
 
+**`bootstrap` and `migrate` are ordered, not independent.** A policy names the role it applies to,
+so `CREATE POLICY ... TO "reprove_runtime"` fails outright if the role does not exist yet. Role
+provisioning therefore runs first, and the two commands cannot be documented as interchangeable
+steps an operator may run in either order.
+
 ## What Reprove stores
 
 Stated as durable retention, because "Reprove never stores a clone" is false for hosted
@@ -508,3 +560,12 @@ repository source - and adds the credential Reprove does hold, rather than routi
   a silent misconfiguration into a refusal.
 - The negative-response semantics of the collaborator-permission endpoint are **left to
   empirical testing** rather than locked here.
+- **The tenancy rules above were executed rather than reasoned about.**
+  [#37](https://github.com/nick-neely/reprove/issues/37) stood the whole entity set up on
+  Postgres behind PgBouncer in transaction mode and drove every rule to a pass or a refusal;
+  the prototype is on branch `prototype/37-persistence-boundary`. Three statements in this
+  ADR were wrong on contact and are corrected above: the `SET LOCAL` statement form, the bare
+  `::bigint` cast it implies, and the direction of the Drizzle RLS API churn.
+- **[#40](https://github.com/nick-neely/reprove/issues/40) inherits** the gap that `FORCE ROW
+  LEVEL SECURITY` and the tenant classification are enforced only at boot, because Drizzle can
+  express neither.
