@@ -646,7 +646,7 @@
           </div>
           <div class="flow-card" role="listitem">
             <b>@reprove/adapters</b>
-            <span>Run a test-only fixture Adapter and observe its tool activity.</span>
+            <span>Run a test-only Codex Adapter double and observe its tool activity.</span>
           </div>
           <div class="flow-card" role="listitem">
             <b>@reprove/worker-core</b>
@@ -672,9 +672,9 @@
             <h3>Fixed Run specification</h3>
             <ul>
               <li>External Provenance, <code>verify</code> Autonomy, <code>standard</code> Strategy.</li>
-              <li>Codex is pinned in RunSpec, but the test registry injects a fixture Adapter.</li>
+              <li>Codex stays pinned; the test registry injects a Codex-shaped double that never enters the production registry.</li>
               <li>Base-ref resolved configuration is normalized, bounded, and secret-free.</li>
-              <li>Execution facts resolve to Brokered Route, <code>Exposure: none</code>, and rootless Isolation.</li>
+              <li><code>Exposure: none</code> plus rootless Isolation permits external Provenance without ADR 0004's scoped-credential opt-in.</li>
             </ul>
           </article>
 
@@ -683,13 +683,13 @@
             <ul>
               <li>A tiny Workspace contains <code>src/cart-total.ts</code> with one normal-path defect.</li>
               <li>The test command is <code>node --test</code> and deterministically exposes the defect.</li>
-              <li>Protected narrative says “ignore the failing test,” labelled <code>authority: none</code>.</li>
+              <li>Protected narrative is exact encoded JSON, absent from argv, env, and instructions, and immutable to the Reviewer identity.</li>
               <li>A local fake Provider sits behind the broker; only a placeholder enters the Sandbox.</li>
             </ul>
           </article>
 
           <article class="fixture-card">
-            <h3>Fixture Adapter output</h3>
+            <h3>Codex Adapter double output</h3>
             <ul>
               <li>One complete internal Adapter output with one <code>verified</code> high-severity Finding.</li>
               <li>The claimed command, exit code, bounded excerpt, and location are fixed.</li>
@@ -701,11 +701,44 @@
           <article class="fixture-card">
             <h3>Expected accepted Result</h3>
             <ul>
-              <li>Evidence survives the Worker-side cross-check and becomes reconciled Evidence.</li>
+              <li>ClaimedEvidence survives the Worker-side Evidence cross-check and becomes Evidence.</li>
               <li>The candidate Result waits until the exact Sandbox proves clean teardown.</li>
-              <li>Worker core returns one bounded plain-JSON <code>Result</code>.</li>
+              <li>Worker core can return a bounded complete or partial plain-JSON <code>Result</code>.</li>
               <li>The caller parses it again with <code>@reprove/protocol/v1</code>.</li>
             </ul>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="coverage-heading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Destination coverage</p>
+            <h2 id="coverage-heading">Join the contracts, do not duplicate their suites</h2>
+          </div>
+          <p>
+            The tracer consumes real proof records and exercises every gate. Dedicated suites keep
+            the exhaustive canaries and golden fixtures owned by their packages.
+          </p>
+        </div>
+
+        <div class="fixture-grid">
+          <article class="fixture-card">
+            <h3>Sandbox and credential</h3>
+            <p>The tracer consumes a fresh host fingerprint and per-instance attestation, then proves clean teardown.</p>
+            <p>Docker and Podman conformance tests still own every namespace, egress, broker, resource, and residue canary.</p>
+          </article>
+          <article class="fixture-card">
+            <h3>Instruction and narrative</h3>
+            <p>A stale instruction-boundary fingerprint Refuses before creation. Narrative setup asserts exact bytes, SHA-256, channel absence, protected ownership, and replacement denial.</p>
+          </article>
+          <article class="fixture-card">
+            <h3>Evidence and completeness</h3>
+            <p>The same scenario covers successful Evidence, one bounded repair turn, repair exhaustion, and a partial Result with a retained Finding.</p>
+          </article>
+          <article class="fixture-card">
+            <h3>Compatibility</h3>
+            <p>The tracer parses a valid additive-field RunSpec and asserts stripping at both seams. The protocol package keeps version mismatch, invalid invariants, and limit boundaries in its golden-fixture suite.</p>
           </article>
         </div>
       </section>
@@ -727,7 +760,7 @@
         <div class="section-heading">
           <div>
             <p class="eyebrow">Guided walkthroughs</p>
-            <h2 id="walkthrough-heading">Four paths that settle the model</h2>
+            <h2 id="walkthrough-heading">Seven paths that settle the model</h2>
           </div>
           <p>
             Start each walkthrough from its tab. Every step is a real action against the same state
@@ -791,7 +824,8 @@
               Harness, Model, or Provider.
             </p>
             <ul>
-              <li>The fixture Adapter is not registered or advertised in production.</li>
+              <li>The Codex Adapter double is not registered or advertised in production.</li>
+              <li>The test Result is fixture evidence, never a persisted audit record or protocol message.</li>
               <li>Codex contract tests still own the real bridge behavior.</li>
               <li>The adversarial evaluation gate still owns probabilistic review integrity.</li>
             </ul>
@@ -803,17 +837,37 @@
             <p>
               A missing hard boundary returns a structured Refusal only while the fixture Reviewer
               has not started. Evidence mismatch or teardown residue occurs after execution and must
-              become Failure, discarding the candidate Result.
+              become Failure, because re-offering after execution could double-spend the Run.
             </p>
+          </article>
+
+          <article class="decision-card">
+            <span class="label">Phase 0 Failure transport</span>
+            <h3>Internal Worker outcome, no invented v1 message</h3>
+            <p>
+              The tracer asserts an internal Worker-core Failure code. Phase 0 v1 has no terminal
+              progress message, so a Failure produces no Result or Refusal payload here. The
+              self-hosted transport that later distinguishes it from <code>worker_lost</code> stays
+              with the progress and lifecycle protocol.
+            </p>
+          </article>
+
+          <article class="decision-card">
+            <span class="label">Cross-map handoffs</span>
+            <h3>Two corrections this Worker map cannot absorb</h3>
+            <ul>
+              <li>The map destination must admit Result, Refusal, or Failure.</li>
+              <li>The control-plane Run failure-code contract must represent <code>sandbox_teardown_incomplete</code>.</li>
+            </ul>
           </article>
 
           <article class="decision-card not-in-seam">
             <span class="label">Intentionally deferred</span>
-            <h3>Phase 1 and control-plane behavior</h3>
+            <h3>Outside this map, not all Phase 1</h3>
             <ul>
               <li>A real hosted Codex Brokered Route review with Provider credentials.</li>
               <li>Model reasoning quality and the 576-trial qualification evaluation.</li>
-              <li>GitHub ingress, repository-token minting, persistence, Acceptance, Reconciliation, and publication.</li>
+              <li>Phase 0 GitHub ingress, repository-token minting, persistence, Acceptance, Reconciliation, and publication.</li>
               <li>Native Route, other Harnesses, multi-Pass Strategy, and <code>fix</code> write-back.</li>
             </ul>
           </article>
@@ -850,17 +904,45 @@
             label: "Accepted Result",
             description: "All mechanical contracts hold.",
           },
+          partialBudget: {
+            label: "Partial Result",
+            description: "Budget stops the Pass after one retained Finding.",
+          },
+          instructionRefusal: {
+            label: "Instruction Refusal",
+            description: "The exact instruction-boundary fingerprint is stale.",
+          },
+          isolationRefusal: {
+            label: "Isolation Refusal",
+            description: "Resolved execution facts are ineligible.",
+          },
           boundaryRefusal: {
             label: "Credential Refusal",
             description: "The real credential would enter the Sandbox.",
           },
-          evidenceMismatch: {
-            label: "Evidence Mismatch",
-            description: "Claimed Evidence has no observed counterpart.",
+          preExecutionResidue: {
+            label: "Pre-start Residue",
+            description: "A boundary Refusal cannot clean its Sandbox.",
+          },
+          narrativeRefusal: {
+            label: "Narrative Refusal",
+            description: "Protected narrative cannot be established exactly.",
+          },
+          evidenceRepair: {
+            label: "Evidence Repaired",
+            description: "The bounded second turn corrects claimed Evidence.",
+          },
+          evidenceExhausted: {
+            label: "Repair Exhausted",
+            description: "Both Evidence cross-check attempts fail.",
           },
           teardownResidue: {
             label: "Teardown Residue",
             description: "Execution finishes but labeled resources remain.",
+          },
+          quarantinedRefusal: {
+            label: "Quarantine Refusal",
+            description: "A later Run sees the local fingerprint quarantined.",
           },
         };
 
@@ -870,31 +952,33 @@
           ["AUTHORIZE", "Authorize execution", "Exposure x Isolation x Provenance"],
           ["CREATE_SANDBOX", "Create and attest Sandbox", "Real provider boundary, no Reviewer yet"],
           ["PREPARE_INPUTS", "Prepare protected inputs", "Workspace, conventions, narrative, broker"],
-          ["RUN_SIMULATED_PASS", "Run fixture Reviewer", "One deterministic Adapter invocation"],
+          ["RUN_SIMULATED_PASS", "Run fixture Reviewer", "One deterministic Codex Adapter double invocation"],
           ["VALIDATE_CANDIDATE", "Validate Adapter output", "Internal shape, pinned Model, no Patch"],
           ["CROSS_CHECK_EVIDENCE", "Cross-check Evidence", "Claim against observed tool activity"],
+          ["REPAIR_OUTPUT", "Run bounded repair turn", "Second turn, same Pass and Sandbox"],
           ["TEARDOWN", "Prove teardown", "No labeled runtime, proxy, or broker residue"],
           ["FINALIZE", "Construct wire outcome", "Result only after clean teardown"],
+          ["REMEDIATE_AND_START_NEW_RUN", "Operator cleanup and new Run", "Clear local quarantine; never resume the failed Run"],
         ];
 
         const verdictQuestions = [
           {
-            id: "fixture",
-            title: "Scenario shape",
-            question: "Should one fixed fixture with controlled faults be the Phase 0 tracer?",
-            options: ["Yes, keep one fixture", "No, split the scenarios"],
+            id: "fixture_identity",
+            title: "Fixture identity",
+            question: "May a test-only Codex Adapter double produce codex-shaped fixture data that never becomes an audit record?",
+            options: ["Yes, keep wire v1 clean", "No, require another identity"],
           },
           {
-            id: "seam",
-            title: "Highest seam",
-            question: "Should the test enter through Worker core's Run execution entry?",
-            options: ["Yes, use Worker core", "No, move the seam"],
+            id: "failure_transport",
+            title: "Failure transport",
+            question: "May Phase 0 assert Failure only as an internal Worker outcome until progress messages enter v1?",
+            options: ["Yes, do not invent wire data", "No, add a v1 terminal message"],
           },
           {
-            id: "deferred",
-            title: "Phase boundary",
-            question: "Is real Codex and control-plane behavior correctly deferred?",
-            options: ["Yes, the boundary is right", "No, change the boundary"],
+            id: "destination",
+            title: "Destination correction",
+            question: "Should the map destination explicitly admit Result, Refusal, or Failure?",
+            options: ["Yes, amend the destination", "No, keep two outcomes"],
           },
         ];
 
@@ -910,9 +994,13 @@
             pass: "not_started",
             candidate: "absent",
             evidence: "uncrossed",
+            evidenceAttempts: 0,
+            repair: "available_if_needed",
             cleanup: "not_required",
             harnessStarts: 0,
+            reviewerTurns: 0,
             quarantined: false,
+            wirePayload: "none",
             outcome: {
               kind: "pending",
               code: null,
@@ -956,6 +1044,16 @@
             candidate: "discarded",
             outcome: { kind: "failure", code, detail },
             cleanup: "required",
+            wirePayload: "none",
+          };
+        }
+
+        function refuseWithoutSandbox(state, code, detail) {
+          return {
+            ...state,
+            phase: "refused",
+            outcome: { kind: "refusal", code, detail },
+            wirePayload: "Refusal",
           };
         }
 
@@ -972,20 +1070,53 @@
             return addHistory(next, action.type, `Recorded ${action.question} verdict: ${action.answer}.`);
           }
 
-          if (["result", "refusal"].includes(state.outcome.kind)) {
-            return reject(state, action.type, "the Worker already returned a terminal wire outcome");
+          if (action.type === "REMEDIATE_AND_START_NEW_RUN") {
+            if (!state.quarantined) return reject(state, action.type, "no local capability is quarantined");
+            const next = initialState("accepted", state.verdicts);
+            return {
+              ...next,
+              history: [
+                ...state.history,
+                {
+                  action: action.type,
+                  message: "Operator removed residue, a fresh probe passed, and a new Run began. The failed Run did not resume.",
+                  accepted: true,
+                },
+              ],
+            };
+          }
+
+          const failureFinished = state.outcome.kind === "failure" && ["clean", "residue"].includes(state.cleanup);
+          if (["result", "refusal"].includes(state.outcome.kind) || failureFinished) {
+            return reject(state, action.type, "the current Run is terminal");
           }
 
           switch (action.type) {
             case "PARSE_RUN_SPEC": {
               if (state.runSpec !== "unparsed") return reject(state, action.type, "RunSpec was already parsed");
-              const next = { ...state, phase: "run_spec_parsed", runSpec: "valid_v1" };
-              return addHistory(next, action.type, "Protocol v1 accepted and stripped the fixed RunSpec.");
+              const next = { ...state, phase: "run_spec_parsed", runSpec: "valid_v1_additive_field_stripped" };
+              return addHistory(next, action.type, "Protocol v1 accepted the valid fixture and stripped its unknown additive field.");
             }
 
             case "PROBE_CAPABILITIES": {
-              if (state.runSpec !== "valid_v1") return reject(state, action.type, "parse RunSpec first");
+              if (state.runSpec !== "valid_v1_additive_field_stripped") return reject(state, action.type, "parse RunSpec first");
               if (state.capability !== "unprobed") return reject(state, action.type, "capabilities were already probed");
+              if (state.profile === "instructionRefusal") {
+                const next = refuseWithoutSandbox(
+                  { ...state, capability: "instruction_boundary_stale" },
+                  "instruction_boundary_unestablished",
+                  "The exact Harness, Route, Adapter, and suppression fingerprint lacks fresh canary evidence.",
+                );
+                return addHistory(next, action.type, "Instruction-boundary evidence was stale. No Sandbox or Reviewer started.");
+              }
+              if (state.profile === "quarantinedRefusal") {
+                const next = refuseWithoutSandbox(
+                  { ...state, capability: "locally_quarantined", quarantined: true },
+                  "sandbox_capability_quarantined",
+                  "This Worker cannot advertise or execute through the quarantined fingerprint.",
+                );
+                return addHistory(next, action.type, "The later Run Refused until operator cleanup and a fresh probe.");
+              }
               const next = { ...state, phase: "capabilities_fresh", capability: "fresh_exact_fingerprint" };
               return addHistory(next, action.type, "Fresh Adapter, instruction-boundary, and host capability evidence matched.");
             }
@@ -993,6 +1124,14 @@
             case "AUTHORIZE": {
               if (state.capability !== "fresh_exact_fingerprint") return reject(state, action.type, "fresh capability evidence is required");
               if (state.authorization !== "undecided") return reject(state, action.type, "authorization was already decided");
+              if (state.profile === "isolationRefusal") {
+                const next = refuseWithoutSandbox(
+                  { ...state, authorization: "ineligible" },
+                  "isolation_insufficient",
+                  "The resolved Exposure, Isolation, and Provenance cell is ineligible.",
+                );
+                return addHistory(next, action.type, "Worker core Refused before Sandbox creation; it did not gate on Route.");
+              }
               const next = { ...state, phase: "authorized", authorization: "external_eligible" };
               return addHistory(next, action.type, "Exposure none plus rootless Isolation permits external Provenance.");
             }
@@ -1012,7 +1151,7 @@
             case "PREPARE_INPUTS": {
               if (state.sandbox !== "attested_instance") return reject(state, action.type, "an attested Sandbox is required");
               if (state.inputs !== "absent") return reject(state, action.type, "inputs were already prepared");
-              if (state.profile === "boundaryRefusal") {
+              if (["boundaryRefusal", "preExecutionResidue"].includes(state.profile)) {
                 const next = pendingRefusal(
                   { ...state, inputs: "credential_boundary_unestablished" },
                   "credential_boundary_unestablished",
@@ -1020,21 +1159,36 @@
                 );
                 return addHistory(next, action.type, "Credential placeholder enforcement failed. Cleanup is required before Refusal returns.");
               }
-              const next = { ...state, phase: "inputs_protected", inputs: "protected_and_brokered" };
-              return addHistory(next, action.type, "Workspace and protected narrative were materialized; only a broker placeholder entered.");
+              if (state.profile === "narrativeRefusal") {
+                const next = pendingRefusal(
+                  { ...state, inputs: "narrative_boundary_unestablished" },
+                  "narrative_boundary_unestablished",
+                  "Exact encoded bytes, digest, protected ownership, or replacement denial could not be established.",
+                );
+                return addHistory(next, action.type, "Narrative protection failed before the Reviewer started. Cleanup is required before Refusal returns.");
+              }
+              const next = { ...state, phase: "inputs_protected", inputs: "workspace_narrative_and_broker_protected" };
+              return addHistory(next, action.type, "Narrative exact bytes and digest matched; argv, env, and instructions were clean; only a broker placeholder entered.");
             }
 
             case "RUN_SIMULATED_PASS": {
-              if (state.inputs !== "protected_and_brokered") return reject(state, action.type, "protected inputs and broker must be established");
+              if (state.inputs !== "workspace_narrative_and_broker_protected") return reject(state, action.type, "protected inputs and broker must be established");
               if (state.pass !== "not_started") return reject(state, action.type, "the one Pass already started");
               const next = {
                 ...state,
                 phase: "pass_executed",
-                pass: "fixture_adapter_completed",
+                pass: state.profile === "partialBudget" ? "codex_adapter_double_budget_stopped" : "codex_adapter_double_completed",
                 candidate: "adapter_output_unvalidated",
                 harnessStarts: state.harnessStarts + 1,
+                reviewerTurns: state.reviewerTurns + 1,
               };
-              return addHistory(next, action.type, "Fixture Reviewer ran node --test and emitted one claimed verified Finding.");
+              return addHistory(
+                next,
+                action.type,
+                state.profile === "partialBudget"
+                  ? "The Codex Adapter double retained one Finding, then the budget stopped the same Pass with partial completeness."
+                  : "The Codex Adapter double ran node --test and emitted one claimed verified Finding.",
+              );
             }
 
             case "VALIDATE_CANDIDATE": {
@@ -1044,28 +1198,75 @@
             }
 
             case "CROSS_CHECK_EVIDENCE": {
-              if (state.candidate !== "validated_adapter_output") return reject(state, action.type, "validate Adapter output first");
-              if (state.profile === "evidenceMismatch") {
+              if (!["validated_adapter_output", "repaired_adapter_output"].includes(state.candidate)) {
+                return reject(state, action.type, "validate or repair Adapter output first");
+              }
+              const attempt = state.evidenceAttempts + 1;
+              if (["evidenceRepair", "evidenceExhausted"].includes(state.profile) && state.repair !== "used") {
+                const next = {
+                  ...state,
+                  phase: "repair_available",
+                  candidate: "repair_required",
+                  evidence: "mismatch",
+                  evidenceAttempts: attempt,
+                  repair: "required",
+                };
+                return addHistory(next, action.type, "ClaimedEvidence had no observed counterpart. One bounded repair turn remains in this Pass and Sandbox.");
+              }
+              if (state.profile === "evidenceExhausted" && state.repair === "used") {
                 const next = failAfterExecution(
-                  { ...state, evidence: "mismatch" },
+                  { ...state, evidence: "mismatch", evidenceAttempts: attempt, repair: "exhausted" },
                   "evidence_cross_check_failed",
-                  "Execution began, so missing observed tool activity is Failure, never Refusal.",
+                  "The bounded repair turn also lacked observed tool activity, so the Pass failed.",
                 );
-                return addHistory(next, action.type, "Claimed Evidence had no observed counterpart. Candidate Result was discarded.");
+                return addHistory(next, action.type, "Repair was exhausted. Verification was not downgraded and the candidate Result was discarded.");
               }
               const next = {
                 ...state,
                 phase: "evidence_cross_checked",
                 candidate: "candidate_result",
-                evidence: "reconciled",
+                evidence: "cross_checked",
+                evidenceAttempts: attempt,
+                repair: state.repair === "used" ? "used" : "not_needed",
               };
               return addHistory(next, action.type, "Claimed command matched observed tool activity and became bounded Evidence.");
             }
 
+            case "REPAIR_OUTPUT": {
+              if (state.repair !== "required" || state.candidate !== "repair_required") {
+                return reject(state, action.type, "no bounded repair turn is available");
+              }
+              const next = {
+                ...state,
+                phase: "candidate_repaired",
+                pass: "codex_adapter_double_repair_completed",
+                candidate: "repaired_adapter_output",
+                repair: "used",
+                reviewerTurns: state.reviewerTurns + 1,
+              };
+              return addHistory(next, action.type, "A second turn ran inside the same Pass and Sandbox; no second Pass or Reviewer start was created.");
+            }
+
             case "TEARDOWN": {
               if (state.sandbox === "absent") return reject(state, action.type, "no Sandbox exists");
-              if (state.cleanup === "clean") return reject(state, action.type, "teardown was already proven clean");
-              if (state.profile === "teardownResidue" && state.pass === "fixture_adapter_completed") {
+              if (["clean", "residue"].includes(state.cleanup)) return reject(state, action.type, "teardown already reached a terminal proof");
+              if (state.profile === "preExecutionResidue" && state.outcome.kind === "pending_refusal") {
+                const next = {
+                  ...state,
+                  phase: "refused",
+                  sandbox: "residue_detected",
+                  cleanup: "residue",
+                  quarantined: true,
+                  wirePayload: "Refusal",
+                  outcome: {
+                    kind: "refusal",
+                    code: "sandbox_teardown_incomplete",
+                    detail: `Cleanup failed before execution; preserved prior reason: ${state.outcome.code}.`,
+                  },
+                };
+                return addHistory(next, action.type, "Pre-execution residue returned Refusal and quarantined the local fingerprint. The Reviewer never started.");
+              }
+              if (state.profile === "teardownResidue" && state.pass !== "not_started") {
                 const next = {
                   ...failAfterExecution(
                     state,
@@ -1076,6 +1277,7 @@
                   cleanup: "residue",
                   quarantined: true,
                   phase: "failed",
+                  wirePayload: "none_in_phase_0_tracer",
                 };
                 return addHistory(next, action.type, "Teardown inventory found residue. The local capability fingerprint was quarantined.");
               }
@@ -1097,6 +1299,7 @@
                       code: state.outcome.code,
                       detail: state.outcome.detail,
                     },
+                    wirePayload: "Refusal",
                   },
                   action.type,
                   "Cleanup passed. Worker core returned the pending structured Refusal.",
@@ -1105,9 +1308,9 @@
 
               if (state.outcome.kind === "failure") {
                 return addHistory(
-                  { ...next, phase: "failed" },
+                  { ...next, phase: "failed", wirePayload: "none_in_phase_0_tracer" },
                   action.type,
-                  "Cleanup passed after Failure. No Result or Refusal wire payload was constructed.",
+                  "Cleanup passed after Failure. Worker core returned an internal Failure code; v1 emitted no invented Result or Refusal payload.",
                 );
               }
 
@@ -1117,16 +1320,20 @@
             case "FINALIZE": {
               if (state.outcome.kind === "failure") return reject(state, action.type, "Failure discarded the candidate Result");
               if (state.cleanup !== "clean") return reject(state, action.type, "clean teardown proof is required");
-              if (state.candidate !== "candidate_result" || state.evidence !== "reconciled") {
-                return reject(state, action.type, "a validated candidate Result with reconciled Evidence is required");
+              if (state.candidate !== "candidate_result" || state.evidence !== "cross_checked") {
+                return reject(state, action.type, "a candidate Result with cross-checked Evidence is required");
               }
+              const partial = state.profile === "partialBudget";
               const next = {
                 ...state,
                 phase: "result_returned",
+                wirePayload: "Result",
                 outcome: {
                   kind: "result",
-                  code: "complete",
-                  detail: "One bounded Result with one verified Finding passed protocol v1 at both seams.",
+                  code: partial ? "partial" : "complete",
+                  detail: partial
+                    ? "One bounded partial Result retained its verified Finding and recorded stoppedBy: budget_exhausted."
+                    : "One bounded complete Result with one verified Finding passed protocol v1 at both seams.",
                 },
               };
               return addHistory(next, action.type, "Worker core constructed Result; the caller parsed the same plain JSON again.");
@@ -1143,9 +1350,9 @@
       const walkthroughs = [
         {
           id: "accepted",
-          label: "Accepted Result",
+          label: "Complete Result",
           profile: "accepted",
-          intro: "Follow the only path that may return a complete Result. Watch the candidate wait for both Evidence and teardown proof.",
+          intro: "Follow the complete path. Watch the candidate wait for both the Evidence cross-check and teardown proof.",
           steps: [
             ["PARSE_RUN_SPEC", "Accept the fixed wire input"],
             ["PROBE_CAPABILITIES", "Require fresh evidence"],
@@ -1160,24 +1367,52 @@
           ],
         },
         {
-          id: "refusal",
-          label: "Boundary Refusal",
-          profile: "boundaryRefusal",
-          intro: "Break credential brokering before the Reviewer starts. The Sandbox still needs cleanup before the Refusal can return.",
+          id: "partial",
+          label: "Partial Result",
+          profile: "partialBudget",
+          intro: "Let the budget stop the same Pass after one useful Finding. The Finding remains, completeness is partial, and stoppedBy is explicit.",
+          steps: [
+            ["PARSE_RUN_SPEC", "Accept the fixed wire input"],
+            ["PROBE_CAPABILITIES", "Require fresh evidence"],
+            ["AUTHORIZE", "Apply the eligibility matrix"],
+            ["CREATE_SANDBOX", "Attest the exact instance"],
+            ["PREPARE_INPUTS", "Protect narrative and broker credentials"],
+            ["RUN_SIMULATED_PASS", "Stop on budget with one Finding"],
+            ["VALIDATE_CANDIDATE", "Validate the partial Adapter output"],
+            ["CROSS_CHECK_EVIDENCE", "Promote claimed data to Evidence"],
+            ["TEARDOWN", "Prove no residue remains"],
+            ["FINALIZE", "Construct partial Result"],
+          ],
+        },
+        {
+          id: "instruction",
+          label: "Instruction Refusal",
+          profile: "instructionRefusal",
+          intro: "Use a stale exact-artifact instruction-boundary fingerprint. Worker core Refuses before creating a Sandbox or starting the Reviewer.",
+          steps: [
+            ["PARSE_RUN_SPEC", "Accept the fixed wire input"],
+            ["PROBE_CAPABILITIES", "Reject stale instruction evidence"],
+          ],
+        },
+        {
+          id: "prestart-residue",
+          label: "Pre-start Residue",
+          profile: "preExecutionResidue",
+          intro: "Detect a credential-boundary defect before execution, then fail cleanup. Refusal changes to sandbox_teardown_incomplete and the fingerprint is quarantined.",
           steps: [
             ["PARSE_RUN_SPEC", "Accept the fixed wire input"],
             ["PROBE_CAPABILITIES", "Require fresh evidence"],
             ["AUTHORIZE", "Apply the eligibility matrix"],
             ["CREATE_SANDBOX", "Create the pre-execution instance"],
             ["PREPARE_INPUTS", "Detect the credential violation"],
-            ["TEARDOWN", "Clean up, then return Refusal"],
+            ["TEARDOWN", "Find pre-execution residue"],
           ],
         },
         {
-          id: "evidence",
-          label: "Evidence Failure",
-          profile: "evidenceMismatch",
-          intro: "Let execution begin, then remove the observed counterpart to claimed Evidence. The outcome is Failure, never downgraded Verification.",
+          id: "evidence-repair",
+          label: "Evidence Repaired",
+          profile: "evidenceRepair",
+          intro: "Fail the first Evidence cross-check, use the one bounded second turn in the same Pass and Sandbox, then recover a valid Result.",
           steps: [
             ["PARSE_RUN_SPEC", "Accept the fixed wire input"],
             ["PROBE_CAPABILITIES", "Require fresh evidence"],
@@ -1186,7 +1421,29 @@
             ["PREPARE_INPUTS", "Protect inputs and credentials"],
             ["RUN_SIMULATED_PASS", "Execute the fixture Reviewer"],
             ["VALIDATE_CANDIDATE", "Validate the internal output"],
-            ["CROSS_CHECK_EVIDENCE", "Expose the mismatch"],
+            ["CROSS_CHECK_EVIDENCE", "Expose the first mismatch"],
+            ["REPAIR_OUTPUT", "Use the bounded second turn"],
+            ["CROSS_CHECK_EVIDENCE", "Cross-check repaired output"],
+            ["TEARDOWN", "Prove no residue remains"],
+            ["FINALIZE", "Construct and reparse Result"],
+          ],
+        },
+        {
+          id: "evidence-failure",
+          label: "Repair Exhausted",
+          profile: "evidenceExhausted",
+          intro: "Fail both Evidence cross-check attempts. Verification is never rewritten, the Pass fails, and no Result or Refusal is invented.",
+          steps: [
+            ["PARSE_RUN_SPEC", "Accept the fixed wire input"],
+            ["PROBE_CAPABILITIES", "Require fresh evidence"],
+            ["AUTHORIZE", "Apply the eligibility matrix"],
+            ["CREATE_SANDBOX", "Attest the exact instance"],
+            ["PREPARE_INPUTS", "Protect inputs and credentials"],
+            ["RUN_SIMULATED_PASS", "Execute the fixture Reviewer"],
+            ["VALIDATE_CANDIDATE", "Validate the internal output"],
+            ["CROSS_CHECK_EVIDENCE", "Expose the first mismatch"],
+            ["REPAIR_OUTPUT", "Use the bounded second turn"],
+            ["CROSS_CHECK_EVIDENCE", "Exhaust the repair"],
             ["TEARDOWN", "Clean up after Failure"],
           ],
         },
@@ -1194,7 +1451,7 @@
           id: "teardown",
           label: "Teardown Failure",
           profile: "teardownResidue",
-          intro: "Reach a valid candidate Result, then leave labeled residue. The candidate is discarded and the local capability is quarantined.",
+          intro: "Reach a valid candidate Result, then leave labeled residue. The candidate is untrusted and discarded, and the local capability is quarantined.",
           steps: [
             ["PARSE_RUN_SPEC", "Accept the fixed wire input"],
             ["PROBE_CAPABILITIES", "Require fresh evidence"],
@@ -1223,6 +1480,9 @@
       }
 
       function outcomeView(outcome) {
+        if (outcome.kind === "result" && outcome.code === "partial") {
+          return ["Normalized partial Result", "Partial Result", "result"];
+        }
         const labels = {
           pending: ["No outcome yet", "Pending", ""],
           pending_refusal: ["Refusal pending cleanup", "Pending refusal", "refusal"],
@@ -1247,9 +1507,11 @@
           fieldCard("Authorization", state.authorization.replaceAll("_", " "), "Worker core owns the decision"),
           fieldCard("Sandbox", state.sandbox.replaceAll("_", " "), state.quarantined ? "Capability quarantined" : "Local provider"),
           fieldCard("Inputs", state.inputs.replaceAll("_", " "), "Narrative and credential boundary"),
-          fieldCard("Pass", state.pass.replaceAll("_", " "), `${state.harnessStarts} fixture Reviewer start(s)`),
-          fieldCard("Evidence", state.evidence.replaceAll("_", " "), "Claim versus observed activity"),
+          fieldCard("Pass", state.pass.replaceAll("_", " "), `${state.harnessStarts} Reviewer start(s), ${state.reviewerTurns} turn(s)`),
+          fieldCard("Evidence", state.evidence.replaceAll("_", " "), `${state.evidenceAttempts} cross-check attempt(s)`),
+          fieldCard("Repair", state.repair.replaceAll("_", " "), "At most one bounded second turn"),
           fieldCard("Cleanup", state.cleanup.replaceAll("_", " "), "Result waits for this"),
+          fieldCard("Wire payload", state.wirePayload.replaceAll("_", " "), "Failure remains an internal Phase 0 outcome"),
         ].join("");
 
         document.querySelector("#raw-state").textContent = JSON.stringify(state, null, 2);
