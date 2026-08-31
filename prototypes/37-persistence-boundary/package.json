@@ -1,0 +1,25 @@
+{
+  "name": "prototype-37-persistence-boundary",
+  "private": true,
+  "type": "module",
+  "description": "THROWAWAY prototype for wayfinder ticket #37. Not shipped code.",
+  "scripts": {
+    "db:up": "docker compose up -d --wait",
+    "db:down": "docker compose down -v",
+    "db:generate": "drizzle-kit generate",
+    "start": "tsx src/scenarios.ts",
+    "prototype": "npm run db:down --silent && npm run db:up --silent && npm start"
+  },
+  "dependencies": {
+    "better-auth": "^1.0.0",
+    "drizzle-orm": "^0.45.2",
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.0",
+    "@types/pg": "^8.11.0",
+    "drizzle-kit": "^0.31.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.6.0"
+  }
+}

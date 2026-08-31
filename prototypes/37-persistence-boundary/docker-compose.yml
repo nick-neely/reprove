@@ -1,0 +1,38 @@
+# THROWAWAY prototype infrastructure for wayfinder ticket #37. Wipe me.
+#
+# Two endpoints on purpose, mirroring ADR 0008's connection table:
+#
+#   postgres:5432   direct    -> admin / migration role
+#   pgbouncer:6432  pooled    -> restricted runtime role, transaction pooling
+#
+# PgBouncer is here to reproduce the Neon hazard locally. Neon fronts its pooled
+# endpoint with PgBouncer in transaction mode, where a bare `SET` outlives the
+# client that issued it and leaks to whoever gets that server connection next.
+# `default_pool_size = 1` forces that reuse to happen on the first try instead of
+# under load, which is the only reason the leak is observable in a demo.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: reprove_proto
+      POSTGRES_PASSWORD: proto
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "55532:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d reprove_proto"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
+    ports:
+      - "56532:6432"
