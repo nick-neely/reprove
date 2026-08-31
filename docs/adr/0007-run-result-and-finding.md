@@ -26,8 +26,16 @@ type rather than in a comment:
 - **`resolution`** - written once at claim, immutable thereafter: `workerId` (null for a
   hosted Worker, which holds no durable identity), `route`, `isolation`, `exposure`,
   `protocolVersion`, `workerBuildVersion`.
-- **`state`** - the only mutable part: status, lease expiry, accumulated Refusals, failure
-  reason, timestamps, the accepted Result and the Review record.
+- **`state`** - the only mutable part: status, `executionToken` and `executionExpiresAt`,
+  accumulated Refusals, failure reason and its structured detail, timestamps, the accepted
+  Result and the Review record.
+
+[ADR 0015](0015-execution-ownership-and-worker-liveness.md) amends this: `state` carried
+"lease expiry", which was false for a hosted Worker, since ADR 0006 gives it no Lease.
+`executionExpiresAt` is the placement-neutral liveness boundary both placements have, and a
+Lease is what a self-hosted Worker holds to advance it. `failed` gained structured detail -
+detector, observation, and whether the Run was lost from `claimed` or `executing` - so that
+one `worker_lost` reason serves both placements without parallel reason codes.
 
 `provenanceBasis` is kept because a classification that cannot be explained six months later
 is not auditable. `configDigest` is kept so that editing the configuration file cannot

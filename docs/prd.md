@@ -902,8 +902,8 @@ Run
  │    ├── isolation / exposure
  │    └── protocolVersion / workerBuildVersion
  └── state                        mutable
-      ├── status / lease expiry / timestamps
-      ├── Refusals / failure reason
+      ├── status / executionToken / executionExpiresAt / timestamps
+      ├── Refusals / failure reason + detail
       └── accepted Result + publication record
 ```
 

@@ -122,6 +122,14 @@ Worker stops answering.** That is
 [#41](https://github.com/nick-neely/reprove/issues/41)'s decision, not a gap this ADR papers
 over with the wrong mechanism.
 
+**Resolved by [ADR 0015](0015-execution-ownership-and-worker-liveness.md).** `claimableUntil`
+keeps its single transition and its five-minute fixture, unchanged. A second bounded window,
+`executionExpiresAt`, is written at claim and owned by the same lifecycle, which becomes a
+state-driven loop over both windows rather than a single race. ADR 0015 also found that the
+gap was wider than stated here: the orphan window below leaves a Run at `claimed`, which
+`claimableUntil` does not touch either, so the terminal transition covers Acceptance's whole
+eligibility window rather than `executing` alone.
+
 **The Phase 0 claimable deadline is five minutes**, carried in `Phase0RunProfile` and written
 into immutable `spec` at creation. It is a **Phase 0 fixture value, not a product default**:
 nothing in Phase 0 - no real Worker, poll cadence, Sandbox startup or user workload -
@@ -142,6 +150,9 @@ whose eligibility window and write are the same statement. Two things are fixed 
   `unknown_run`, `wrong_tenant`, `stale_lease`, `not_eligible` - and checks protocol
   compatibility before parsing the payload. "Rejected" alone cannot distinguish a superseded
   Run from a forged tenant, and the distinction is what makes the boundary auditable.
+  [ADR 0015](0015-execution-ownership-and-worker-liveness.md) renames `stale_lease` to
+  `execution_mismatch`: the rejected condition is a submitted token that is not the Run's
+  current one, and a hosted Worker never held a Lease to go stale.
 
 **A hosted Worker's internal Failure is signalled, not submitted.** It is a conditional
 control-plane transition using Acceptance's eligibility window; it absorbs no Result, so
@@ -185,7 +196,9 @@ runtime execution is the check that survives such an upgrade.
 - **[#39](https://github.com/nick-neely/reprove/issues/39) inherits** exercising the
   authenticated HTTP Acceptance seam a self-hosted Worker uses.
 - **[#41](https://github.com/nick-neely/reprove/issues/41) inherits** what ends an executing
-  Run whose Worker stops answering.
+  Run whose Worker stops answering. Discharged by
+  [ADR 0015](0015-execution-ownership-and-worker-liveness.md), which amends this ADR's
+  rejection set and ADR 0006's assignment of executing-Run liveness.
 - **`CONTEXT.md` is unchanged.** No new noun is introduced: the lifecycle and the pass are
   durable-run identifiers rather than domain concepts, and `Lease`, `Refusal`, `Failure` and
   `unscheduled` already carry the meanings this ADR relies on. That is deliberate, not an

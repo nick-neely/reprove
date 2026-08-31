@@ -164,10 +164,12 @@ a restarted Worker is the same Worker.
 _Avoid_: registration, onboarding, pairing
 
 **Lease**:
-A Worker's live hold on a Run, taken when it claims one and renewed while it executes. Renewal is
-the single mechanism that retains the claim, proves the Run's executor is alive, and carries a
-cancellation back to the Worker, so a Run cannot be actively held twice and a silent Pass is not
-mistaken for a dead one.
+A **self-hosted** Worker's live hold on a Run, taken when it claims one and renewed while it
+executes. Renewal is the single mechanism that retains the claim, proves the Run's executor is
+alive, and carries a cancellation back to the Worker, so a Run cannot be actively held twice and a
+silent Pass is not mistaken for a dead one. A hosted Worker holds no Lease and cannot renew: the
+control plane bounds its liveness directly, because a Run dispatched to Reprove's own
+infrastructure is not one it must ask a stranger about.
 _Avoid_: lock, reservation, heartbeat
 
 **Route**:

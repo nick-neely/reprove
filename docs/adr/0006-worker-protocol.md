@@ -208,6 +208,14 @@ Progress events are **monotonically sequenced and idempotent on `(runId, seq)`**
 batches. Sequence numbers make retries harmless and gaps detectable, which matters because the
 client is a laptop.
 
+**Amended by [ADR 0015](0015-execution-ownership-and-worker-liveness.md): the three signals above
+are the *self-hosted* liveness story.** This ADR gives the liveness of an executing Run to the Lease
+while also stating that a hosted Worker holds no Lease, which left hosted execution with no owner at
+all - a gap that would have survived the full implementation of lease renewal. Hosted liveness
+belongs to the control plane, which bounds it directly with `executionExpiresAt`. Both placements
+carry `executionToken` and `executionExpiresAt`; only a self-hosted Worker holds a Lease, and a
+Lease is precisely the renewable hold permitted to advance that boundary.
+
 When a Worker dies mid-Run the Run fails as `worker_lost`. That is a **Failure**, not a Refusal -
 `CONTEXT.md` reserves Refusal for pre-dispatch. The Run is **not** silently re-dispatched to another
 Worker: a Run is a bounded attempt at fixed SHAs with `worker`, `Isolation` and `Exposure` recorded
