@@ -1,0 +1,2191 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Phase 0 acceptance scenario prototype</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --paper: #f4f1ea;
+        --panel: #fffdf8;
+        --ink: #18211c;
+        --muted: #667068;
+        --line: #d7d4c9;
+        --accent: #146b50;
+        --accent-soft: #dceee7;
+        --warning: #8c5a14;
+        --warning-soft: #f5e8cf;
+        --danger: #9b342f;
+        --danger-soft: #f6dfdc;
+        --shadow: 0 12px 30px rgba(34, 43, 37, 0.08);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--paper);
+        color: var(--ink);
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        line-height: 1.5;
+      }
+
+      button,
+      select {
+        font: inherit;
+      }
+
+      button {
+        cursor: pointer;
+      }
+
+      button:focus-visible,
+      summary:focus-visible {
+        outline: 3px solid rgba(20, 107, 80, 0.35);
+        outline-offset: 3px;
+      }
+
+      main {
+        width: min(1180px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 48px 0 72px;
+      }
+
+      .eyebrow {
+        margin: 0 0 10px;
+        color: var(--accent);
+        font-size: 0.78rem;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin-top: 0;
+      }
+
+      h1 {
+        max-width: 850px;
+        margin-bottom: 14px;
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: clamp(2.2rem, 6vw, 4.4rem);
+        font-weight: 500;
+        letter-spacing: -0.045em;
+        line-height: 0.98;
+      }
+
+      h2 {
+        margin-bottom: 10px;
+        font-size: clamp(1.35rem, 3vw, 2rem);
+        letter-spacing: -0.025em;
+      }
+
+      h3 {
+        margin-bottom: 8px;
+        font-size: 1rem;
+      }
+
+      .lede {
+        max-width: 790px;
+        margin-bottom: 22px;
+        color: #455048;
+        font-size: clamp(1rem, 2vw, 1.2rem);
+      }
+
+      .prototype-note {
+        display: inline-flex;
+        gap: 8px;
+        align-items: center;
+        padding: 7px 10px;
+        border: 1px solid var(--warning);
+        border-radius: 999px;
+        background: var(--warning-soft);
+        color: #67400b;
+        font-size: 0.82rem;
+        font-weight: 750;
+      }
+
+      .question {
+        margin: 34px 0;
+        padding: 22px 24px;
+        border-left: 5px solid var(--accent);
+        background: rgba(255, 253, 248, 0.7);
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: clamp(1.15rem, 2.5vw, 1.5rem);
+      }
+
+      .section {
+        margin-top: 26px;
+        padding: clamp(20px, 4vw, 34px);
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        background: var(--panel);
+        box-shadow: var(--shadow);
+      }
+
+      .section-heading {
+        display: flex;
+        gap: 18px;
+        align-items: start;
+        justify-content: space-between;
+        margin-bottom: 22px;
+      }
+
+      .section-heading p {
+        max-width: 670px;
+        margin-bottom: 0;
+        color: var(--muted);
+      }
+
+      .outcome {
+        display: flex;
+        gap: 18px;
+        align-items: center;
+        justify-content: space-between;
+        padding: 20px;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        background: #f8f7f2;
+      }
+
+      .outcome strong {
+        display: block;
+        margin-bottom: 2px;
+        font-size: 1.15rem;
+      }
+
+      .outcome p {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      .badge {
+        flex: none;
+        padding: 7px 11px;
+        border-radius: 999px;
+        background: #e8e7e1;
+        color: #424b45;
+        font-size: 0.8rem;
+        font-weight: 800;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+      }
+
+      .badge.good {
+        background: var(--accent-soft);
+        color: var(--accent);
+      }
+
+      .badge.warn {
+        background: var(--warning-soft);
+        color: var(--warning);
+      }
+
+      .badge.bad {
+        background: var(--danger-soft);
+        color: var(--danger);
+      }
+
+      .state-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 16px;
+      }
+
+      .state-card {
+        min-height: 104px;
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: 13px;
+        background: #fff;
+      }
+
+      .state-card.changed {
+        border-color: var(--accent);
+        background: #f3faf7;
+      }
+
+      .state-card span {
+        display: block;
+        margin-bottom: 6px;
+        color: var(--muted);
+        font-size: 0.72rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .state-card strong {
+        display: block;
+        overflow-wrap: anywhere;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.92rem;
+      }
+
+      .state-card small {
+        display: block;
+        margin-top: 4px;
+        color: var(--muted);
+      }
+
+      .flow {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 10px;
+        margin: 20px 0 0;
+      }
+
+      .flow-card {
+        position: relative;
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: 13px;
+        background: #fff;
+      }
+
+      .flow-card:not(:last-child)::after {
+        position: absolute;
+        top: 50%;
+        right: -10px;
+        z-index: 2;
+        width: 10px;
+        border-top: 2px solid var(--accent);
+        content: "";
+      }
+
+      .flow-card b {
+        display: block;
+        color: var(--accent);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.8rem;
+      }
+
+      .flow-card span {
+        display: block;
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 0.83rem;
+      }
+
+      .fixture-grid,
+      .decision-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .fixture-card,
+      .decision-card {
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: #fff;
+      }
+
+      .fixture-card ul,
+      .decision-card ul {
+        margin: 10px 0 0;
+        padding-left: 20px;
+      }
+
+      .fixture-card li + li,
+      .decision-card li + li {
+        margin-top: 7px;
+      }
+
+      .decision-card.flag {
+        border-color: var(--warning);
+        background: #fffbf2;
+      }
+
+      code {
+        padding: 0.12em 0.32em;
+        border-radius: 5px;
+        background: #edeee9;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.88em;
+      }
+
+      .actions,
+      .verdict-options {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 9px;
+      }
+
+      .action-group {
+        margin-bottom: 18px;
+      }
+
+      .action-group > h3 {
+        margin-bottom: 10px;
+        color: var(--muted);
+        font-size: 0.74rem;
+        font-weight: 800;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+      }
+
+      .action-button,
+      .step-button,
+      .verdict-button,
+      .copy-button,
+      .reset-button {
+        min-height: 42px;
+        padding: 9px 13px;
+        border: 1px solid #b8beb9;
+        border-radius: 10px;
+        background: #fff;
+        color: var(--ink);
+        font-weight: 700;
+      }
+
+      .action-button:hover,
+      .step-button:hover,
+      .verdict-button:hover,
+      .copy-button:hover,
+      .reset-button:hover {
+        border-color: var(--accent);
+        background: #f3faf7;
+      }
+
+      .verdict-button[aria-pressed="true"] {
+        border-color: var(--accent);
+        background: var(--accent-soft);
+        color: var(--accent);
+      }
+
+      .action-button {
+        flex: 1 1 210px;
+        text-align: left;
+      }
+
+      .action-button small {
+        display: block;
+        color: var(--muted);
+        font-weight: 500;
+      }
+
+      .tabs {
+        display: flex;
+        gap: 8px;
+        overflow-x: auto;
+        margin-bottom: 18px;
+        padding-bottom: 4px;
+      }
+
+      [role="tab"] {
+        flex: 0 0 auto;
+        padding: 9px 13px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: #fff;
+        color: var(--ink);
+        font-weight: 750;
+      }
+
+      [role="tab"][aria-selected="true"] {
+        border-color: var(--accent);
+        background: var(--accent);
+        color: #fff;
+      }
+
+      [role="tabpanel"][hidden] {
+        display: none;
+      }
+
+      .walkthrough-intro {
+        max-width: 760px;
+        color: var(--muted);
+      }
+
+      .steps {
+        display: grid;
+        gap: 10px;
+        margin-top: 16px;
+      }
+
+      .step {
+        display: grid;
+        grid-template-columns: 42px minmax(0, 1fr) auto;
+        gap: 12px;
+        align-items: center;
+        padding: 12px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: #fff;
+      }
+
+      .step-number {
+        display: grid;
+        width: 34px;
+        height: 34px;
+        place-items: center;
+        border-radius: 50%;
+        background: #e8e7e1;
+        font-weight: 800;
+      }
+
+      .step.done .step-number {
+        background: var(--accent-soft);
+        color: var(--accent);
+      }
+
+      .step p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.88rem;
+      }
+
+      .step-button {
+        white-space: nowrap;
+      }
+
+      .wire {
+        margin-top: 16px;
+        padding: 16px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: #1d241f;
+        color: #dce6df;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.83rem;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+
+      .wire .m {
+        color: #7fd6b0;
+      }
+
+      .wire .s-ok {
+        color: #7fd6b0;
+      }
+
+      .wire .s-bad {
+        color: #f0a49c;
+      }
+
+      .trace {
+        max-height: 360px;
+        overflow: auto;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .trace li {
+        display: grid;
+        grid-template-columns: 76px minmax(0, 1fr);
+        gap: 12px;
+        padding: 10px 0;
+        border-bottom: 1px solid #eceae3;
+      }
+
+      .trace li:last-child {
+        border-bottom: 0;
+      }
+
+      .trace b {
+        color: var(--accent);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.78rem;
+      }
+
+      .trace .rej {
+        color: var(--danger);
+        font-weight: 750;
+      }
+
+      details {
+        margin-top: 16px;
+      }
+
+      summary {
+        cursor: pointer;
+        color: var(--accent);
+        font-weight: 750;
+      }
+
+      pre {
+        overflow: auto;
+        padding: 16px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: #f8f7f2;
+        font-size: 0.85rem;
+      }
+
+      table {
+        width: 100%;
+        margin-top: 12px;
+        border-collapse: collapse;
+        font-size: 0.9rem;
+      }
+
+      th,
+      td {
+        padding: 9px 10px;
+        border-bottom: 1px solid var(--line);
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        color: var(--muted);
+        font-size: 0.74rem;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+      }
+
+      td code {
+        white-space: nowrap;
+      }
+
+      .verdict {
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: #fff;
+      }
+
+      .verdict + .verdict {
+        margin-top: 14px;
+      }
+
+      .verdict p {
+        max-width: 760px;
+        color: var(--muted);
+      }
+
+      @media (max-width: 900px) {
+        .state-grid,
+        .flow,
+        .fixture-grid,
+        .decision-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .flow-card:not(:last-child)::after {
+          display: none;
+        }
+      }
+
+      @media (max-width: 560px) {
+        .state-grid,
+        .flow,
+        .fixture-grid,
+        .decision-grid {
+          grid-template-columns: minmax(0, 1fr);
+        }
+
+        .step {
+          grid-template-columns: 34px minmax(0, 1fr);
+        }
+
+        .step-button {
+          grid-column: 1 / -1;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">Reprove &middot; wayfinder ticket #39 &middot; prototype</p>
+      <h1>The observable Phase&nbsp;0 acceptance seam</h1>
+      <p class="lede">
+        This page is the control plane, modelled at the seam a test actually drives: signed HTTP in
+        at the GitHub webhook route, authenticated HTTP in at the Worker endpoints, and the
+        <code>run</code> row read back through <code>withOwner()</code> on a pooled runtime role.
+        Press the buttons and watch what the control plane will and will not let happen.
+      </p>
+      <p class="prototype-note">Throwaway prototype &middot; answers one question &middot; not production code</p>
+
+      <p class="question">
+        What single end-to-end acceptance scenario proves the Phase&nbsp;0 exit through the highest
+        practical seam &mdash; and, just as importantly, which rejections turn out to be
+        <em>unreachable</em> once the real tenancy boundary is switched on?
+      </p>
+
+      <section class="section" aria-labelledby="seam-h">
+        <div class="section-heading">
+          <div>
+            <h2 id="seam-h">The seam under test</h2>
+            <p>
+              Everything below the dotted line is real code in the scenario. Only GitHub&rsquo;s own
+              API is intercepted, and only at the transport, so the App-auth exchange and the
+              response parsing still run.
+            </p>
+          </div>
+        </div>
+        <div class="flow">
+          <div class="flow-card">
+            <b>POST /webhook</b>
+            <span>Real HMAC-SHA256 over the exact received bytes, timing-safe.</span>
+          </div>
+          <div class="flow-card">
+            <b>ingressDelivery</b>
+            <span>Envelope committed before the ack; durable run kicks processing.</span>
+          </div>
+          <div class="flow-card">
+            <b>runLifecycle</b>
+            <span>The Run&rsquo;s durable schedule. A state-driven loop over two windows.</span>
+          </div>
+          <div class="flow-card">
+            <b>POST /claim</b>
+            <span>Authenticated. Writes <code>executionToken</code> and <code>executionExpiresAt</code>.</span>
+          </div>
+          <div class="flow-card">
+            <b>POST /result</b>
+            <span>Authenticated. One conditional UPDATE is the whole of Acceptance.</span>
+          </div>
+        </div>
+        <div class="fixture-grid" style="margin-top: 18px">
+          <div class="fixture-card">
+            <h3>Real in the scenario</h3>
+            <ul>
+              <li>Signature verification, on real bytes with a real secret.</li>
+              <li>Postgres 17 behind PgBouncer in transaction mode, RLS enabled and forced.</li>
+              <li>The <code>workflow</code> runtime, its durable sleeps and its step retry.</li>
+              <li>The built application, booted from a clean build and driven over HTTP.</li>
+            </ul>
+          </div>
+          <div class="fixture-card">
+            <h3>Substituted</h3>
+            <ul>
+              <li>GitHub&rsquo;s API, intercepted at the fetch layer. Request shape asserted.</li>
+              <li>The Pass, which is <code>worker-core</code>&rsquo;s fixture Result, not a Harness.</li>
+              <li>
+                <code>claimableFor</code> and <code>livenessFor</code>, carried in
+                <code>Phase0RunProfile</code> and set to milliseconds.
+              </li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="state-h">
+        <div class="section-heading">
+          <div>
+            <h2 id="state-h">Current state</h2>
+            <p id="state-note">Nothing has happened yet.</p>
+          </div>
+          <button class="reset-button" type="button" data-reset>Reset</button>
+        </div>
+        <div class="outcome">
+          <div>
+            <strong id="outcome-title">No Run exists</strong>
+            <p id="outcome-detail">Deliver a signed <code>pull_request</code> event to begin.</p>
+          </div>
+          <span class="badge" id="outcome-badge">idle</span>
+        </div>
+        <div class="state-grid" id="state-grid"></div>
+        <div class="wire" id="wire">No HTTP exchange yet.</div>
+      </section>
+
+      <section class="section" aria-labelledby="play-h">
+        <div class="section-heading">
+          <div>
+            <h2 id="play-h">Free play</h2>
+            <p>
+              Every action is always available. Illegal ones are the interesting ones: the control
+              plane answers with a named rejection rather than a crash.
+            </p>
+          </div>
+        </div>
+        <div id="actions"></div>
+      </section>
+
+      <section class="section" aria-labelledby="walk-h">
+        <div class="section-heading">
+          <div>
+            <h2 id="walk-h">Guided walkthroughs</h2>
+            <p>
+              Nine scenarios. The first is the Phase&nbsp;0 exit itself; the rest are the cases that
+              are hard to reason about on paper. Starting one resets the state.
+            </p>
+          </div>
+        </div>
+        <div class="tabs" role="tablist" aria-label="Walkthroughs" id="tabs"></div>
+        <div id="panels"></div>
+      </section>
+
+      <section class="section" aria-labelledby="trace-h">
+        <div class="section-heading">
+          <div>
+            <h2 id="trace-h">Execution trace</h2>
+            <p>Every action, in order, with the wire result the scenario would assert.</p>
+          </div>
+        </div>
+        <ul class="trace" id="trace">
+          <li><b>&mdash;</b><span>Nothing yet.</span></li>
+        </ul>
+      </section>
+
+      <section class="section" aria-labelledby="answer-h">
+        <div class="section-heading">
+          <div>
+            <h2 id="answer-h">Proposed answer</h2>
+            <p>What this prototype claims the scenario should be, and what it found on the way.</p>
+          </div>
+        </div>
+
+        <h3>One spine, nine terminations</h3>
+        <p>
+          &ldquo;A single scenario&rdquo; cannot mean one linear walk, because accepting a Result
+          terminalizes the Run it was accepted into, and every rejection needs a Run that has not
+          yet terminalized. What is single is the <strong>spine</strong> &mdash; signed delivery,
+          Run creation, lifecycle scheduling, claim &mdash; and the nine cases fork off it at
+          defined points, through the same seam, against the same database, in one harness.
+        </p>
+
+        <div class="decision-grid" style="margin-top: 18px">
+          <div class="decision-card">
+            <h3>What the scenario observes externally</h3>
+            <ul>
+              <li>Webhook route status and body for a valid signature, a tampered one, and an oversized body.</li>
+              <li>The intercepted GitHub request shape: App JWT, installation token, <code>GET /repos/&hellip;/pulls/42</code>.</li>
+              <li>Claim endpoint status and body, for both placements.</li>
+              <li>Result endpoint status and the <em>named</em> rejection, for every reachable rejection.</li>
+              <li>The <code>run</code> row read back under <code>withOwner()</code>: status, token, <code>acceptedAt</code>, failure detail.</li>
+              <li>The ingress ledger row&rsquo;s terminal state and disposition.</li>
+              <li>The build gate&rsquo;s own assertions: no external module in the workflow bundle, <code>pg</code> in the output trace, the app boots.</li>
+            </ul>
+          </div>
+          <div class="decision-card">
+            <h3>What stays absent, and is asserted absent</h3>
+            <ul>
+              <li>No checkout, no Workspace, no Sandbox, no Harness. The Result is a fixture.</li>
+              <li>No Review published, no Comment, no Reconciliation, no Threshold or Ignore.</li>
+              <li>No Check run &mdash; ADR&nbsp;0013 removed it from Phase&nbsp;0.</li>
+              <li>No Refusal path &mdash; ADR&nbsp;0013 makes none reachable.</li>
+              <li>No Enrollment and no Lease renewal transport.</li>
+              <li>No progress messages and no cancellation delivery.</li>
+              <li>No narrative supplied to any Reviewer, so ADR&nbsp;0013&rsquo;s inherited constraint stays inherited.</li>
+            </ul>
+          </div>
+        </div>
+
+        <h3 style="margin-top: 22px">Three findings this prototype produced</h3>
+        <div class="decision-grid">
+          <div class="decision-card flag">
+            <h3><code>wrong_tenant</code> is unreachable from inside the boundary</h3>
+            <p style="color: var(--muted)">
+              Acceptance re-probes the Run to name its rejection. That probe runs under
+              <code>withOwner()</code>, so a Run belonging to another Owner is not merely
+              ineligible &mdash; it is <em>invisible</em>. The probe returns nothing and the honest
+              answer is <code>unknown_run</code>.
+            </p>
+            <p style="color: var(--muted)">
+              Reaching <code>wrong_tenant</code> would require probing with
+              <code>withoutOwner()</code>, which punches through the tenancy boundary to produce a
+              nicer error message. That is the wrong trade. ADR&nbsp;0014 wanted the distinction for
+              auditability; the prototype says it belongs to the <em>authentication</em> layer
+              &mdash; which credential presented which Run id &mdash; not to Acceptance&rsquo;s probe.
+            </p>
+          </div>
+          <div class="decision-card flag">
+            <h3><code>livenessFor</code> has no home, and needs one</h3>
+            <p style="color: var(--muted)">
+              ADR&nbsp;0015 fixes <code>executionExpiresAt = claimedAt + livenessFor</code> but never
+              says where <code>livenessFor</code> is configured. Left unplaced it lands inline in the
+              claim path, which is exactly the hazard ADR&nbsp;0013 created
+              <code>Phase0RunProfile</code> to prevent: a Phase&nbsp;0 fixture silently becoming
+              product policy.
+            </p>
+            <p style="color: var(--muted)">
+              It joins <code>Phase0RunProfile</code> beside the claimable-deadline policy. The
+              scenario then runs the real lifecycle loop, the real durable sleep and the real
+              conditional UPDATE, with only the two numbers moved.
+            </p>
+          </div>
+          <div class="decision-card flag">
+            <h3>The re-probe&rsquo;s disambiguation order is backwards in&nbsp;#38</h3>
+            <p style="color: var(--muted)">
+              Found by running the &ldquo;Token rotation is not the boundary&rdquo; walkthrough.
+              <code>#38</code>&rsquo;s <code>acceptResult</code> names its rejection by re-probing and
+              testing the token <em>before</em> falling through to <code>not_eligible</code>. So a
+              stale token submitted against a Run that <code>worker_lost</code> has already
+              terminalized reports <code>execution_mismatch</code> &mdash; a rotated token &mdash;
+              when the Run&rsquo;s actual problem is that it ended.
+            </p>
+            <p style="color: var(--muted)">
+              ADR&nbsp;0015 requires the opposite: terminal state is the stronger and clearer fact,
+              so the eligibility half of the predicate must be disambiguated first and token
+              identity second. This is a one-line reordering, and without the scenario nothing would
+              have caught it: both orders return a rejection, both look correct, and only the
+              <em>name</em> differs.
+            </p>
+          </div>
+        </div>
+
+        <h3 style="margin-top: 22px">The rejection set, after this prototype</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Rejection</th>
+              <th>Reached by</th>
+              <th>Checked</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td><code>oversized</code></td><td>A 300&nbsp;KiB body</td><td>Raw bytes, before any parse</td></tr>
+            <tr><td><code>upgrade_required</code></td><td><code>protocolVersion: 2</code></td><td>Before the payload is trusted</td></tr>
+            <tr><td><code>malformed</code></td><td>Schema failure, or a <code>runId</code> mismatch</td><td>Schema parse</td></tr>
+            <tr><td><code>unknown_run</code></td><td>An unknown id &mdash; <em>and</em> another Owner&rsquo;s Run</td><td>Re-probe under Owner context</td></tr>
+            <tr><td><code>execution_mismatch</code></td><td>A token that is not the Run&rsquo;s current one</td><td>Re-probe, Run still active</td></tr>
+            <tr><td><code>not_eligible</code></td><td>Already accepted, superseded, or terminal</td><td>Re-probe, fall-through</td></tr>
+            <tr><td style="color: var(--muted)"><code>wrong_tenant</code></td><td colspan="2" style="color: var(--muted)">Unreachable behind RLS. Belongs to the auth layer, if kept at all.</td></tr>
+          </tbody>
+        </table>
+
+        <h3 style="margin-top: 22px">Where it runs</h3>
+        <p>
+          The scenario is the payload of the real-builder CI check ADR&nbsp;0014 already mandates,
+          not a second gate. That check builds from clean, asserts the workflow bundle and the
+          output trace, then starts the built application &mdash; which is precisely the fixture
+          this scenario needs. Its database is local Postgres&nbsp;17 behind PgBouncer, as
+          <a href="https://github.com/nick-neely/reprove/issues/37">#37</a> chose: the invariants
+          under test are standard Postgres, RLS and transaction-pooling behaviour, so keeping them
+          local makes the Phase&nbsp;0 exit deterministic, offline and secret-free. Neon remains the
+          production target, and Neon deployment compatibility is a separate production check rather
+          than part of this canonical scenario.
+        </p>
+      </section>
+
+      <section class="section" aria-labelledby="verdict-h">
+        <div class="section-heading">
+          <div>
+            <h2 id="verdict-h">Human verdict</h2>
+            <p>Three forks the prototype surfaced but should not settle on its own.</p>
+          </div>
+          <button class="copy-button" type="button" data-copy>Copy verdict summary</button>
+        </div>
+        <div id="verdicts"></div>
+      </section>
+    </main>
+
+    <script>
+      // ---------------------------------------------------------------------
+      // AcceptanceScenarioMachine
+      //
+      // Portable logic module. No DOM, no document, no event handlers. The page
+      // below calls into it; nothing flows the other way. This is the part
+      // worth lifting into the real scenario harness once the question is
+      // settled; the page around it is throwaway.
+      //
+      // The question: what does the Phase 0 acceptance seam let happen, and
+      // what does it refuse, when driven at the HTTP boundary?
+      // ---------------------------------------------------------------------
+      const AcceptanceScenarioMachine = (() => {
+        const OWNER = { id: 1001, login: "acme" };
+        const INTRUDER = { id: 2002, login: "globex" };
+        const REPOSITORY = { id: 55501, nameWithOwner: "acme/checkout" };
+        const PULL_REQUEST = 42;
+        const BASE_SHA = "b0a17c4e";
+        const HEAD_1 = "9f3ad128";
+        const HEAD_2 = "77c50ea6";
+
+        const MAX_RESULT_BYTES = 256 * 1024;
+        const PROTOCOL_CURRENT = 1;
+        const PROTOCOL_MINIMUM = 1;
+
+        // Phase 0 fixture values, carried in the injected profile so that no
+        // handler contains product policy inline. The scenario moves only the
+        // two durations; every other field is the real Phase 0 fixture.
+        const PROFILE = {
+          harness: "codex",
+          model: "gpt-5-codex",
+          strategy: "standard",
+          autonomy: "verify",
+          placement: "hosted",
+          allowHostedFallback: false,
+          configDigest: "sha256:4f21c9…",
+          claimableFor: 400, // 5 minutes in Phase 0
+          livenessFor: 900, // 10 minutes in Phase 0
+        };
+
+        const TERMINAL = [
+          "completed",
+          "incomplete",
+          "failed",
+          "superseded",
+          "cancelled",
+          "unscheduled",
+        ];
+        const isTerminal = (status) => TERMINAL.indexOf(status) !== -1;
+
+        // -------------------------------------------------------------------
+        // The eligibility predicate. ADR 0015 requires this be defined once and
+        // shared, never restated: Acceptance and liveness termination are two
+        // conditional updates racing over exactly this window.
+        // -------------------------------------------------------------------
+        function resultEligible(run, executionToken) {
+          if (!run) return false;
+          return (
+            (run.status === "claimed" || run.status === "executing") &&
+            run.acceptedAt === null &&
+            run.executionToken === executionToken
+          );
+        }
+
+        function initialState() {
+          return {
+            clock: 0,
+            profile: PROFILE,
+            ledger: [],
+            runs: [],
+            tokenSeq: 0,
+            lastWire: null,
+            lastNote: "Nothing has happened yet.",
+            changed: [],
+            history: [],
+            verdicts: {},
+          };
+        }
+
+        const liveRun = (state) => state.runs.find((r) => !isTerminal(r.status)) || null;
+        const latestRun = (state) => (state.runs.length ? state.runs[state.runs.length - 1] : null);
+        const currentToken = (state) => {
+          const run = liveRun(state);
+          return run ? run.executionToken : null;
+        };
+
+        function commit(state, action, outcome) {
+          const next = Object.assign({}, state, outcome.patch || {});
+          next.lastWire = outcome.wire || null;
+          next.lastNote = outcome.note;
+          next.changed = outcome.changed || [];
+          next.history = state.history.concat([
+            {
+              at: next.clock,
+              action,
+              label: outcome.label || action,
+              ok: outcome.ok !== false,
+              rejection: outcome.rejection || null,
+              note: outcome.note,
+            },
+          ]);
+          return next;
+        }
+
+        const wire = (method, path, status, body) => ({ method, path, status, body });
+
+        // -------------------------------------------------------------------
+        // Ingress
+        // -------------------------------------------------------------------
+        function deliver(state, { action, headSha, signature, guid }) {
+          if (signature === "invalid") {
+            return commit(state, "DELIVER_TAMPERED", {
+              ok: false,
+              label: "Tampered signature",
+              wire: wire(
+                "POST",
+                "/api/github/webhook",
+                401,
+                '{ "error": "signature verification failed" }'
+              ),
+              note:
+                "Rejected before the body was parsed. Nothing was committed, so there is no ledger row to recover and no Run to speak of.",
+            });
+          }
+
+          const duplicate = state.ledger.find((d) => d.guid === guid && d.state === "done");
+          if (duplicate) {
+            return commit(state, "DELIVER_REPLAY", {
+              label: "Redelivered GUID",
+              wire: wire("POST", "/api/github/webhook", 200, '{ "received": true }'),
+              note:
+                "Same delivery GUID, terminal ledger state. A no-op: the GUID is a wake-up signal, not a uniqueness key, and the manual-redelivery path stays open.",
+            });
+          }
+
+          // Envelope committed BEFORE the acknowledgement. A failure here would
+          // return non-2xx on purpose, to keep GitHub's three-day redelivery.
+          const envelope = {
+            id: "env_" + (state.ledger.length + 1),
+            guid,
+            event: "pull_request",
+            action,
+            state: "received",
+            disposition: null,
+            ownerId: OWNER.id,
+            repositoryId: REPOSITORY.id,
+            pullRequestNumber: PULL_REQUEST,
+          };
+
+          // Out-of-band processing: advisory lock, then the canonical fetch
+          // INSIDE the lock, so delivery ordering stops being load-bearing.
+          const existingAtHead = state.runs.find((r) => r.headSha === headSha);
+          if (existingAtHead) {
+            envelope.state = "discarded";
+            envelope.disposition = "duplicate_head";
+            return commit(state, "DELIVER_OPENED", {
+              label: "Delivery at an already-Run head",
+              patch: { ledger: state.ledger.concat([envelope]) },
+              wire: wire("POST", "/api/github/webhook", 200, '{ "received": true }'),
+              note:
+                "Canonical head already has a Run, in status " +
+                existingAtHead.status +
+                ". An automatic trigger at an already-Run head is a no-op in ANY status, with no carve-outs, so ingress never becomes a retry mechanism.",
+              changed: ["ledger"],
+            });
+          }
+
+          const runs = state.runs.slice();
+          let supersededId = null;
+          const live = liveRun(state);
+          if (live) {
+            supersededId = live.id;
+            const idx = runs.indexOf(live);
+            runs[idx] = Object.assign({}, live, {
+              status: "superseded",
+              supersededAt: state.clock,
+            });
+          }
+
+          const run = {
+            id: "run_" + (runs.length + 1),
+            ownerId: OWNER.id,
+            repositoryId: REPOSITORY.id,
+            pullRequestNumber: PULL_REQUEST,
+            baseSha: BASE_SHA,
+            headSha,
+            provenance: "internal",
+            trigger: "automatic",
+            placement: null,
+            status: "queued",
+            claimableUntil: state.clock + state.profile.claimableFor,
+            executionToken: null,
+            executionExpiresAt: null,
+            workflowRunId: "wf_lifecycle_" + (runs.length + 1),
+            hostedWorkflowRunId: null,
+            acceptedAt: null,
+            result: null,
+            failureReason: null,
+            failureDetail: null,
+          };
+          runs.push(run);
+
+          envelope.state = "done";
+
+          return commit(state, "DELIVER", {
+            label: "Signed " + action + " at " + headSha,
+            patch: { ledger: state.ledger.concat([envelope]), runs },
+            wire: wire("POST", "/api/github/webhook", 200, '{ "received": true }'),
+            note:
+              (supersededId
+                ? "Superseded " + supersededId + " and created "
+                : "Created ") +
+              run.id +
+              " at head " +
+              headSha +
+              ", queued, claimable for " +
+              state.profile.claimableFor +
+              "ms. Supersession and insertion happened in one withOwner transaction.",
+            changed: supersededId ? ["runs", "ledger", "status"] : ["runs", "ledger"],
+          });
+        }
+
+        // -------------------------------------------------------------------
+        // Claim. Both placements write executionToken and executionExpiresAt.
+        // -------------------------------------------------------------------
+        function claim(state, placement) {
+          const run = liveRun(state);
+          if (!run || run.status !== "queued") {
+            return commit(state, "CLAIM", {
+              ok: false,
+              label: "Claim as " + placement,
+              rejection: "not_claimable",
+              wire: wire(
+                "POST",
+                "/api/worker/runs/claim",
+                409,
+                '{ "claimed": false, "reason": "not_claimable" }'
+              ),
+              note: run
+                ? "The Run is " + run.status + ", not queued."
+                : "There is no Run to claim.",
+            });
+          }
+          if (state.clock >= run.claimableUntil) {
+            return commit(state, "CLAIM", {
+              ok: false,
+              label: "Claim as " + placement,
+              rejection: "not_claimable",
+              wire: wire(
+                "POST",
+                "/api/worker/runs/claim",
+                409,
+                '{ "claimed": false, "reason": "not_claimable" }'
+              ),
+              note: "The claimable window closed at " + run.claimableUntil + "ms.",
+            });
+          }
+
+          const seq = state.tokenSeq + 1;
+          const token = "exec_" + String(seq).padStart(4, "0");
+          const runs = state.runs.slice();
+          const idx = runs.indexOf(run);
+
+          const claimed = Object.assign({}, run, {
+            placement,
+            status: "claimed",
+            claimedAt: state.clock,
+            executionToken: token,
+            executionExpiresAt: state.clock + state.profile.livenessFor,
+            workerId: placement === "self-hosted" ? "wkr_7c1e" : null,
+            protocolVersion: 1,
+            workerBuildVersion: "0.0.0-phase0",
+          });
+
+          if (placement === "hosted") {
+            // dispatchHosted: claim, start the pass, THEN record its id. The
+            // gap between start() and markExecuting is the orphan window that
+            // widened #41 from `executing` to the whole eligibility window.
+            claimed.hostedWorkflowRunId = "wf_pass_" + seq;
+            claimed.status = "executing";
+          }
+
+          runs[idx] = claimed;
+
+          return commit(state, "CLAIM", {
+            label: "Claim as " + placement,
+            patch: { runs, tokenSeq: seq },
+            wire: wire(
+              "POST",
+              "/api/worker/runs/claim",
+              200,
+              '{ "claimed": true, "runId": "' +
+                run.id +
+                '", "executionToken": "' +
+                token +
+                '", "spec": { … } }'
+            ),
+            note:
+              placement === "hosted"
+                ? "Hosted: claimed, pass started, hostedWorkflowRunId recorded, status executing. Liveness expires at " +
+                  claimed.executionExpiresAt +
+                  "ms."
+                : "Self-hosted: claimed, hostedWorkflowRunId is NULL, and nothing in Phase 0 moves it to executing because there is no progress message. This IS ADR 0015's case 2, reached by construction rather than by injecting a crash. Liveness expires at " +
+                  claimed.executionExpiresAt +
+                  "ms.",
+            changed: ["status", "executionToken", "executionExpiresAt", "hostedWorkflowRunId"],
+          });
+        }
+
+        // -------------------------------------------------------------------
+        // Acceptance. One conditional UPDATE; the re-probe only NAMES what
+        // happened. Order matters and mirrors the implementation exactly.
+        // -------------------------------------------------------------------
+        function acceptResult(state, env) {
+          if (env.byteLength > MAX_RESULT_BYTES) {
+            return {
+              accepted: false,
+              rejection: "oversized",
+              detail: env.byteLength + " bytes exceeds " + MAX_RESULT_BYTES,
+            };
+          }
+          if (env.protocolVersion < PROTOCOL_MINIMUM || env.protocolVersion > PROTOCOL_CURRENT) {
+            return {
+              accepted: false,
+              rejection: "upgrade_required",
+              detail:
+                "minimum=" +
+                PROTOCOL_MINIMUM +
+                " current=" +
+                PROTOCOL_CURRENT +
+                " actual=" +
+                env.protocolVersion,
+            };
+          }
+          if (!env.payloadValid) {
+            return { accepted: false, rejection: "malformed", detail: "Result failed validation" };
+          }
+
+          // RLS: the statement runs inside withOwner(env.ownerId), so rows
+          // belonging to another Owner are not visible at all.
+          const visible = state.runs.filter((r) => r.ownerId === env.ownerId);
+          const run = visible.find((r) => r.id === env.runId) || null;
+
+          if (resultEligible(run, env.executionToken)) {
+            return {
+              accepted: true,
+              run,
+              status: env.completeness === "complete" ? "completed" : "incomplete",
+            };
+          }
+
+          // The re-probe runs under the SAME Owner context. It cannot see
+          // across tenants, which is the point.
+          if (!run) {
+            const existsElsewhere = state.runs.some((r) => r.id === env.runId);
+            return {
+              accepted: false,
+              rejection: "unknown_run",
+              detail: existsElsewhere
+                ? "Owned by another Owner, therefore invisible under this Owner context. `wrong_tenant` would require probing outside the boundary."
+                : "No such Run.",
+            };
+          }
+          // Order is load-bearing. ADR 0015: a Result arriving after a
+          // worker_lost transition has won is not_eligible, NOT
+          // execution_mismatch, because the Run being terminal is the stronger
+          // and clearer fact than token rotation. So the eligibility half of
+          // the predicate is disambiguated BEFORE token identity. Checking the
+          // token first — as the #38 prototype does — reports a rotated token
+          // on a Run whose real problem is that it ended.
+          if (isTerminal(run.status) || run.acceptedAt !== null) {
+            return {
+              accepted: false,
+              rejection: "not_eligible",
+              detail:
+                run.acceptedAt !== null
+                  ? "A Result was already accepted at " + run.acceptedAt + "ms"
+                  : "Run status is " + run.status,
+            };
+          }
+          if (run.executionToken !== env.executionToken) {
+            return {
+              accepted: false,
+              rejection: "execution_mismatch",
+              detail:
+                "Submitted " +
+                env.executionToken +
+                ", the still-active Run holds " +
+                (run.executionToken || "none"),
+            };
+          }
+          return {
+            accepted: false,
+            rejection: "not_eligible",
+            detail: "Run status is " + run.status,
+          };
+        }
+
+        function submit(state, variant) {
+          const target = liveRun(state) || latestRun(state);
+          const env = {
+            ownerId: OWNER.id,
+            runId: target ? target.id : "run_unknown",
+            executionToken: currentToken(state) || (target ? target.executionToken : null),
+            protocolVersion: 1,
+            byteLength: 4_200,
+            payloadValid: true,
+            completeness: "complete",
+          };
+
+          let label = "Submit a complete Result";
+          if (variant === "wrong-tenant") {
+            env.ownerId = INTRUDER.id;
+            label = "Submit as another Owner";
+          } else if (variant === "v2") {
+            env.protocolVersion = 2;
+            label = "Submit with protocolVersion 2";
+          } else if (variant === "oversized") {
+            env.byteLength = 307_200;
+            label = "Submit a 300 KiB body";
+          } else if (variant === "malformed") {
+            env.payloadValid = false;
+            label = "Submit a malformed body";
+          } else if (variant === "unknown") {
+            env.runId = "run_does_not_exist";
+            label = "Submit for an unknown Run";
+          } else if (variant === "stale-token") {
+            env.executionToken = "exec_0000";
+            label = "Submit with a stale execution token";
+          } else if (variant === "partial") {
+            env.completeness = "partial";
+            label = "Submit a partial Result";
+          }
+
+          const outcome = acceptResult(state, env);
+
+          if (!outcome.accepted) {
+            return commit(state, "SUBMIT", {
+              ok: false,
+              label,
+              rejection: outcome.rejection,
+              wire: wire(
+                "POST",
+                "/api/worker/runs/" + env.runId + "/result",
+                outcome.rejection === "oversized" ? 413 : 409,
+                '{ "accepted": false, "rejection": "' + outcome.rejection + '" }'
+              ),
+              note: outcome.detail,
+            });
+          }
+
+          const runs = state.runs.slice();
+          const idx = runs.indexOf(outcome.run);
+          runs[idx] = Object.assign({}, outcome.run, {
+            status: outcome.status,
+            acceptedAt: state.clock,
+            result: { completeness: env.completeness, findings: 1 },
+          });
+
+          return commit(state, "SUBMIT", {
+            label,
+            patch: { runs },
+            wire: wire(
+              "POST",
+              "/api/worker/runs/" + env.runId + "/result",
+              200,
+              '{ "accepted": true, "status": "' + outcome.status + '" }'
+            ),
+            note:
+              "Accepted. The database write is what makes it accepted; resuming the durable run is a notification that follows, never part of the same request.",
+            changed: ["status", "acceptedAt", "result"],
+          });
+        }
+
+        // -------------------------------------------------------------------
+        // The lifecycle: a state-driven loop over two windows, re-reading
+        // authoritative Run state on every wake rather than trusting the
+        // timestamp it slept toward.
+        // -------------------------------------------------------------------
+        function lifecycleWake(state, toClock, label) {
+          const clock = toClock;
+          const run = liveRun(state);
+
+          if (!run) {
+            return commit(Object.assign({}, state, { clock }), "WAKE", {
+              label,
+              note: "The lifecycle woke, read authoritative state, found the Run terminal or absent, and returned.",
+            });
+          }
+
+          const runs = state.runs.slice();
+          const idx = runs.indexOf(run);
+
+          if (run.status === "queued") {
+            if (clock < run.claimableUntil) {
+              return commit(Object.assign({}, state, { clock }), "WAKE", {
+                label,
+                note: "Still inside the claimable window. The lifecycle sleeps again.",
+              });
+            }
+            runs[idx] = Object.assign({}, run, {
+              status: "unscheduled",
+              failureReason: "claimable_deadline_expired",
+            });
+            return commit(Object.assign({}, state, { clock }), "WAKE", {
+              label,
+              patch: { runs },
+              note:
+                "claimableUntil expired over a Run that was never claimed. One transition, to unscheduled — which is not Failure vocabulary, because nothing executed.",
+              changed: ["status"],
+            });
+          }
+
+          if (run.status === "claimed" || run.status === "executing") {
+            if (clock < run.executionExpiresAt) {
+              return commit(Object.assign({}, state, { clock }), "WAKE", {
+                label,
+                note:
+                  "executionExpiresAt has not passed. The lifecycle sleeps again — and because it re-reads the column rather than the timestamp it slept toward, a self-hosted renewal would simply be a column write.",
+              });
+            }
+            runs[idx] = Object.assign({}, run, {
+              status: "failed",
+              failureReason: "worker_lost",
+              failureDetail: {
+                detector: run.placement === "hosted" ? "hosted_watchdog" : "lease_expired",
+                observation:
+                  run.placement === "hosted" ? "workflow_terminal_without_result" : "deadline_elapsed",
+                lostFrom: run.status,
+              },
+            });
+            return commit(Object.assign({}, state, { clock }), "WAKE", {
+              label,
+              patch: { runs },
+              note:
+                "Liveness expired over an eligible Run. failed(worker_lost), lostFrom: " +
+                run.status +
+                ". The database transition is the correctness boundary; cancelling the pass is best-effort reclamation that follows it.",
+              changed: ["status", "failureReason"],
+            });
+          }
+
+          return commit(Object.assign({}, state, { clock }), "WAKE", {
+            label,
+            note: "Nothing to do at this wake.",
+          });
+        }
+
+        // -------------------------------------------------------------------
+        // Actions
+        // -------------------------------------------------------------------
+        const actions = [
+          {
+            group: "GitHub ingress",
+            type: "DELIVER_OPENED",
+            label: "Deliver pull_request.opened",
+            hint: "Signed, at head " + HEAD_1,
+          },
+          {
+            group: "GitHub ingress",
+            type: "DELIVER_SYNCHRONIZE",
+            label: "Deliver pull_request.synchronize",
+            hint: "Signed, at a new head " + HEAD_2,
+          },
+          {
+            group: "GitHub ingress",
+            type: "DELIVER_TAMPERED",
+            label: "Deliver a tampered body",
+            hint: "Signature does not match the bytes",
+          },
+          {
+            group: "GitHub ingress",
+            type: "DELIVER_REPLAY",
+            label: "Redeliver the same GUID",
+            hint: "GitHub's manual redelivery",
+          },
+          {
+            group: "Claim",
+            type: "CLAIM_HOSTED",
+            label: "Dispatch to the hosted Worker",
+            hint: "Claim, start the pass, record it",
+          },
+          {
+            group: "Claim",
+            type: "CLAIM_SELFHOSTED",
+            label: "Claim as a self-hosted Worker",
+            hint: "Authenticated HTTP claim, then silence",
+          },
+          {
+            group: "Result submission",
+            type: "SUBMIT_COMPLETE",
+            label: "Submit a complete Result",
+            hint: "Valid, current token",
+          },
+          {
+            group: "Result submission",
+            type: "SUBMIT_PARTIAL",
+            label: "Submit a partial Result",
+            hint: "Acceptable — ends incomplete",
+          },
+          {
+            group: "Result submission",
+            type: "SUBMIT_STALE_TOKEN",
+            label: "Submit with a stale token",
+            hint: "Not the Run's current token",
+          },
+          {
+            group: "Result submission",
+            type: "SUBMIT_WRONG_TENANT",
+            label: "Submit as another Owner",
+            hint: "globex submitting acme's Run",
+          },
+          {
+            group: "Result submission",
+            type: "SUBMIT_V2",
+            label: "Submit with protocolVersion 2",
+            hint: "Above the advertised current",
+          },
+          {
+            group: "Result submission",
+            type: "SUBMIT_OVERSIZED",
+            label: "Submit a 300 KiB body",
+            hint: "Above the 256 KiB bound",
+          },
+          {
+            group: "Result submission",
+            type: "SUBMIT_MALFORMED",
+            label: "Submit a malformed body",
+            hint: "Fails schema validation",
+          },
+          {
+            group: "Result submission",
+            type: "SUBMIT_UNKNOWN",
+            label: "Submit for an unknown Run",
+            hint: "No such Run id",
+          },
+          {
+            group: "The lifecycle's clock",
+            type: "ADVANCE_TO_CLAIM_DEADLINE",
+            label: "Wake past the claimable deadline",
+            hint: "claimableUntil elapses",
+          },
+          {
+            group: "The lifecycle's clock",
+            type: "ADVANCE_TO_LIVENESS_DEADLINE",
+            label: "Wake past the liveness deadline",
+            hint: "executionExpiresAt elapses",
+          },
+        ];
+
+        function reduce(state, action) {
+          switch (action.type) {
+            case "RESET":
+              return initialState();
+
+            case "SET_VERDICT": {
+              const verdicts = Object.assign({}, state.verdicts);
+              verdicts[action.question] = action.answer;
+              return Object.assign({}, state, { verdicts });
+            }
+
+            case "DELIVER_OPENED":
+              return deliver(state, {
+                action: "opened",
+                headSha: HEAD_1,
+                signature: "valid",
+                guid: "gh_d1",
+              });
+
+            case "DELIVER_SYNCHRONIZE":
+              return deliver(state, {
+                action: "synchronize",
+                headSha: HEAD_2,
+                signature: "valid",
+                guid: "gh_d2",
+              });
+
+            case "DELIVER_TAMPERED":
+              return deliver(state, { action: "opened", signature: "invalid", guid: "gh_x" });
+
+            case "DELIVER_REPLAY":
+              return deliver(state, {
+                action: "opened",
+                headSha: HEAD_1,
+                signature: "valid",
+                guid: "gh_d1",
+              });
+
+            case "CLAIM_HOSTED":
+              return claim(state, "hosted");
+
+            case "CLAIM_SELFHOSTED":
+              return claim(state, "self-hosted");
+
+            case "SUBMIT_COMPLETE":
+              return submit(state, "complete");
+            case "SUBMIT_PARTIAL":
+              return submit(state, "partial");
+            case "SUBMIT_STALE_TOKEN":
+              return submit(state, "stale-token");
+            case "SUBMIT_WRONG_TENANT":
+              return submit(state, "wrong-tenant");
+            case "SUBMIT_V2":
+              return submit(state, "v2");
+            case "SUBMIT_OVERSIZED":
+              return submit(state, "oversized");
+            case "SUBMIT_MALFORMED":
+              return submit(state, "malformed");
+            case "SUBMIT_UNKNOWN":
+              return submit(state, "unknown");
+
+            case "ADVANCE_TO_CLAIM_DEADLINE": {
+              const run = liveRun(state);
+              const to = run && run.claimableUntil !== null
+                ? run.claimableUntil + 1
+                : state.clock + state.profile.claimableFor + 1;
+              return lifecycleWake(state, to, "Wake past the claimable deadline");
+            }
+
+            case "ADVANCE_TO_LIVENESS_DEADLINE": {
+              const run = liveRun(state);
+              const to = run && run.executionExpiresAt !== null
+                ? run.executionExpiresAt + 1
+                : state.clock + state.profile.livenessFor + 1;
+              return lifecycleWake(state, to, "Wake past the liveness deadline");
+            }
+
+            default:
+              return state;
+          }
+        }
+
+        const walkthroughs = [
+          {
+            id: "spine",
+            title: "The Phase 0 exit",
+            blurb:
+              "The spine, and the whole destination in four clicks: a signed delivery creates one tenant-scoped Run at fixed SHAs, the lifecycle schedules it Worker-ready, the hosted Worker claims it, and an eligible Result is accepted. Watch executionToken appear at claim, not at dispatch.",
+            steps: ["DELIVER_OPENED", "CLAIM_HOSTED", "SUBMIT_COMPLETE"],
+          },
+          {
+            id: "once",
+            title: "Accepted exactly once",
+            blurb:
+              "The same valid Result, twice. The second is rejected not_eligible because acceptedAt is no longer null — the eligibility window and the write are one statement, so a concurrent duplicate serializes on the row and finds nothing to update. A Worker-supplied idempotency key is a convenience, never the enforcement.",
+            steps: ["DELIVER_OPENED", "CLAIM_HOSTED", "SUBMIT_COMPLETE", "SUBMIT_COMPLETE"],
+          },
+          {
+            id: "superseded",
+            title: "Superseded mid-flight",
+            blurb:
+              "A second push arrives while the first Run is executing. Supersession and insertion happen in one transaction. The original Worker then returns holding a Result for a Run that is no longer live — the exact case ADR 0006 built Acceptance for. Note the rejection is not_eligible, not execution_mismatch: the token still matches.",
+            steps: ["DELIVER_OPENED", "CLAIM_HOSTED", "DELIVER_SYNCHRONIZE", "SUBMIT_COMPLETE"],
+          },
+          {
+            id: "tenant",
+            title: "Another Owner's submission",
+            blurb:
+              "globex submits against an acme Run. This is the walkthrough that produced the prototype's main finding: under RLS the Run is invisible, so the honest rejection is unknown_run and wrong_tenant is unreachable without probing outside the tenancy boundary.",
+            steps: ["DELIVER_OPENED", "CLAIM_HOSTED", "SUBMIT_WRONG_TENANT"],
+          },
+          {
+            id: "incompatible",
+            title: "Incompatible and malformed",
+            blurb:
+              "Three rejections that fire before the payload is ever trusted, in order: the raw byte bound, then the protocol version, then schema validation. Checking compatibility before parsing is what stops a v2 Worker's payload being interpreted under v1 rules.",
+            steps: [
+              "DELIVER_OPENED",
+              "CLAIM_HOSTED",
+              "SUBMIT_OVERSIZED",
+              "SUBMIT_V2",
+              "SUBMIT_MALFORMED",
+            ],
+          },
+          {
+            id: "abandoned-executing",
+            title: "Abandoned while executing",
+            blurb:
+              "ADR 0015 case 1. The hosted pass is recorded and the Run is executing, then the Worker stops answering. The lifecycle's liveness branch terminalizes it as failed(worker_lost, lostFrom: executing). The late Result is then rejected not_eligible.",
+            steps: [
+              "DELIVER_OPENED",
+              "CLAIM_HOSTED",
+              "ADVANCE_TO_LIVENESS_DEADLINE",
+              "SUBMIT_COMPLETE",
+            ],
+          },
+          {
+            id: "abandoned-claimed",
+            title: "Abandoned at claimed",
+            blurb:
+              "ADR 0015 case 2, and the mandatory one. A self-hosted Worker claims over the authenticated endpoint and goes silent, which leaves a Run at claimed with a null pass id — reached by construction, with no injected crash. claimableUntil never touches it, because it writes only over queued. lostFrom: claimed.",
+            steps: [
+              "DELIVER_OPENED",
+              "CLAIM_SELFHOSTED",
+              "ADVANCE_TO_LIVENESS_DEADLINE",
+              "SUBMIT_COMPLETE",
+            ],
+          },
+          {
+            id: "boundary",
+            title: "Token rotation is not the boundary",
+            blurb:
+              "The contrast that matters. A stale token against a still-active Run gives execution_mismatch. The same stale token against a Run that worker_lost has already terminalized gives not_eligible — because terminal state is the stronger and clearer fact, and it is what proves terminal state rather than token rotation is the stale-result boundary.",
+            steps: [
+              "DELIVER_OPENED",
+              "CLAIM_SELFHOSTED",
+              "SUBMIT_STALE_TOKEN",
+              "ADVANCE_TO_LIVENESS_DEADLINE",
+              "SUBMIT_STALE_TOKEN",
+            ],
+          },
+          {
+            id: "never-claimed",
+            title: "Never claimed at all",
+            blurb:
+              "No Worker ever claims. claimableUntil expires over a queued Run and writes exactly one transition, to unscheduled. That is a scheduling outcome, not a Failure — nothing executed — and it is the one window claimableUntil owns.",
+            steps: ["DELIVER_OPENED", "ADVANCE_TO_CLAIM_DEADLINE", "CLAIM_HOSTED"],
+          },
+        ];
+
+        const verdictQuestions = [
+          {
+            id: "wrong_tenant",
+            title: "Does `wrong_tenant` survive?",
+            question:
+              "Acceptance cannot distinguish another Owner's Run from a nonexistent one without probing outside withOwner(). Should `wrong_tenant` be dropped from the rejection set, or kept and moved to the authentication layer where the credential's Owner is known?",
+            options: [
+              "Drop it — unknown_run is the honest and safer answer",
+              "Keep it, raised at the auth layer before Acceptance",
+            ],
+          },
+          {
+            id: "redrive",
+            title: "Does the re-drive belong in this scenario?",
+            question:
+              "ADR 0013 makes automatic re-drive of contended and transient dispositions a Phase 0 exit condition, and ADR 0014 discharged it as Workflow's own step retry. #38's scenarios already prove it. Should this scenario re-prove it end to end, or cite #38 and stay on the acceptance seam?",
+            options: [
+              "Re-prove it here — it is a named exit condition",
+              "Cite #38 — this scenario is the acceptance seam",
+            ],
+          },
+          {
+            id: "scope",
+            title: "Is one CI check enough?",
+            question:
+              "The proposal folds this scenario into ADR 0014's real-builder check, so Phase 0 has one gate that builds clean, boots the app and drives the exit. That gate then fails for build reasons and behaviour reasons alike. Is one signal right, or should the build assertions and the behavioural scenario fail separately?",
+            options: [
+              "One gate — the Phase 0 exit is one fact",
+              "Two — build breakage and behaviour breakage read differently",
+            ],
+          },
+        ];
+
+        return {
+          actions,
+          initialState,
+          reduce,
+          resultEligible,
+          walkthroughs,
+          verdictQuestions,
+          constants: { OWNER, INTRUDER, REPOSITORY, PULL_REQUEST, PROFILE, MAX_RESULT_BYTES },
+        };
+      })();
+
+      window.AcceptanceScenarioMachine = AcceptanceScenarioMachine;
+
+      // ---------------------------------------------------------------------
+      // Throwaway page shell below. Renders the module; never reaches into it.
+      // ---------------------------------------------------------------------
+      (() => {
+        const M = AcceptanceScenarioMachine;
+        let state = M.initialState();
+        let activeTab = M.walkthroughs[0].id;
+        let stepIndex = 0;
+
+        const el = (id) => document.getElementById(id);
+
+        function liveOrLast(s) {
+          const live = s.runs.find(
+            (r) =>
+              ["queued", "claimed", "executing"].indexOf(r.status) !== -1
+          );
+          return live || (s.runs.length ? s.runs[s.runs.length - 1] : null);
+        }
+
+        function badgeClass(status) {
+          if (!status) return "";
+          if (status === "completed") return "good";
+          if (status === "incomplete" || status === "unscheduled" || status === "superseded")
+            return "warn";
+          if (status === "failed" || status === "cancelled") return "bad";
+          return "";
+        }
+
+        function renderOutcome() {
+          const run = liveOrLast(state);
+          const title = el("outcome-title");
+          const detail = el("outcome-detail");
+          const badge = el("outcome-badge");
+
+          if (!run) {
+            title.textContent = "No Run exists";
+            detail.textContent = "Deliver a signed pull_request event to begin.";
+            badge.textContent = "idle";
+            badge.className = "badge";
+            return;
+          }
+
+          title.textContent = run.id + " is " + run.status;
+          detail.textContent = run.failureReason
+            ? run.failureReason +
+              (run.failureDetail
+                ? " (detector: " +
+                  run.failureDetail.detector +
+                  ", lostFrom: " +
+                  run.failureDetail.lostFrom +
+                  ")"
+                : "")
+            : run.acceptedAt !== null
+              ? "A Result was accepted at " + run.acceptedAt + "ms and the Run is terminal."
+              : "Head " + run.headSha + ", " + run.provenance + ", " + (run.placement || "unclaimed");
+          badge.textContent = run.status;
+          badge.className = "badge " + badgeClass(run.status);
+        }
+
+        function card(label, value, note, changed) {
+          const d = document.createElement("div");
+          d.className = "state-card" + (changed ? " changed" : "");
+          const s = document.createElement("span");
+          s.textContent = label;
+          const b = document.createElement("strong");
+          b.textContent = value;
+          d.append(s, b);
+          if (note) {
+            const n = document.createElement("small");
+            n.textContent = note;
+            d.append(n);
+          }
+          return d;
+        }
+
+        function renderState() {
+          el("state-note").textContent = state.lastNote;
+          renderOutcome();
+
+          const run = liveOrLast(state);
+          const grid = el("state-grid");
+          grid.textContent = "";
+          const ch = state.changed || [];
+
+          grid.append(card("Clock", state.clock + "ms", "scenario time", false));
+          grid.append(
+            card(
+              "Ledger",
+              state.ledger.length ? state.ledger[state.ledger.length - 1].state : "empty",
+              state.ledger.length
+                ? state.ledger[state.ledger.length - 1].disposition || "no disposition"
+                : "no delivery received",
+              ch.indexOf("ledger") !== -1
+            )
+          );
+          grid.append(card("Runs", String(state.runs.length), "one live at most", ch.indexOf("runs") !== -1));
+          grid.append(
+            card("Status", run ? run.status : "—", run ? run.id : "", ch.indexOf("status") !== -1)
+          );
+          grid.append(
+            card(
+              "executionToken",
+              run && run.executionToken ? run.executionToken : "null",
+              "written at claim, both placements",
+              ch.indexOf("executionToken") !== -1
+            )
+          );
+          grid.append(
+            card(
+              "executionExpiresAt",
+              run && run.executionExpiresAt !== null ? run.executionExpiresAt + "ms" : "null",
+              "claimedAt + livenessFor",
+              ch.indexOf("executionExpiresAt") !== -1
+            )
+          );
+          grid.append(
+            card(
+              "claimableUntil",
+              run && run.claimableUntil !== null ? run.claimableUntil + "ms" : "null",
+              "bounds the unclaimed window only",
+              false
+            )
+          );
+          grid.append(
+            card(
+              "hostedWorkflowRunId",
+              run && run.hostedWorkflowRunId ? run.hostedWorkflowRunId : "null",
+              "the pass, not the lifecycle",
+              ch.indexOf("hostedWorkflowRunId") !== -1
+            )
+          );
+          grid.append(
+            card(
+              "acceptedAt",
+              run && run.acceptedAt !== null ? run.acceptedAt + "ms" : "null",
+              "half the eligibility predicate",
+              ch.indexOf("acceptedAt") !== -1
+            )
+          );
+          grid.append(
+            card(
+              "Result eligible?",
+              run && M.resultEligible(run, run.executionToken) ? "yes" : "no",
+              "status in (claimed, executing) + acceptedAt null + token matches",
+              false
+            )
+          );
+          grid.append(
+            card(
+              "failureReason",
+              run && run.failureReason ? run.failureReason : "null",
+              run && run.failureDetail ? run.failureDetail.observation : "",
+              ch.indexOf("failureReason") !== -1
+            )
+          );
+          grid.append(
+            card("Owner", "acme (1001)", "the tenant, GitHub's numeric id", false)
+          );
+
+          const w = el("wire");
+          if (!state.lastWire) {
+            w.textContent = "No HTTP exchange yet.";
+          } else {
+            const x = state.lastWire;
+            const ok = x.status >= 200 && x.status < 300;
+            w.textContent = "";
+            const line = document.createElement("div");
+            const m = document.createElement("span");
+            m.className = "m";
+            m.textContent = x.method + " " + x.path;
+            const st = document.createElement("span");
+            st.className = ok ? "s-ok" : "s-bad";
+            st.textContent = "  → " + x.status;
+            line.append(m, st);
+            const body = document.createElement("div");
+            body.textContent = x.body;
+            body.style.marginTop = "6px";
+            w.append(line, body);
+          }
+        }
+
+        function renderActions() {
+          const host = el("actions");
+          host.textContent = "";
+          const groups = [];
+          M.actions.forEach((a) => {
+            let g = groups.find((x) => x.name === a.group);
+            if (!g) {
+              g = { name: a.group, items: [] };
+              groups.push(g);
+            }
+            g.items.push(a);
+          });
+          groups.forEach((g) => {
+            const wrap = document.createElement("div");
+            wrap.className = "action-group";
+            const h = document.createElement("h3");
+            h.textContent = g.name;
+            const row = document.createElement("div");
+            row.className = "actions";
+            g.items.forEach((a) => {
+              const b = document.createElement("button");
+              b.className = "action-button";
+              b.type = "button";
+              b.dataset.action = a.type;
+              b.append(document.createTextNode(a.label));
+              const s = document.createElement("small");
+              s.textContent = a.hint;
+              b.append(s);
+              row.append(b);
+            });
+            wrap.append(h, row);
+            host.append(wrap);
+          });
+        }
+
+        function renderWalkthroughs() {
+          const tabs = el("tabs");
+          const panels = el("panels");
+          tabs.textContent = "";
+          panels.textContent = "";
+
+          M.walkthroughs.forEach((w) => {
+            const t = document.createElement("button");
+            t.type = "button";
+            t.role = "tab";
+            t.id = "tab-" + w.id;
+            t.dataset.tab = w.id;
+            t.setAttribute("aria-selected", String(w.id === activeTab));
+            t.setAttribute("aria-controls", "panel-" + w.id);
+            t.textContent = w.title;
+            tabs.append(t);
+
+            const p = document.createElement("div");
+            p.role = "tabpanel";
+            p.id = "panel-" + w.id;
+            p.setAttribute("aria-labelledby", "tab-" + w.id);
+            p.hidden = w.id !== activeTab;
+
+            const intro = document.createElement("p");
+            intro.className = "walkthrough-intro";
+            intro.textContent = w.blurb;
+            p.append(intro);
+
+            const steps = document.createElement("div");
+            steps.className = "steps";
+            w.steps.forEach((type, i) => {
+              const def = M.actions.find((a) => a.type === type);
+              const row = document.createElement("div");
+              row.className = "step" + (w.id === activeTab && i < stepIndex ? " done" : "");
+              const n = document.createElement("div");
+              n.className = "step-number";
+              n.textContent = String(i + 1);
+              const mid = document.createElement("div");
+              const strong = document.createElement("strong");
+              strong.textContent = def ? def.label : type;
+              const sub = document.createElement("p");
+              sub.textContent = def ? def.hint : "";
+              mid.append(strong, sub);
+              const b = document.createElement("button");
+              b.className = "step-button";
+              b.type = "button";
+              b.dataset.step = String(i);
+              b.dataset.walkthrough = w.id;
+              b.textContent =
+                w.id === activeTab && i === stepIndex
+                  ? i === 0
+                    ? "Start"
+                    : "Run step " + (i + 1)
+                  : w.id === activeTab && i < stepIndex
+                    ? "Done"
+                    : "Run from here";
+              row.append(n, mid, b);
+              steps.append(row);
+            });
+            p.append(steps);
+            panels.append(p);
+          });
+        }
+
+        function renderTrace() {
+          const host = el("trace");
+          host.textContent = "";
+          if (!state.history.length) {
+            const li = document.createElement("li");
+            const b = document.createElement("b");
+            b.textContent = "—";
+            const s = document.createElement("span");
+            s.textContent = "Nothing yet.";
+            li.append(b, s);
+            host.append(li);
+            return;
+          }
+          state.history
+            .slice()
+            .reverse()
+            .forEach((h) => {
+              const li = document.createElement("li");
+              const b = document.createElement("b");
+              b.textContent = h.at + "ms";
+              const s = document.createElement("span");
+              const t = document.createElement("strong");
+              t.textContent = h.label;
+              s.append(t);
+              if (h.rejection) {
+                const r = document.createElement("span");
+                r.className = "rej";
+                r.textContent = "  → " + h.rejection;
+                s.append(r);
+              }
+              const note = document.createElement("div");
+              note.textContent = h.note;
+              note.style.color = "var(--muted)";
+              note.style.fontSize = "0.87rem";
+              s.append(note);
+              li.append(b, s);
+              host.append(li);
+            });
+        }
+
+        function renderVerdicts() {
+          const host = el("verdicts");
+          host.textContent = "";
+          M.verdictQuestions.forEach((q) => {
+            const d = document.createElement("div");
+            d.className = "verdict";
+            const h = document.createElement("h3");
+            h.textContent = q.title;
+            const p = document.createElement("p");
+            p.textContent = q.question;
+            const opts = document.createElement("div");
+            opts.className = "verdict-options";
+            q.options.forEach((o) => {
+              const b = document.createElement("button");
+              b.className = "verdict-button";
+              b.type = "button";
+              b.dataset.verdictQuestion = q.id;
+              b.dataset.verdictAnswer = o;
+              b.setAttribute("aria-pressed", String(state.verdicts[q.id] === o));
+              b.textContent = o;
+              opts.append(b);
+            });
+            d.append(h, p, opts);
+            host.append(d);
+          });
+        }
+
+        function renderAll() {
+          renderState();
+          renderWalkthroughs();
+          renderTrace();
+          renderVerdicts();
+        }
+
+        function dispatch(action) {
+          state = M.reduce(state, action);
+          renderAll();
+        }
+
+        document.addEventListener("click", (e) => {
+          const target = e.target.closest("button");
+          if (!target) return;
+
+          if (target.dataset.reset !== undefined) {
+            const verdicts = state.verdicts;
+            state = M.initialState();
+            state.verdicts = verdicts;
+            stepIndex = 0;
+            renderAll();
+            return;
+          }
+
+          if (target.dataset.action) {
+            dispatch({ type: target.dataset.action });
+            return;
+          }
+
+          if (target.dataset.tab) {
+            activeTab = target.dataset.tab;
+            stepIndex = 0;
+            renderWalkthroughs();
+            return;
+          }
+
+          if (target.dataset.step !== undefined) {
+            const w = M.walkthroughs.find((x) => x.id === target.dataset.walkthrough);
+            if (!w) return;
+            const from = Number(target.dataset.step);
+            if (activeTab !== w.id || from === 0) {
+              activeTab = w.id;
+              const verdicts = state.verdicts;
+              state = M.initialState();
+              state.verdicts = verdicts;
+              stepIndex = 0;
+            }
+            for (let i = stepIndex; i <= from; i += 1) {
+              state = M.reduce(state, { type: w.steps[i] });
+            }
+            stepIndex = from + 1;
+            renderAll();
+            return;
+          }
+
+          if (target.dataset.verdictQuestion) {
+            dispatch({
+              type: "SET_VERDICT",
+              question: target.dataset.verdictQuestion,
+              answer: target.dataset.verdictAnswer,
+            });
+            return;
+          }
+
+          if (target.dataset.copy !== undefined) {
+            const lines = M.verdictQuestions.map(
+              (q) => q.title + "\n  " + (state.verdicts[q.id] || "(no answer)")
+            );
+            navigator.clipboard
+              .writeText("Ticket #39 verdicts\n\n" + lines.join("\n\n"))
+              .then(() => {
+                target.textContent = "Copied";
+                setTimeout(() => {
+                  target.textContent = "Copy verdict summary";
+                }, 1600);
+              })
+              .catch(() => {
+                target.textContent = "Copy failed";
+              });
+          }
+        });
+
+        document.addEventListener("keydown", (e) => {
+          if (!e.target.matches('[role="tab"]')) return;
+          const ids = M.walkthroughs.map((w) => w.id);
+          const i = ids.indexOf(activeTab);
+          if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+            e.preventDefault();
+            const next = e.key === "ArrowRight" ? (i + 1) % ids.length : (i - 1 + ids.length) % ids.length;
+            activeTab = ids[next];
+            stepIndex = 0;
+            renderWalkthroughs();
+            document.getElementById("tab-" + activeTab).focus();
+          }
+        });
+
+        renderActions();
+        renderAll();
+      })();
+    </script>
+  </body>
+</html>
