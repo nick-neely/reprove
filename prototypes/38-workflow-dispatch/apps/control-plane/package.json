@@ -1,0 +1,10 @@
+{
+  "name": "@proto38/app-control-plane",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./index.ts" },
+  "dependencies": {
+    "@proto38/control-plane": "*",
+    "@proto38/worker-hosted": "*"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "name": "proto38-workflow-dispatch",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*", "apps/*"],
+  "scripts": {
+    "db": "docker compose up -d --wait",
+    "prototype": "npm run db && vitest run --reporter=basic",
+    "boundary": "tsx tools/boundary.ts",
+    "world": "tsx tools/world-schemas.ts"
+  },
+  "devDependencies": {
+    "@workflow/vitest": "4.0.21",
+    "@workflow/world-postgres": "4.3.5",
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.19.2",
+    "typescript": "^5.9.2",
+    "vite": "^7.0.0",
+    "vitest": "^3.2.4"
+  },
+  "dependencies": {
+    "pg": "^8.13.1",
+    "workflow": "4.8.5",
+    "zod": "^3.24.1"
+  }
+}

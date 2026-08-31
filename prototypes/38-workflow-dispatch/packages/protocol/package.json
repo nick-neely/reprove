@@ -1,0 +1,7 @@
+{
+  "name": "@proto38/protocol",
+  "private": true,
+  "type": "module",
+  "exports": { "./v1": "./v1.ts" },
+  "dependencies": { "zod": "^3.24.1" }
+}

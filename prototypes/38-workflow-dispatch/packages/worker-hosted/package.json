@@ -1,0 +1,11 @@
+{
+  "name": "@proto38/worker-hosted",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./index.ts", "./workflows": "./workflows/hosted-pass.ts" },
+  "dependencies": {
+    "@proto38/protocol": "*",
+    "@proto38/worker-core": "*",
+    "workflow": "4.8.5"
+  }
+}

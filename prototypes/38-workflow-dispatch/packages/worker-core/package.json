@@ -1,0 +1,10 @@
+{
+  "name": "@proto38/worker-core",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./index.ts" },
+  "dependencies": {
+    "@proto38/protocol": "*",
+    "ai-sdk-harness-stub": "file:../../stubs/ai-sdk-harness"
+  }
+}
