@@ -1,6 +1,6 @@
 import { start } from 'workflow/api';
 // The package-defined workflow, imported by the app: question 1 above.
-import { runLifecycle } from '@proto38/workflow-adapter/workflows';
+import { runLifecycle } from '@proto38/control-plane-workflow/workflows';
 import { probeComposition } from '../../../workflows/probe.ts';
 import { MODULE_INSTANCE } from '../../../config.ts';
 

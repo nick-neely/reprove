@@ -7,8 +7,9 @@ Throwaway. Answers [#38](https://github.com/nick-neely/reprove/issues/38):
 > composing `@reprove/worker-hosted` only in the app, and preserving the same protocol
 > contract a self-hosted Worker will later use?
 
-**This document has been rewritten twice after adversarial review.** Two rounds found
-four unearned conclusions and five defects between them. What survives is below; what
+**This document has been rewritten three times after adversarial review.** Three rounds found
+four unearned conclusions and five defects between them, and the third signed the result off
+with modifications, all of which are applied here. What survives is below; what
 did not is recorded at the end, because the pattern of error matters more than any
 individual finding.
 
@@ -58,17 +59,20 @@ without the runtime-role split, `FORCE ROW LEVEL SECURITY` or the boot assertion
                             Acceptance, supersession. No `workflow` dependency,
                             no workflow or step definitions, no environment.
                             Resolved closure: protocol, pg, zod.
-@proto38/workflow-adapter   ALL durable orchestration and ALL step configuration.
+@proto38/control-plane-workflow   ALL durable orchestration and ALL step configuration.
                             App-layer. Depends on control-plane + workflow.
                             Carries no harness code.
 apps/control-plane-hosted     control-plane + adapter + worker-hosted
 apps/control-plane-selfhosted control-plane + adapter. No harness code at all.
 ```
 
-That split is the answer to the ticket, and it is forced rather than chosen: a step is
-compiled into a bundle whose module graph is fixed at build time, so the layer that
-defines steps is the only layer that can reliably configure them. Keeping the definitions
-in the core package would have meant the core package reading the environment.
+That split is the answer to the ticket. The constraint behind it is real - a step is
+compiled into a bundle whose module graph is fixed at build time, so the layer that defines
+steps is the only layer that can reliably configure them - but the split is a **chosen
+tradeoff, not a forced move**. Keeping the definitions in the core package behind a
+documented no-fallback environment contract, or duplicating them per app, both remain
+possible. The package wins because ADR 0010 requires Cloud to consume published artifacts
+rather than duplicate control-plane substance, at the cost of an eighth published package.
 
 ```
 GitHub delivery
@@ -117,7 +121,7 @@ confounded the two. The full 2x2:
 
 So the axis is the builder, not the import style. A package that owns steps therefore
 cannot rely on being configured by its caller *and* cannot assume it must read the
-environment. `@proto38/workflow-adapter` resolves its own configuration at the top of
+environment. `@proto38/control-plane-workflow` resolves its own configuration at the top of
 every step, which is correct under both.
 
 **Hook tokens are scoped to the lifecycle, not the Run.** The SDK enforces globally unique
@@ -154,8 +158,11 @@ survives it and still carries the Run to `completed`.
 table is classified" must be scoped to Reprove's own schema, or sharing a server with
 Workflow refuses boot.
 
-**The Phase 0 claimable deadline is 30 minutes**, provisional, and now scoped to the
-unclaimed scheduling window alone.
+**The Phase 0 claimable deadline is five minutes**, a Phase 0 fixture value rather than a
+product default, scoped to the unclaimed scheduling window alone. Thirty was a guess: nothing
+in Phase 0 supports a number at all, and ADR 0013 exists partly to stop Phase 1 inheriting an
+unexamined default. Five makes `unscheduled` observable during development and fails visibly
+if it is too short.
 
 ## What it did not prove
 
@@ -164,8 +171,11 @@ unclaimed scheduling window alone.
   checked, but a trace is not a deploy.
 - **Nothing about a real Pass.** One execute-then-absorb pair. A real Pass is many short
   steps around a long-lived Sandbox using detach/resume.
-- **Nothing about a real self-hosted Worker.** No enrollment, credential, lease renewal or
-  progress message exists, because #32 kept them out of v1.
+- **Nothing about a real self-hosted Worker**, and deliberately no longer pretending to. An
+  earlier revision left an unexercised HTTP transport in `worker-hosted` that looked like
+  evidence; it is deleted. Exercising the authenticated HTTP Acceptance seam belongs to
+  [#39](https://github.com/nick-neely/reprove/issues/39), whose scenario should submit through
+  the Worker-facing endpoint rather than call `acceptResult()` directly.
 - **Lease expiry.** Nothing ends an executing Run whose Worker vanished. The deadline no
   longer pretends to. This is the one deliberate `[BAD]` in the ledger and it needs a
   ticket of its own.

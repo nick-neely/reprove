@@ -3,7 +3,7 @@
 // Substance only. It owns ingress, Run creation, claim, Acceptance and
 // supersession, and it knows nothing about Workflow: no `workflow` dependency,
 // no workflow or step definitions, and no environment variables. All durable
-// orchestration lives in @proto38/workflow-adapter.
+// orchestration lives in @proto38/control-plane-workflow.
 //
 // That split is not tidiness. A step is compiled into a bundle whose module
 // graph is fixed at build time, so the layer that defines steps is the only

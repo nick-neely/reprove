@@ -7,7 +7,7 @@
     "@proto38/control-plane": "*",
     "@proto38/protocol": "*",
     "@proto38/worker-hosted": "*",
-    "@proto38/workflow-adapter": "*",
+    "@proto38/control-plane-workflow": "*",
     "workflow": "4.8.5"
   }
 }

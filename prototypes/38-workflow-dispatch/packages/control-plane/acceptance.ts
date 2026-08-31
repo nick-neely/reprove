@@ -8,7 +8,7 @@ import { withOwner } from './db.ts';
 
 // NOTE: Acceptance no longer resumes anything. The database write is what makes
 // a Result accepted; telling the durable run about it belongs to the layer that
-// owns Workflow (@proto38/workflow-adapter's notifyAccepted). Keeping the two
+// owns Workflow (@proto38/control-plane-workflow's notifyAccepted). Keeping the two
 // apart is also what stops a route re-entering the workflow runtime from inside
 // a request the runtime is waiting on, which deadlocked an earlier revision.
 

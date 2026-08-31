@@ -28,7 +28,7 @@ async function passStep(spec: any, fault: FaultProfile) {
 
 async function absorbStep(ownerId: number, runId: string, leaseToken: string, executed: any) {
   'use step';
-  const { stepConfig, notifyAccepted } = await import('@proto38/workflow-adapter');
+  const { stepConfig, notifyAccepted } = await import('@proto38/control-plane-workflow');
   const { acceptResult, acceptRefusal, reportHostedFailure } = await import(
     '@proto38/control-plane/acceptance'
   );

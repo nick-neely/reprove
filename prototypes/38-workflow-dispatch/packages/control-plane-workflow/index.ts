@@ -1,11 +1,25 @@
-// @proto38/workflow-adapter - all durable orchestration, and all step
+// @proto38/control-plane-workflow - all durable orchestration, and all step
 // configuration.
 //
 // @proto38/control-plane holds the substance and knows nothing about Workflow;
-// this package holds the workflow and step definitions and the environment
-// they read. The split exists because a step is compiled into a bundle whose
-// module graph is decided at build time, so the layer that defines steps is the
-// only layer that can reliably configure them.
+// this package holds the workflow and step definitions and the environment they
+// read.
+//
+// The constraint behind the split is real: a step is compiled into a bundle
+// whose module graph is fixed at build time, so the layer that defines steps is
+// the only layer that can reliably configure them. But the split is a CHOSEN
+// TRADEOFF, not a forced move, and an earlier draft overstated it. Two
+// alternatives remain technically possible: keep the definitions in the core
+// package behind a documented no-fallback environment contract, or duplicate
+// them in each app. This package wins because shared orchestration outweighs the
+// cost of one more published-by-necessity package, and because ADR 0010 requires
+// Cloud to consume published artifacts rather than duplicate control-plane
+// substance.
+//
+// The name is qualified deliberately. `Adapter` is already a CONTEXT.md noun -
+// Reprove's per-Harness code - so naming an orchestration package after it would
+// collide with the domain vocabulary. Per naming rule 4, Vercel's word is the one
+// that gets qualified at the seam.
 import { start } from 'workflow/api';
 import {
   claimRun,

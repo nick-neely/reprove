@@ -1,36 +1,19 @@
 // @proto38/worker-hosted - the hosted execution lifecycle.
 //
 // It may depend on worker-core, protocol and workflow, and on nothing of the
-// control plane's. The HostedDispatcher shape it satisfies is declared by the
-// control plane; this package never imports that declaration, because the two
-// only meet in the app.
-import { start, getRun } from 'workflow/api';
-import { PROTOCOL_VERSION } from '@proto38/protocol/v1';
-import { WORKER_BUILD_VERSION, type FaultProfile } from '@proto38/worker-core';
-import { hostedPass, type Ingest } from './workflows/hosted-pass.ts';
-
-export type { Ingest };
-export { hostedPass };
-
-/**
- * The hosted Pass as an ordinary function, for a composition that owns its own
- * workflow. Same worker-core entry, no durable run of its own, no transport.
- */
+// control plane's.
+//
+// It deliberately contains NO transport. An earlier revision carried a workflow
+// that POSTed a Result to a run-scoped ingest URL, on the belief that HTTP was
+// the only composition available. It is not: the hosted app composes both halves
+// and calls Acceptance directly. That transport code was left behind unexercised,
+// which made it dead code that looked like evidence, so it is deleted.
+//
+// The authenticated HTTP submission a self-hosted Worker will use is real and is
+// defined by ADR 0006. Exercising it belongs to
+// https://github.com/nick-neely/reprove/issues/39, whose end-to-end scenario
+// should submit through the Worker-facing endpoint rather than call
+// acceptResult() directly.
 export { executeRun as executePass } from '@proto38/worker-core';
-// Re-exported so a composing app never has to name worker-core itself: ADR
-// 0010 forbids an app depending on it directly, and a type import counts.
 export type { FaultProfile, WorkerOutcome } from '@proto38/worker-core';
-
-export function createHostedDispatcher(opts: { fault?: FaultProfile } = {}) {
-  return {
-    protocolVersion: PROTOCOL_VERSION,
-    workerBuildVersion: WORKER_BUILD_VERSION,
-    async dispatch(spec: unknown, ingest: Ingest) {
-      const run = await start(hostedPass, [spec, ingest, opts.fault ?? 'clean']);
-      return { workflowRunId: run.runId };
-    },
-    async cancel(workflowRunId: string) {
-      await getRun(workflowRunId).cancel();
-    },
-  };
-}
+export { WORKER_BUILD_VERSION } from '@proto38/worker-core';

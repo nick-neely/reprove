@@ -34,15 +34,15 @@ const MATRIX: Rule[] = [
   {
     dir: 'packages/control-plane',
     name: '@proto38/control-plane',
-    mayNotReach: ['@proto38/worker-core', '@proto38/worker-hosted', '@proto38/workflow-adapter', 'ai-sdk-harness-stub', 'workflow'],
+    mayNotReach: ['@proto38/worker-core', '@proto38/worker-hosted', '@proto38/control-plane-workflow', 'ai-sdk-harness-stub', 'workflow'],
     mayNotResolve: ['@proto38/worker-core', '@proto38/worker-hosted', 'ai-sdk-harness-stub', 'workflow'],
   },
   // The app-layer adapter owns durable orchestration and step configuration.
   // It must not carry harness code, or composing it would put worker-core into
   // the self-hosted deployment.
   {
-    dir: 'packages/workflow-adapter',
-    name: '@proto38/workflow-adapter',
+    dir: 'packages/control-plane-workflow',
+    name: '@proto38/control-plane-workflow',
     mayNotReach: ['@proto38/worker-core', '@proto38/worker-hosted', 'ai-sdk-harness-stub'],
     mayNotResolve: ['@proto38/worker-core', '@proto38/worker-hosted', 'ai-sdk-harness-stub'],
   },
@@ -77,7 +77,7 @@ const LOCAL = new Map<string, string>([
   ['@proto38/worker-core', 'packages/worker-core'],
   ['@proto38/worker-hosted', 'packages/worker-hosted'],
   ['@proto38/control-plane', 'packages/control-plane'],
-  ['@proto38/workflow-adapter', 'packages/workflow-adapter'],
+  ['@proto38/control-plane-workflow', 'packages/control-plane-workflow'],
   ['ai-sdk-harness-stub', 'stubs/ai-sdk-harness'],
 ]);
 

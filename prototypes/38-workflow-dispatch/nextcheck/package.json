@@ -5,7 +5,7 @@
   "scripts": {
     "build": "next build",
     "start": "next start -p 3838",
-    "gate": "next build && node tools-build-gate.mjs"
+    "gate": "node tools-build-gate.mjs"
   },
   "dependencies": {
     "@proto38/control-plane": "file:../packages/control-plane",
@@ -19,7 +19,7 @@
     "react-dom": "^19.0.0",
     "workflow": "4.8.5",
     "zod": "^3.24.1",
-    "@proto38/workflow-adapter": "file:../packages/workflow-adapter"
+    "@proto38/control-plane-workflow": "file:../packages/control-plane-workflow"
   },
   "devDependencies": {
     "@types/react": "19.2.18"

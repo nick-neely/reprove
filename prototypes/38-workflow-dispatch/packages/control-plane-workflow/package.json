@@ -1,5 +1,5 @@
 {
-  "name": "@proto38/workflow-adapter",
+  "name": "@proto38/control-plane-workflow",
   "private": true,
   "type": "module",
   "exports": {

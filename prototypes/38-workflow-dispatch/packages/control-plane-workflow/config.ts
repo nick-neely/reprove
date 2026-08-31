@@ -19,7 +19,7 @@ let configured = false;
 
 function required(name: string): string {
   const v = process.env[name];
-  if (!v) throw new Error(`${name} is required by @proto38/workflow-adapter.`);
+  if (!v) throw new Error(`${name} is required by @proto38/control-plane-workflow.`);
   return v;
 }
 

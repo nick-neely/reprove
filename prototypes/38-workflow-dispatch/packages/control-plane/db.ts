@@ -17,7 +17,7 @@ export function configureDb(connectionString: string): Pool {
  * The package reads no environment variables. Not "reads none except one" -
  * none. An earlier revision kept a PROTO38_REPROVE_URL fallback here and then
  * claimed ADR 0010's rule survived; that was having it both ways, and a review
- * caught it. Step configuration now belongs entirely to @proto38/workflow-adapter,
+ * caught it. Step configuration now belongs entirely to @proto38/control-plane-workflow,
  * which is app-layer code and is allowed to parse the environment.
  */
 export function db(): Pool {

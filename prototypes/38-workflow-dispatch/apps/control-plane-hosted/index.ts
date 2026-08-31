@@ -7,7 +7,7 @@ import {
   type GitHubPort,
   type Phase0RunProfile,
 } from '@proto38/control-plane';
-import { startDelivery, notifyCancelled } from '@proto38/workflow-adapter';
+import { startDelivery, notifyCancelled } from '@proto38/control-plane-workflow';
 import type { FaultProfile } from '@proto38/worker-hosted';
 import { hostedRun } from './workflows/hosted-run.ts';
 
@@ -21,9 +21,16 @@ export const PHASE_0_PROFILE: Phase0RunProfile = {
   placement: 'hosted',
   allowHostedFallback: false,
   resolvedConfig: { schemaVersion: 1, thresholdSeverity: 'medium', ignore: ['dist/**'] },
-  // Provisional, and scoped to the UNCLAIMED scheduling window only. It no
-  // longer diagnoses anything about an executing Run.
-  claimableFor: '30m',
+  // A Phase 0 FIXTURE value, not a product default, and scoped to the unclaimed
+  // scheduling window only.
+  //
+  // Five minutes rather than thirty: nothing in Phase 0 - no real Worker, poll
+  // cadence, Sandbox startup or user workload - supports thirty, so thirty was a
+  // guess dressed as a default, and ADR 0013 exists partly to stop Phase 1
+  // inheriting one of those unexamined. Five makes `unscheduled` observable
+  // during development and fails visibly if it is too short. Replace it with a
+  // measured value before Phase 1.
+  claimableFor: '5m',
 };
 
 export function composeHosted(opts: { github: GitHubPort; fault?: FaultProfile }) {

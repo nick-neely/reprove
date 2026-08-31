@@ -22,7 +22,7 @@ import {
   acceptedToken,
   notifyAccepted,
   notifyCancelled,
-} from '@proto38/workflow-adapter';
+} from '@proto38/control-plane-workflow';
 import { PROTOCOL_VERSION } from '@proto38/protocol/v1';
 import { composeHosted } from '@proto38/app-hosted';
 import { composeSelfHosted } from '@proto38/app-selfhosted';
@@ -119,7 +119,7 @@ describe('A. layering', () => {
     expect('startDelivery' in cp).toBe(false);
     ok('@proto38/control-plane exports no workflow, and declares no `workflow` dependency');
     ok('its resolved closure is protocol, pg, zod - see `npm run boundary`');
-    ok('step configuration lives entirely in @proto38/workflow-adapter');
+    ok('step configuration lives entirely in @proto38/control-plane-workflow');
   });
 
   it('the self-hosted composition installs no harness code and still schedules', async () => {
