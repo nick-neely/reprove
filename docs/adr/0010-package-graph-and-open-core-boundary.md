@@ -21,7 +21,16 @@ are checkable in CI on the pull request that breaks them.
 
 ## The graph
 
-Seven published packages and two apps, in one Turborepo monorepo on pnpm workspaces.
+> **Amended by [ADR 0014](0014-workflow-orchestration-seam.md):** a `'use step'` function is
+> compiled into a bundle whose module graph is fixed at build time, so the layer that defines
+> steps is the only layer that can configure them. `@reprove/control-plane` therefore cannot
+> hold a workflow while also reading no environment variables. The orchestration seam moved
+> to a new package, `@reprove/control-plane-workflow`, making **eight** published packages.
+> Every "seven" below should be read as eight, and `workflow` is no longer a permitted
+> dependency of `control-plane`. The rule this ADR was protecting - that the package reads no
+> environment variables - now holds literally rather than nearly.
+
+Eight published packages and two apps, in one Turborepo monorepo on pnpm workspaces.
 
 ```
 apps/control-plane      thin Next.js composition shell
@@ -34,6 +43,7 @@ packages/worker-core          @reprove/worker-core
 packages/worker               @reprove/worker          (bin: reprove)
 packages/worker-hosted        @reprove/worker-hosted
 packages/control-plane        @reprove/control-plane   (bin: reprove-control-plane)
+packages/control-plane-workflow @reprove/control-plane-workflow
 ```
 
 Permitted dependencies, which are also the CI matrix:
@@ -46,8 +56,9 @@ Permitted dependencies, which are also the CI matrix:
 | `worker-core` | `protocol`, `adapters`, `sandbox-container` | `workflow`, `drizzle-orm`, `octokit` |
 | `worker` | `worker-core`, `protocol` | `@ai-sdk/*` directly |
 | `worker-hosted` | `worker-core`, `protocol`, `workflow` | `@ai-sdk/*` directly |
-| `control-plane` | `protocol`, `workflow`, `drizzle-orm`, `octokit`, `better-auth` | `worker-core`, `adapters`, `sandbox-container`, `@ai-sdk/*` |
-| `apps/control-plane` | `@reprove/control-plane`, `@reprove/worker-hosted`, `next`, `react` | `drizzle-orm`, Postgres drivers, `octokit`, `better-auth`, `@ai-sdk/*`, `@reprove/{adapters,worker-core,sandbox-container}` |
+| `control-plane` | `protocol`, `drizzle-orm`, `octokit`, `better-auth` | `worker-core`, `adapters`, `sandbox-container`, `@ai-sdk/*`, **`workflow`** |
+| `control-plane-workflow` | `protocol`, `control-plane`, `workflow` | `worker-core`, `adapters`, `sandbox-container`, `@ai-sdk/*` |
+| `apps/control-plane` | `@reprove/control-plane`, `@reprove/control-plane-workflow`, `@reprove/worker-hosted`, `next`, `react` | `drizzle-orm`, Postgres drivers, `octokit`, `better-auth`, `@ai-sdk/*`, `@reprove/{adapters,worker-core,sandbox-container}` |
 
 Three rows carry most of the weight.
 
@@ -86,7 +97,9 @@ exist.
 The discipline that makes the chosen shape hold is that **control-plane substance never lives in
 route handlers.** `@reprove/control-plane` owns GitHub ingress, scheduling, persistence, Acceptance,
 Reconciliation, publication, the Drizzle schema and migrations, the Better Auth schema and config
-factory, and the hosted Workflow orchestration seam. `apps/control-plane` owns route wiring,
+factory. **The hosted Workflow orchestration seam is not its** - ADR 0014 moved every workflow
+and step definition, and all step configuration, to `@reprove/control-plane-workflow`.
+`apps/control-plane` owns route wiring,
 environment parsing and deployment configuration, and nothing else. The dependency matrix enforces
 it: an app that cannot import a Postgres driver, Octokit or Better Auth cannot accumulate
 control-plane logic, because it would not compile.
@@ -133,7 +146,7 @@ falsify.
 
 ## Support tiers
 
-Publishing seven packages reads as seven API commitments. Most of them are on npm only because npm
+Publishing eight packages reads as eight API commitments. Most of them are on npm only because npm
 resolution requires it: `@reprove/worker` is published, it depends on `@reprove/worker-core`,
 therefore `worker-core` must resolve from the registry. That is a dependency-graph fact, not a
 product decision, and the drift runs one way - someone builds on an internal package and a promise
@@ -156,7 +169,8 @@ we never made becomes one we cannot break.
 
 **Published by necessity**
 
-- `@reprove/worker-core`, `@reprove/worker-hosted`, `@reprove/adapters`, `@reprove/control-plane`.
+- `@reprove/worker-core`, `@reprove/worker-hosted`, `@reprove/adapters`, `@reprove/control-plane`,
+  `@reprove/control-plane-workflow`.
   Public source, published so the graph resolves, gated by every CI check, carrying no stability
   promise. Each says so in its README.
 
@@ -314,8 +328,8 @@ compatibility matrix covers them in CI; promoting them to supported is a separat
 
 ## Versioning and publishing
 
-**Lockstep across all seven packages**, via changesets in fixed mode. Independent versioning would
-produce a seven-package compatibility matrix nobody maintains, and package semver is doing far less
+**Lockstep across all eight packages**, via changesets in fixed mode. Independent versioning would
+produce an eight-package compatibility matrix nobody maintains, and package semver is doing far less
 work here than it appears to, because the questions that actually matter have better instruments:
 
 ```
@@ -330,7 +344,7 @@ which is preferable to operating a matrix. `workerBuildVersion` derives from the
 version plus build metadata; `protocolVersion` stays entirely independent.
 
 **Publishing starts when the first real external consumer arrives** - `@reprove/worker`, at Phase 3 -
-and all seven publish together at `0.x` from that train. Publishing unused packages earlier to prove
+and all eight publish together at `0.x` from that train. Publishing unused packages earlier to prove
 packaging works is not necessary, because CI proves it from Phase 0 without the registry:
 
 ```
@@ -363,6 +377,11 @@ Alongside it:
   upstream type can leak through an exported signature even when the consuming package never imports
   `@ai-sdk/harness`, so this does not rest on someone noticing it in a snapshot diff.
 - **Protocol golden fixtures**, as above.
+- **A real-builder workflow check** ([ADR 0014](0014-workflow-orchestration-seam.md)): build
+  from clean, assert the workflow bundle requires no external module, assert the output trace
+  carries what the steps need, then start the built app and execute a workflow. It asserts
+  observable execution rather than artifact shape, because the bundling behaviour it guards is
+  undocumented and would otherwise make CI brittle against an SDK upgrade.
 - **`publint` and `attw`** on the packed artifact.
 - **pnpm catalogs** for the two churning dependency sets, so each has one source of truth and is
   bumped atomically. The harness set needs care: the bridges exact-pin core
@@ -396,7 +415,7 @@ user-facing npm product.
   ensures Reprove's own Worker does not emit a malformed Result; control-plane validation treats
   every submission as untrusted input, because a hostile or buggy Worker can skip its own code and
   POST arbitrary bytes. This is one authoritative schema applied twice, not duplicated logic.
-- **Two supported npm packages, not seven.** The self-hosting surface is an application, which
+- **Two supported npm packages, not eight.** The self-hosting surface is an application, which
   substantially reduces the API commitment this map takes on.
 - **Third-party Worker implementations are out of scope** for the foundation map, while remaining
   possible later at documentation cost rather than redesign cost.

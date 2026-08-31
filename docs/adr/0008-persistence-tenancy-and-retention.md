@@ -75,18 +75,34 @@ All access is intended to run through a single entry point of the shape `withOwn
 write by accident rather than merely forbidden by convention.
 
 Rule 6's assertion set is **seven checks, six read from the catalog and one behavioural**: the
-role is neither superuser nor `BYPASSRLS`; it owns no table in the schema; every table is
-classified; every tenant table has RLS enabled *and* forced; every tenant table has a policy
+role is neither superuser nor `BYPASSRLS`; it owns no table in the schema; every table Reprove's
+migration manifest manages is classified; every tenant table has RLS enabled *and* forced; every tenant table has a policy
 reaching this role; the schema is not behind the migration journal; and a tenant table actually
 reads empty with no Owner context. The last one is not redundant with the other six - catalog
 flags can all be correct while the predicate is wrong - and it is what caught the empty-string
 cast above.
 
 **"Every table is classified" is what keeps the Better Auth exemption from becoming the allowlist
-this ADR rejects.** The check is not "these four tables are exempt" but "every table in the schema
-appears in exactly one of the two declared sets", so a table nobody classified **refuses boot**
+this ADR rejects.** The check is not "these four tables are exempt" but "every table Reprove's own
+migration manifest manages appears in exactly one of the two declared sets", so a table nobody
+classified **refuses boot**
 rather than landing silently outside the tenant boundary. The list cannot grow without a table
 name appearing in the schema module, in a reviewable diff, next to the rule that says why.
+
+> **Corrected against [ADR 0014](0014-workflow-orchestration-seam.md).** The set the check
+> ranges over is **the tables Reprove's own migration manifest manages** - its domain tables
+> and the Better Auth tables it adopts - and explicitly not every table in the database.
+> ADR 0010 permits Vercel Workflow to share the same Postgres server, and
+> [measurement](../research/workflow-sdk-build-constraints.md) shows it creates its tables in
+> three schemas of its own (`workflow`, `workflow_drizzle`, `graphile_worker`) and none in
+> `public`. Scoped to the database rather than to the manifest, a co-located deployment would
+> refuse to boot - a production refusal caused by a correctly-behaving neighbour. Scoping to
+> the manifest rather than to a schema name also survives the case where `public` comes to
+> hold tables some other operator manages.
+>
+> Authoring-time enforcement of the classification, so that an unclassified table fails on the
+> pull request that introduced it rather than in a deployment, remains
+> [#40](https://github.com/nick-neely/reprove/issues/40)'s decision.
 
 **Not** Neon RLS (formerly Neon Authorize): it is JWT-based via `pg_session_jwt` and expects a
 per-request signed token from an external issuer, while Better Auth issues an opaque cookie
