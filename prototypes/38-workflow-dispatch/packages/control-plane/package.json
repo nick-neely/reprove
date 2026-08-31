@@ -6,13 +6,11 @@
     ".": "./index.ts",
     "./acceptance": "./acceptance.ts",
     "./db": "./db.ts",
-    "./workflows/run-lifecycle": "./workflows/run-lifecycle.ts",
-    "./workflows/ingress-delivery": "./workflows/ingress-delivery.ts"
+    "./ingress": "./ingress.ts"
   },
   "dependencies": {
     "@proto38/protocol": "*",
     "pg": "^8.13.1",
-    "workflow": "4.8.5",
     "zod": "^3.24.1"
   }
 }

@@ -17,6 +17,9 @@ export { hostedPass };
  * workflow. Same worker-core entry, no durable run of its own, no transport.
  */
 export { executeRun as executePass } from '@proto38/worker-core';
+// Re-exported so a composing app never has to name worker-core itself: ADR
+// 0010 forbids an app depending on it directly, and a type import counts.
+export type { FaultProfile, WorkerOutcome } from '@proto38/worker-core';
 
 export function createHostedDispatcher(opts: { fault?: FaultProfile } = {}) {
   return {

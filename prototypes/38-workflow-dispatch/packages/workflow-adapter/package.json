@@ -1,0 +1,15 @@
+{
+  "name": "@proto38/workflow-adapter",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts",
+    "./workflows": "./workflows/index.ts",
+    "./config": "./config.ts"
+  },
+  "dependencies": {
+    "@proto38/control-plane": "*",
+    "@proto38/protocol": "*",
+    "workflow": "4.8.5"
+  }
+}

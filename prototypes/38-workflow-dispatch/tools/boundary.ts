@@ -27,22 +27,28 @@ const MATRIX: Rule[] = [
   { dir: 'packages/protocol', name: '@proto38/protocol', mayNotReach: ['@proto38/', 'ai-sdk-harness-stub', 'workflow', 'pg'] },
   { dir: 'packages/worker-core', name: '@proto38/worker-core', mayNotReach: ['@proto38/control-plane', 'workflow', 'pg'] },
   { dir: 'packages/worker-hosted', name: '@proto38/worker-hosted', mayNotReach: ['@proto38/control-plane', 'pg'] },
-  // The headline property: a control plane that dispatches only to self-hosted
-  // Workers installs no harness code at all.
+  // The core package now holds substance only: no workflow, no environment,
+  // no harness. `workflow` is on this list deliberately - it used to be a
+  // permitted dependency and is now forbidden, because every workflow and step
+  // definition moved to the adapter.
   {
     dir: 'packages/control-plane',
     name: '@proto38/control-plane',
+    mayNotReach: ['@proto38/worker-core', '@proto38/worker-hosted', '@proto38/workflow-adapter', 'ai-sdk-harness-stub', 'workflow'],
+    mayNotResolve: ['@proto38/worker-core', '@proto38/worker-hosted', 'ai-sdk-harness-stub', 'workflow'],
+  },
+  // The app-layer adapter owns durable orchestration and step configuration.
+  // It must not carry harness code, or composing it would put worker-core into
+  // the self-hosted deployment.
+  {
+    dir: 'packages/workflow-adapter',
+    name: '@proto38/workflow-adapter',
     mayNotReach: ['@proto38/worker-core', '@proto38/worker-hosted', 'ai-sdk-harness-stub'],
     mayNotResolve: ['@proto38/worker-core', '@proto38/worker-hosted', 'ai-sdk-harness-stub'],
   },
-  { dir: 'apps/control-plane', name: '@proto38/app-control-plane', mayNotReach: ['pg', 'ai-sdk-harness-stub'] },
-  // The app-owned composition is permitted to depend on BOTH packages. That is
-  // what makes a static-import step legal, and why the HTTP shape is not forced.
-  // A hosted-capable app legitimately resolves harness code; what it may not do
-  // is reach past worker-hosted to worker-core or @ai-sdk/* directly.
-  { dir: 'apps/control-plane-appowned', name: '@proto38/app-appowned', mayNotReach: ['pg', '@proto38/worker-core', 'ai-sdk-harness-stub'] },
-  // The self-hosted deployment: a separate package that must not reach harness
-  // code at all, in declared dependencies OR in the resolved closure.
+  // A hosted app legitimately resolves harness code; it may not reach past
+  // worker-hosted to worker-core or @ai-sdk/* directly.
+  { dir: 'apps/control-plane-hosted', name: '@proto38/app-hosted', mayNotReach: ['pg', '@proto38/worker-core', 'ai-sdk-harness-stub'] },
   {
     dir: 'apps/control-plane-selfhosted',
     name: '@proto38/app-selfhosted',
@@ -71,7 +77,7 @@ const LOCAL = new Map<string, string>([
   ['@proto38/worker-core', 'packages/worker-core'],
   ['@proto38/worker-hosted', 'packages/worker-hosted'],
   ['@proto38/control-plane', 'packages/control-plane'],
-  ['@proto38/app-appowned', 'apps/control-plane-appowned'],
+  ['@proto38/workflow-adapter', 'packages/workflow-adapter'],
   ['ai-sdk-harness-stub', 'stubs/ai-sdk-harness'],
 ]);
 
@@ -154,6 +160,11 @@ for (const rule of MATRIX) {
 }
 
 console.log('\nADR 0010 dependency matrix\n');
+console.log(
+  '  NOTE: this walks declared dependencies recursively. It is not `pnpm why`\n' +
+    '  and it does not read the installed tree, so a hoisting or resolution\n' +
+    '  difference would not appear here.\n',
+);
 console.log(lines.join('\n'));
 console.log(
   violations === 0

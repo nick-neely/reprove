@@ -3,3 +3,4 @@ node_modules/
 app/.well-known/
 package-lock.json
 next-env.d.ts
+/.swc

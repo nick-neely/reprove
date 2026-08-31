@@ -1,30 +1,15 @@
-// ADR 0013 left two things to #38: the mechanism that kicks a durably received
+// ADR 0013 left two things to #38: the mechanism that moves a durably received
 // delivery into out-of-band processing, and the mandatory automatic re-drive
-// for `contended` and `transient` dispositions.
-//
-// Both are this workflow. Ingress commits the envelope and returns 2xx; the
-// work happens here, and Workflow's own step retry *is* the re-drive, so no
-// sweeper and no second job system appears beside the one #6 already settled.
-//
-// Note what crosses into the steps: the Phase0RunProfile travels as a JSON
-// argument, because it can, and the GitHub port is resolved by the step from
-// its own environment, because it cannot. That split is forced by the compiler,
-// not chosen.
+// for `contended` and `transient` dispositions. Both are this workflow, and the
+// re-drive is Workflow's own step retry rather than a Reprove sweeper.
 import { RetryableError, FatalError } from 'workflow';
 import { start } from 'workflow/api';
-import type { Disposition, Phase0RunProfile } from '../ingress.ts';
+import type { Disposition, Phase0RunProfile } from '@proto38/control-plane';
+// Static, and used only inside step bodies. See run-lifecycle.ts.
+import { createRunForDelivery } from '@proto38/control-plane';
+import { withOwner } from '@proto38/control-plane/db';
+import { stepConfig } from '../config.ts';
 import { runLifecycle } from './run-lifecycle.ts';
-
-// Type-only imports above; everything with a Node dependency is loaded inside
-// a step. See run-lifecycle.ts for why the shared workflow bundle forces this.
-async function cpApi() {
-  const [db, ingress, stepConfig] = await Promise.all([
-    import('../db.ts'),
-    import('../ingress.ts'),
-    import('../step-config.ts'),
-  ]);
-  return { ...db, ...ingress, ...stepConfig };
-}
 
 export async function ingressDelivery(
   deliveryId: number,
@@ -42,10 +27,8 @@ export async function ingressDelivery(
 
 async function processDelivery(deliveryId: number, ownerId: number, profile: Phase0RunProfile) {
   'use step';
-  const { createRunForDelivery, resolveGitHubPort } = await cpApi();
-  const out = await createRunForDelivery(deliveryId, ownerId, profile, resolveGitHubPort());
-  // `contended` and `transient` are retried by the platform. Throwing is the
-  // whole mechanism: there is no Reprove-owned backoff table to get wrong.
+  const { github } = stepConfig();
+  const out = await createRunForDelivery(deliveryId, ownerId, profile, github);
   if (out.disposition === 'contended' || out.disposition === 'transient')
     throw new RetryableError(`re-drive: ${out.disposition}`);
   if (out.disposition === 'unauthorized') throw new FatalError('unauthorized delivery');
@@ -53,14 +36,16 @@ async function processDelivery(deliveryId: number, ownerId: number, profile: Pha
 }
 
 /**
- * `start()` has no idempotency key, so a retried step would create a second
- * durable run for the same Reprove Run. The Reprove row is the arbiter: the
- * first writer of `workflow_run_id` wins and the loser cancels its own run.
+ * `start()` takes no idempotency key and no caller-supplied run id, so the
+ * window between starting a lifecycle and recording its id cannot be closed: a
+ * crash inside it orphans a durable run the retry cannot find. The Reprove row
+ * arbitrates - first writer of `workflow_run_id` wins - and the loser cancels
+ * its own run. Hook tokens are lifecycle-scoped so the two never collide.
  */
 async function dispatchRun(runId: string, ownerId: number, claimableUntil: string) {
   'use step';
+  stepConfig();
   const run = await start(runLifecycle, [runId, ownerId, claimableUntil]);
-  const { withOwner } = await cpApi();
   const claimed = await withOwner(ownerId, (c) =>
     c.query(
       `update run set workflow_run_id = $1 where id = $2 and workflow_run_id is null returning id`,
@@ -76,7 +61,7 @@ async function dispatchRun(runId: string, ownerId: number, claimableUntil: strin
 
 async function closeLedger(deliveryId: number, ownerId: number, disposition: Disposition) {
   'use step';
-  const { withOwner } = await cpApi();
+  stepConfig();
   await withOwner(ownerId, (c) =>
     c.query(
       `update ingress_delivery

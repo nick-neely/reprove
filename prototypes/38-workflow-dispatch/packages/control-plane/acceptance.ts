@@ -6,6 +6,12 @@
 import { ResultSchema, RefusalSchema, MAX_RESULT_BYTES } from '@proto38/protocol/v1';
 import { withOwner } from './db.ts';
 
+// NOTE: Acceptance no longer resumes anything. The database write is what makes
+// a Result accepted; telling the durable run about it belongs to the layer that
+// owns Workflow (@proto38/workflow-adapter's notifyAccepted). Keeping the two
+// apart is also what stops a route re-entering the workflow runtime from inside
+// a request the runtime is waiting on, which deadlocked an earlier revision.
+
 /** ADR 0006: two integers, advertised, and the window is a real range. */
 export const PROTOCOL_CURRENT = 1;
 export const PROTOCOL_MINIMUM = 1;
@@ -138,10 +144,13 @@ export async function acceptRefusal(env: SubmissionEnvelope): Promise<Acceptance
  *    superseded, or held under a different lease changes nothing. The Worker
  *    signals; the control plane decides.
  *
- * "Hosted-only" is structural rather than policy: this function is reachable
- * by static import from an app that composes worker-hosted, and there is no
- * endpoint that exposes it. A self-hosted Worker has no way to call it, which
- * is the point - it is exactly the party ADR 0006 declines to trust.
+ * It is UNEXPOSED IN THIS COMPOSITION, which is a weaker claim than the one an
+ * earlier revision made. Saying it is "structurally hosted-only" because no
+ * route currently exposes it was wrong: it is an exported function of a
+ * package, so any composition can expose it, and a review said so. Making it
+ * genuinely hosted-only means putting it behind the hosted adapter's private
+ * surface, which this prototype does not do. Until then the property is a fact
+ * about this deployment, not about the design.
  */
 export async function reportHostedFailure(env: {
   ownerId: number;

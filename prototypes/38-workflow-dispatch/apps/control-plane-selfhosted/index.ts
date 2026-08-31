@@ -10,6 +10,9 @@
 // walks the resolved dependency closure and asserts that neither worker-core,
 // worker-hosted nor the harness stub is reachable from here at all.
 import { createControlPlane, type GitHubPort, type Phase0RunProfile } from '@proto38/control-plane';
+// The adapter carries the durable orchestration. It does NOT carry harness
+// code, so composing it here does not put worker-core in this deployment.
+import { startDelivery } from '@proto38/workflow-adapter';
 
 export const PHASE_0_PROFILE: Phase0RunProfile = {
   harness: 'codex',
@@ -22,12 +25,12 @@ export const PHASE_0_PROFILE: Phase0RunProfile = {
   claimableFor: '30m',
 };
 
-export function composeSelfHosted(opts: { github: GitHubPort; ingestBaseUrl: string }) {
-  return createControlPlane({
+export function composeSelfHosted(opts: { github: GitHubPort }) {
+  const cp = createControlPlane({
     profile: PHASE_0_PROFILE,
     github: opts.github,
-    ingestBaseUrl: opts.ingestBaseUrl,
-    // No `hosted`. There is no dispatcher to pass, because this deployment
-    // does not have the package that would provide one.
+    // No hosted composition. There is no dispatcher to pass, because this
+    // deployment does not install the package that would provide one.
   });
+  return { ...cp, startDelivery };
 }

@@ -11,7 +11,8 @@
     "prototype": "npm run db && vitest run --reporter=basic",
     "boundary": "tsx tools/boundary.ts",
     "world": "tsx tools/world-schemas.ts",
-    "nextcheck": "cd nextcheck && npm install && npm run build"
+    "nextcheck": "cd nextcheck && npm install && npm run build",
+    "gate": "cd nextcheck && npm run gate"
   },
   "devDependencies": {
     "@workflow/vitest": "4.0.21",

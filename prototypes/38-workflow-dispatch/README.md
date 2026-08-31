@@ -7,26 +7,26 @@ Throwaway. Answers [#38](https://github.com/nick-neely/reprove/issues/38):
 > composing `@reprove/worker-hosted` only in the app, and preserving the same protocol
 > contract a self-hosted Worker will later use?
 
+**This document has been rewritten twice after adversarial review.** Two rounds found
+four unearned conclusions and five defects between them. What survives is below; what
+did not is recorded at the end, because the pattern of error matters more than any
+individual finding.
+
 ## Run it
 
 ```bash
 npm install
-npm run boundary     # ADR 0010's dependency matrix AND resolved closure
-npm run prototype    # 22 scenarios against a real Postgres and the real Workflow SDK
+npm run boundary     # ADR 0010's matrix, plus the resolved dependency closure
+npm run prototype    # 13 scenarios against a real Postgres and the real Workflow SDK
 npm run world        # what Workflow's own Postgres world creates, and where
+
+cd nextcheck && npm install
+npm run gate         # the real Next.js build, then the workflow-bundle smoke gate
 ```
 
-And the one that matters most, because it is the only path that exercises the
-real builder rather than the test harness:
-
-```bash
-cd nextcheck && npm install && npm run build   # real Next.js 16.3 + withWorkflow
-# then, with the world bootstrapped (see below):
-npm run start & node seed.mjs && curl -X POST localhost:3838/api/probe ...
-```
-
-`npm run prototype` starts Postgres in Docker. The first run also needs the Reprove
-database and the Workflow world schema:
+`npm run prototype` needs Docker and configures itself; it requires no undocumented
+environment variable. The first run also needs the Reprove database and the Workflow
+world schema:
 
 ```bash
 docker compose up -d --wait
@@ -37,241 +37,171 @@ WORKFLOW_POSTGRES_URL="postgres://world:world@localhost:55438/world" \
 
 ## What is real and what is a stand-in
 
-Real: `workflow@4.8.5` and `@workflow/vitest@4.0.21` (the SDK's own in-process runner,
-which does the real SWC transform and the real bundle split), `@workflow/world-postgres@4.3.5`,
-Postgres 17, a real HTTP ingest server, a real package graph with a real dependency matrix
-check, and the real `Promise.race` / `createHook` / `sleep` / `resumeHook` / `cancel` API.
+Real: `workflow@4.8.5` under **both** builders - `@workflow/vitest` for the scenarios and
+a real Next.js 16.3 app with `withWorkflow` in `nextcheck/` - plus
+`@workflow/world-postgres`, Postgres 17, a real package graph with a matrix and closure
+check, and the real `createHook` / `sleep` / `resumeHook` / `cancel` / `getWorkflowMetadata`
+API.
 
 Stand-ins: `worker-core` returns fixture outcomes instead of running a Harness (#35 owns
 that seam). Persistence is a thin slice of ADR 0008 - `withOwner` and owner-scoped tables,
-without the runtime-role split, `FORCE ROW LEVEL SECURITY` or the seven-check boot
-assertion, because [#37](https://github.com/nick-neely/reprove/issues/37) already proved
-those and reproducing them here would test #37 again. GitHub is a fixture file.
+without the runtime-role split, `FORCE ROW LEVEL SECURITY` or the boot assertion, because
+[#37](https://github.com/nick-neely/reprove/issues/37) proved those. GitHub is a fixture file.
 
-Vitest is the harness, not a test suite: it is the only documented way to drive workflows
-in-process, and the SDK ships the plugin for exactly that. The output is a ledger.
+## The layering
 
-## The seam
+```
+@proto38/protocol           zod wire contract
+@proto38/worker-core        Adapter + Sandbox stand-in; carries @ai-sdk/*
+@proto38/worker-hosted      hosted lifecycle; re-exports the Pass
+@proto38/control-plane      SUBSTANCE ONLY. Ingress, Run creation, claim,
+                            Acceptance, supersession. No `workflow` dependency,
+                            no workflow or step definitions, no environment.
+                            Resolved closure: protocol, pg, zod.
+@proto38/workflow-adapter   ALL durable orchestration and ALL step configuration.
+                            App-layer. Depends on control-plane + workflow.
+                            Carries no harness code.
+apps/control-plane-hosted     control-plane + adapter + worker-hosted
+apps/control-plane-selfhosted control-plane + adapter. No harness code at all.
+```
+
+That split is the answer to the ticket, and it is forced rather than chosen: a step is
+compiled into a bundle whose module graph is fixed at build time, so the layer that
+defines steps is the only layer that can reliably configure them. Keeping the definitions
+in the core package would have meant the core package reading the environment.
 
 ```
 GitHub delivery
-  -> receiveDelivery()            commit a bounded envelope, then 2xx
-  -> start(ingressDelivery, [deliveryId, ownerId, profile])
-       step processDelivery       advisory lock, canonical fetch, create the Run
-                                  RetryableError on contended/transient == the re-drive
-       step dispatchRun           start(runLifecycle); the Reprove row arbitrates
+  -> receiveDelivery()        commit a bounded envelope, then 2xx
+  -> startDelivery()          adapter: start(ingressDelivery, [id, owner, profile])
+       step processDelivery   advisory lock, canonical fetch, create the Run
+                              RetryableError on contended/transient == the re-drive
+       step dispatchRun       start(runLifecycle); the Reprove row arbitrates
        step closeLedger
-  -> runLifecycle                 the Run's durable schedule
+  -> runLifecycle             the Run's durable schedule
        race( accepted hook | cancelled hook | sleep(claimableUntil) )
 
 app: dispatchHosted()
-  -> claimRun()                   the control plane claims on the hosted Worker's behalf
-  -> hosted.dispatch(spec, ingest)
-  -> start(hostedPass, [spec, ingest, fault])
-       step executeStep           @reprove/worker-core
-       step submitStep            POST ingest.resultUrl
-  -> POST /v1/runs/:id/result -> acceptResult() -> respond -> notifyLifecycle()
+  -> claimRun()               the control plane claims on the Worker's behalf
+  -> start(hostedRun, ...)    an APP-OWNED workflow
+       step passStep          @proto38/worker-hosted -> worker-core
+       step absorbStep        acceptResult(), then notifyAccepted()
 ```
 
-Three properties hold in the ledger:
+Three properties hold in the ledger and the boundary check:
 
-- `@reprove/control-plane` reaches neither `worker-core`, `worker-hosted` nor `@ai-sdk/*`,
-  in declared dependencies or in the import graph.
-- The self-hosted composition omits `worker-hosted` entirely, and the same code path
-  leaves the Run `queued` and claimable rather than failing.
-- The hosted Worker reaches Acceptance over the same authenticated route a self-hosted
-  Worker will, with the same envelope.
-
-## What it falsified
-
-**1. A composition-root singleton does not reach a workflow step - but how far
-that goes is builder-dependent.** Under `@workflow/vitest` (esbuild, prebuilt
-step bundles), probing three `Math.random()` module ids in one run - caller,
-workflow bundle, step bundle - returned three different values, and
-configuration the composition root set was `undefined` in both bundles. Under
-the real Next.js/Turbopack build, a `await import()` inside a step body resolves
-through Node's own module registry and the step sees the *same* instance as the
-route handler: measured identical (`caller` and `inStep` both `76zwaztw` in
-`npm run nextcheck`).
-
-So the honest claim is narrow: **a package that owns workflow steps cannot rely
-on being configured by its caller, and equally cannot be said to require the
-environment.** It needs a documented fallback that a deployment can satisfy
-either way. An earlier draft of this prototype concluded that ADR 0010's "the
-package reads no environment variables" was false; that was too strong, and an
-adversarial review caught it. The rule survives.
-
-**2. The HTTP hosted path is one composition, not the only one.** An earlier
-draft argued that because `worker-hosted` may not import `@reprove/control-plane`
-and steps cannot be injected, a run-scoped ingest URL over HTTP was the only
-shape left, and that ADR 0006's rejection of it therefore had to be reversed.
-That exhaustiveness claim was false and is retracted.
-
-`apps/control-plane-appowned/` is the counterexample, and it runs in the ledger:
-ADR 0010's matrix already permits an app to depend on *both* packages, so an
-app-owned step imports `executePass` and `acceptResult` statically, in one
-bundle, with no HTTP, no ingest token, and no environment access inside the core
-package. Acceptance still runs control-plane-side and is still the only path that
-absorbs a Result; only the transport changed.
-
-**ADR 0006 does not have to be reversed.** What does follow is smaller and still
-real: ADR 0010 assigns "the hosted Workflow orchestration seam" to
-`@reprove/control-plane`, and the *workflow and step definitions* have to sit
-where they can statically reach their configuration - the app, or an app-owned
-adapter - while the substance stays in the packages.
-
-**3. A Run has two durable runs, and conflating them cancels the wrong one.** The
-lifecycle run is the Run's schedule; the hosted pass is one Worker's attempt at it.
-Storing one `workflow_run_id` and cancelling it on supersession cancelled the schedule
-and left the Worker running - the run then threw `WorkflowRunCancelledError` instead of
-reporting `cancelled`. They need separate columns and opposite treatment: the schedule is
-resumed through its cancel hook so it can terminate reportably, the pass is cancelled
-outright.
-
-**4. `start()` has no idempotency key, and the arbitration window cannot be
-closed.** A retried step that starts a workflow creates a second durable run, and
-`StartOptions` offers neither an idempotency key nor a caller-supplied run id, so
-the id cannot be written before the run exists. A crash *between* `start()` and
-the conditional write therefore orphans a durable run that no conditional update
-can find or cancel - which an adversarial review pointed out and the first draft
-had not exercised.
-
-The answer is not to prevent the orphan but to make it **inert**. Every write
-`runLifecycle` performs is now conditional on `workflow_run_id` matching its own
-`getWorkflowMetadata().workflowRunId`, which an orphan never became. Scenario K
-starts an unrecorded lifecycle, drives it to its deadline, and asserts the Run is
-untouched: still `queued`, `failure_reason` null, owned by the other run. The
-orphan wakes, matches nothing, and ends.
-
-**5. The workflow bundle inlines everything reachable from a workflow and
-externalizes nothing, and every workflow in an app shares one bundle.** This is
-the finding the real build path produced and the vitest harness had hidden.
-
-- A `'use workflow'` module's transitive *static* import graph is compiled into
-  one shared workflow bundle that runs in a VM with no `require`. A single
-  static `import { withOwner } from '../db.ts'` pulls all of `pg` - CommonJS -
-  into it, and the run dies with `ReferenceError: require is not defined`.
-- Importing from a package **barrel** is enough to do it: `acceptResult` from
-  `@proto38/control-plane` dragged the barrel's own `node:crypto` in. Packages
-  consumed from workflow code need fine-grained subpath exports.
-- Because all workflows share one bundle, one workflow's bad import breaks
-  *every other workflow in the app*, with an error naming the innocent one.
-- `serverExternalPackages` does not help: the workflow bundle deliberately
-  externalizes nothing.
-- The escape is a **dynamic `await import()` inside the step body**. Applying it
-  to `run-lifecycle.ts` and `ingress-delivery.ts` took the generated flow bundle
-  from 706KB with all of `pg` inlined to a small file containing only the three
-  workflow modules, and the run then completed.
-- esbuild (vitest) fails this at *build* time with a clear message; Turbopack
-  fails at *runtime* with a confusing one. Only the real build path shows it.
+- `@proto38/control-plane` resolves neither harness code nor `workflow`.
+- The self-hosted deployment resolves no harness code **in its dependency closure**, not
+  merely at runtime, and the same code path leaves the Run `queued` and claimable.
+- Acceptance is control-plane-side and is the only path by which a Result enters a Run.
 
 ## What it settled
 
-**The Phase 0 claimable deadline is 30 minutes**, carried in `Phase0RunProfile` and
-written into immutable `spec` at creation as ADR 0013 requires. Long enough that a cold
-hosted dispatch or a self-hosted Worker on a slow poll is not raced out; short enough
-that "nobody could run this" is a fast visible answer rather than a silent hang. It is
-profile policy, not protocol, so Phase 1 can move it without touching this seam.
+**The workflow bundle inlines what the WORKFLOW FUNCTION BODY reaches, and excludes step
+bodies.** This is the load-bearing build fact, and it is narrower than an earlier draft
+claimed. A module-scope helper called from the workflow body drags its whole transitive
+graph in; a step body may import `pg` statically and freely. Measured in `nextcheck`:
+adding one helper call took the emitted flow bundle from **103KB to 1176KB**, inlined
+`pg`, `node:crypto` and eight Node built-ins, and broke every workflow in the app - while
+the build stayed green. `npm run gate` catches exactly this, and was verified against that
+deliberate regression rather than only against a passing tree.
 
-**The deadline means two different things, and conflating them lies about the
-Run.** ADR 0007 defines `unscheduled` as "never dispatched" and `CONTEXT.md`
-reserves Failure for a Run that began executing. The first draft wrote
-`unscheduled` over `status in ('queued','claimed','executing')`, which states
-that nothing ran about a Run that ran. Corrected: the deadline writes
-`unscheduled` only over `queued`/`claimed`, and an `executing` Run whose deadline
-expires is ADR 0006's `worker_lost` Failure.
+**Module identity is builder-dependent, with the axes separated.** An earlier draft
+compared a static import under one builder against a dynamic import under the other, which
+confounded the two. The full 2x2:
 
-**A hosted Failure is signalled, and the control plane decides.** `reportHostedFailure()`
-is a conditional UPDATE using the same eligibility window Acceptance uses, so a
-Failure reported for a Run that is terminal, superseded, or under a different
-lease changes nothing. It absorbs no Result, so Acceptance remains the only path
-by which a Result enters a Run, and it is not a protocol v1 message - #35's
-verdict stands. "Hosted-only" is structural rather than policy: it is reachable
-by static import from an app that composes `worker-hosted`, and no endpoint
-exposes it, so a self-hosted Worker has no way to call it.
+| | caller vs step | static vs dynamic |
+| --- | --- | --- |
+| `@workflow/vitest` | different instances | identical to each other |
+| Next.js / Turbopack | **same** instance, injected value visible | identical to each other |
 
-**The re-drive is Workflow's step retry**, not a Reprove sweeper. `contended` and
-`transient` throw `RetryableError` from inside the ingress step; the platform's backoff
-is the mechanism, which is why no second job system appears beside the one #6 settled.
-`unauthorized` throws `FatalError` and stops.
+So the axis is the builder, not the import style. A package that owns steps therefore
+cannot rely on being configured by its caller *and* cannot assume it must read the
+environment. `@proto38/workflow-adapter` resolves its own configuration at the top of
+every step, which is correct under both.
 
-**Acceptance is one conditional UPDATE.** The eligibility window and the write are the
-same statement, so a Worker returning from a partition loses the race by construction
-rather than by cooperating with a cancel. It names its rejections - `oversized`,
-`upgrade_required`, `malformed`, `unknown_run`, `wrong_tenant`, `stale_lease`,
-`not_eligible` - because "rejected" cannot distinguish a superseded Run from a forged
-tenant. Compatibility is checked before the payload is parsed.
+**Hook tokens are scoped to the lifecycle, not the Run.** The SDK enforces globally unique
+tokens: a second run claiming a held token gets `HookConflictError`. A Run-scoped token
+therefore breaks precisely in the `start()` orphan window, and breaks the wrong way round -
+the orphan starts first and holds the token, so the lifecycle actually recorded on the Run
+is the one that dies. Tokens now carry `workflowRunId`, and a notifier reads the currently
+recorded lifecycle from the database before resuming it. That is the correct dependency
+direction: the database decides which lifecycle owns the Run.
 
-**Acceptance and the hook are separate.** The database write is what makes a Result
-accepted; resuming the durable run is a notification that follows the response. Doing
-both inside the request re-enters the workflow runtime from a request it is waiting on,
-which deadlocked this prototype until it was split.
+**`claimableUntil` bounds the unclaimed window and nothing else.** ADR 0007 defines
+`unscheduled` as "never dispatched" and ADR 0006 gives an executing Run's liveness to the
+Lease. The deadline now writes one transition, over a `queued` Run, and only when this
+lifecycle is the recorded one. An executing Run at its deadline is deliberately left alone.
 
-**Workflow's storage really is opaque.** `npm run world` shows every table in
-`workflow`, `workflow_drizzle` and `graphile_worker`, and nothing in `public`. ADR 0010's
-claim holds - with a caveat for #37: the boot assertion's "every table is classified"
-must be scoped to Reprove's own schema, not to the database, or sharing a server with
-Workflow would refuse boot.
+**The re-drive is Workflow's step retry**, not a Reprove sweeper: `contended` and
+`transient` throw `RetryableError` inside the ingress step, so no second job system appears
+beside the one #6 settled. `unauthorized` throws `FatalError`.
 
-**`world-postgres` executes, and the self-hosted topology works.** `npm run nextcheck`
-builds a real Next.js 16.3 app with `withWorkflow`, points it at
-`WORKFLOW_TARGET_WORLD=@workflow/world-postgres`, and runs a Run end to end: the
-postgres world dispatches over HTTP to the `/.well-known/workflow/v1/{flow,step}`
-routes Next generates, the step executes worker-core, Acceptance absorbs the
-Result, and the Reprove row lands `completed` with `accepted_at` set. ADR 0010
-recorded `world-postgres` as a dependency risk; it is now a measured one.
+**Acceptance is one conditional UPDATE** whose eligibility window and write are the same
+statement, so a Worker returning from a partition loses by construction rather than by
+cooperating. It names its rejections - `oversized`, `upgrade_required`, `malformed`,
+`unknown_run`, `wrong_tenant`, `stale_lease`, `not_eligible` - and checks compatibility
+before parsing the payload. It no longer resumes anything: notification follows the write,
+in the adapter, which is also what stopped an earlier deadlock.
 
-**A `'use workflow'` function defined inside a package compiles under the real
-builder**, not only under the vitest plugin: the build reports 3 workflows
-discovered, including `runLifecycle` and `hostedPass` from the packages, and the
-route imports `runLifecycle` from the package and gets a function.
+**`start()` cannot be made idempotent**, so the orphan is made inert: every lifecycle write
+is conditional on `workflow_run_id` matching its own `getWorkflowMetadata().workflowRunId`.
+Scenario F proves both halves - the orphan writes nothing, **and** the recorded lifecycle
+survives it and still carries the Run to `completed`.
+
+**Workflow's storage is opaque**: every table in `workflow`, `workflow_drizzle` and
+`graphile_worker`, nothing in `public`. With a caveat for #37: the boot assertion's "every
+table is classified" must be scoped to Reprove's own schema, or sharing a server with
+Workflow refuses boot.
+
+**The Phase 0 claimable deadline is 30 minutes**, provisional, and now scoped to the
+unclaimed scheduling window alone.
 
 ## What it did not prove
-- **Whether a lost race leaks a scheduled wake-up.** When the hook wins, the SDK logs
-  `uncommitted operation(s): sleep`. On `world-local` that is cosmetic. On
-  `world-postgres` a sleep is a graphile-worker job with a `runAt`, so a completed Run may
-  leave a 30-minute job behind. Unmeasured.
-- **Nothing about Vercel.** No deployment, no Function ceiling, no skew protection, no
-  real Sandbox. Every step here is milliseconds, and `world-vercel` was never used.
-- **Whether the app-owned composition scales past one Pass.** It runs one
-  execute-then-absorb pair. A real Pass is many steps around a long-lived Sandbox.
-- **Nothing about a real self-hosted Worker.** The HTTP contract exists and the hosted
-  Worker uses it; no enrollment, credential, lease renewal or progress message does,
-  because #32 kept them out of v1.
 
-## Open questions this hands on
+- **Nothing about Vercel.** No deployment, no `world-vercel`, no Function ceiling, no skew
+  protection, no real Sandbox. Every step here is milliseconds. The output trace is
+  checked, but a trace is not a deploy.
+- **Nothing about a real Pass.** One execute-then-absorb pair. A real Pass is many short
+  steps around a long-lived Sandbox using detach/resume.
+- **Nothing about a real self-hosted Worker.** No enrollment, credential, lease renewal or
+  progress message exists, because #32 kept them out of v1.
+- **Lease expiry.** Nothing ends an executing Run whose Worker vanished. The deadline no
+  longer pretends to. This is the one deliberate `[BAD]` in the ledger and it needs a
+  ticket of its own.
+- **`reportHostedFailure` is unexposed in this composition, not structurally hosted-only.**
+  It is an exported function; any composition could expose it. Making the property real
+  needs a private adapter surface.
+- **The closure walker is not `pnpm why`.** It walks declared dependencies recursively; it
+  does not read the installed tree.
+- **Whether a lost race leaks a scheduled wake-up.** On `world-postgres` a sleep is a
+  graphile-worker job with a `runAt`. Unmeasured.
 
-1. **A Failure has no terminal transition.** When worker-core returns an internal Failure,
-   nothing is submitted - correctly, since v1 has no wire form for it (#35) - and the Run
-   sits in `executing` until the claimable deadline fires. That is the one deliberate
-   `[BAD]` in the ledger. A hosted Failure is known to Reprove's own infrastructure the
-   moment it happens, so discovering it by timeout is a choice, not a constraint. The
-   hosted pass could write the Run's failure directly, at the cost of a second writer of
-   terminal state; or v1 could gain a Failure report, at the cost of reopening #35's
-   verdict. Neither is obviously right.
-2. **What resolves a lifecycle whose hosted pass died.** `worker_lost` has no detector
-   here. The deadline covers it, slowly.
+## What two rounds of adversarial review corrected
 
-## What changed after adversarial review
+Recorded because the pattern is more useful than the list.
 
-The first version of this prototype reached two conclusions it had not earned,
-and shipped two defects. An adversarial review caught all four; the revisions are
-above and in the ledger. Recorded here because the *pattern* matters more than
-the individual errors:
+**Round 1** retracted "HTTP is the only remaining composition" and "step config must come
+from the environment", and found two defects: a ledger line that measured a runtime flag
+while claiming a dependency-graph property, and an unexercised crash window.
 
-1. **Two exhaustiveness claims** ("the only remaining composition", "must come
-   from the environment") rested on having tested one design that worked, not on
-   having eliminated the alternatives. Both were false, and the counterexample -
-   an app-owned workflow - was cheap to build once someone asked for it.
-2. **A ledger line that proved a runtime flag while claiming a dependency-graph
-   property.** The old "self-hosted composition" app still declared and imported
-   `worker-hosted` and merely skipped calling it. ADR 0010's claim is about what
-   `pnpm why` shows, so the check now walks the resolved closure and the
-   self-hosted deployment is a genuinely separate package.
-3. **A status transition that contradicted `CONTEXT.md`** - `unscheduled` written
-   over an `executing` Run.
-4. **An unexercised crash window** in the `start()` arbitration.
+**Round 2** found three blocking defects: Scenario K was a false positive (it never awaited
+the recorded lifecycle, which was in fact dying of `HookConflictError`); ADR 0010's
+no-environment rule did not actually survive, because a `PROTO38_REPROVE_URL` fallback had
+been left in the core package while the claim said otherwise; and `claimableUntil` still
+owned a transition belonging to the Lease. It also correctly called
+"structurally hosted-only" an overclaim, called the module-identity conclusion confounded,
+and pointed out the output trace was fine.
 
-The general lesson for the next prototype: a scenario that passes proves the
-design *works*, never that it is *necessary*, and a ledger line is only as strong
-as the property it actually measures.
+Three failure modes recur:
+
+1. **A passing scenario proves the design works, never that it is necessary.** Both
+   retracted claims were exhaustiveness claims backed by one working example.
+2. **A ledger line is only as strong as the property it measures.** "Self-hosted composes
+   no dispatcher" and "the orphan wrote nothing" were both true and both beside the point.
+3. **Claiming two things that contradict each other.** Keeping an environment fallback
+   *and* saying the no-environment rule survives is the clearest instance.
+
+A fourth, from this round: **a finding stated too broadly costs real work.** "The workflow
+bundle inlines everything reachable" was wrong, and the dynamic imports written to work
+around it were unnecessary. Narrowing it to the workflow function body removed them.

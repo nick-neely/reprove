@@ -1,0 +1,13 @@
+{
+  "name": "@proto38/app-hosted",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./index.ts", "./workflows": "./workflows/hosted-run.ts" },
+  "dependencies": {
+    "@proto38/control-plane": "*",
+    "@proto38/protocol": "*",
+    "@proto38/worker-hosted": "*",
+    "@proto38/workflow-adapter": "*",
+    "workflow": "4.8.5"
+  }
+}

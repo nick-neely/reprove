@@ -4,6 +4,7 @@
   "type": "module",
   "exports": { ".": "./index.ts" },
   "dependencies": {
-    "@proto38/control-plane": "*"
+    "@proto38/control-plane": "*",
+    "@proto38/workflow-adapter": "*"
   }
 }
