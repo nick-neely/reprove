@@ -153,6 +153,11 @@ whose eligibility window and write are the same statement. Two things are fixed 
   [ADR 0015](0015-execution-ownership-and-worker-liveness.md) renames `stale_lease` to
   `execution_mismatch`: the rejected condition is a submitted token that is not the Run's
   current one, and a hosted Worker never held a Lease to go stale.
+  [ADR 0016](0016-phase-0-acceptance-scenario.md) **removes `wrong_tenant`**: Acceptance's
+  re-probe runs inside `withOwner()`, so another Owner's Run is invisible rather than merely
+  ineligible, and the only answer available from inside the boundary is `unknown_run`. The
+  auditability argument above stands, and its consequence is accepted rather than hidden -
+  the forged-tenant case is no longer named anywhere in Acceptance.
 
 **A hosted Worker's internal Failure is signalled, not submitted.** It is a conditional
 control-plane transition using Acceptance's eligibility window; it absorbs no Result, so
@@ -194,7 +199,10 @@ runtime execution is the check that survives such an upgrade.
 - **ADR 0008 gains a scoping correction**, recorded there: the boot assertion covers every
   table Reprove's own migration manifest manages, and excludes Workflow-owned schemas.
 - **[#39](https://github.com/nick-neely/reprove/issues/39) inherits** exercising the
-  authenticated HTTP Acceptance seam a self-hosted Worker uses.
+  authenticated HTTP Acceptance seam a self-hosted Worker uses. **Discharged by
+  [ADR 0016](0016-phase-0-acceptance-scenario.md)**, which drives both Worker endpoints and the
+  webhook over real HTTP against a clean build, amends the rejection set above, and makes this
+  ADR's real-builder CI check the single gate that carries the whole Phase 0 exit.
 - **[#41](https://github.com/nick-neely/reprove/issues/41) inherits** what ends an executing
   Run whose Worker stops answering. Discharged by
   [ADR 0015](0015-execution-ownership-and-worker-liveness.md), which amends this ADR's

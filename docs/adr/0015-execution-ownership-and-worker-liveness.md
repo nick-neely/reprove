@@ -178,6 +178,11 @@ livenessFor  10 minutes   from claimedAt
 `executionExpiresAt = claimedAt + livenessFor`. Not from Run creation, not from `claimableUntil`,
 and not from whenever `markExecuting` happens to succeed.
 
+**Where `livenessFor` lives was left unsaid here and is settled by
+[ADR 0016](0016-phase-0-acceptance-scenario.md): it joins `Phase0RunProfile`,** beside ADR 0014's
+claimable-deadline policy. Unplaced it would land inline in the claim path, which is the hazard
+ADR 0013 created that profile to prevent - a Phase 0 fixture silently becoming product policy.
+
 Ten minutes is **as arbitrary as five**, and the rationale is deliberately modest: it differs from
 the claim window so that deadline-confusion bugs are observable, and it preserves the real ordering
 in which execution takes substantially longer than claiming, so Phase 1 does not inherit an inverted
@@ -221,7 +226,10 @@ valid liveness evidence, this execution becomes ineligible."
   arriving after a `worker_lost` transition has won is rejected as `not_eligible`, not
   `execution_mismatch` - the Run is terminal, which is a stronger and clearer fact than token
   rotation, and it is what proves terminal state rather than token rotation is the stale-result
-  boundary.
+  boundary. **[ADR 0016](0016-phase-0-acceptance-scenario.md) found this stated but not
+  implemented**: the re-probe that names a rejection tested the token *before* falling through to
+  `not_eligible`, so a stale token against an already-terminal Run reported `execution_mismatch`.
+  The eligibility half of the predicate is disambiguated first, token identity second.
 - **`CONTEXT.md` gains no noun.** Its `Lease` entry sharpens to a self-hosted Worker's renewable
   hold, and says a hosted Worker holds none. `executionToken`, `executionExpiresAt` and the watchdog
   are control-plane machinery, like the lifecycle and pass workflow ids before them.
@@ -229,3 +237,8 @@ valid liveness evidence, this execution becomes ineligible."
   abandoned at `executing` with a recorded pass, and abandoned at `claimed` with a null pass id
   closed on `executionToken` alone. Both end `failed(worker_lost)`; a late Result is rejected
   `not_eligible`. The prompt detector is this ticket's evidence, not a constraint on #39.
+  **Discharged by [ADR 0016](0016-phase-0-acceptance-scenario.md)**, which reaches the second case
+  through the hosted `start()` orphan named above - accepting a test-only injection point at the
+  composition seam, because no misbehaving Worker can reach a crash inside Reprove's own dispatch
+  path - and keeps a self-hosted Worker going silent alongside it, since two placements reaching one
+  transition is what shows the window is placement-neutral.
