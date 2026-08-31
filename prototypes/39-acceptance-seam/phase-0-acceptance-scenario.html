@@ -709,7 +709,7 @@
           <div>
             <h2 id="walk-h">Guided walkthroughs</h2>
             <p>
-              Nine scenarios. The first is the Phase&nbsp;0 exit itself; the rest are the cases that
+              Ten scenarios. The first is the Phase&nbsp;0 exit itself; the rest are the cases that
               are hard to reason about on paper. Starting one resets the state.
             </p>
           </div>
@@ -738,13 +738,25 @@
           </div>
         </div>
 
-        <h3>One spine, nine terminations</h3>
+        <h3>One spine, ten walkthroughs</h3>
         <p>
           &ldquo;A single scenario&rdquo; cannot mean one linear walk, because accepting a Result
           terminalizes the Run it was accepted into, and every rejection needs a Run that has not
           yet terminalized. What is single is the <strong>spine</strong> &mdash; signed delivery,
-          Run creation, lifecycle scheduling, claim &mdash; and the nine cases fork off it at
+          Run creation, lifecycle scheduling, claim &mdash; and the nine other cases fork off it at
           defined points, through the same seam, against the same database, in one harness.
+        </p>
+        <p>
+          <strong>One case costs something, and the cost is worth naming.</strong> The hosted
+          <code>start()</code> orphan cannot be reached by a Worker behaving badly, because the
+          crash is in Reprove&rsquo;s own dispatch path between <code>start()</code> and
+          <code>markExecuting</code>. Reaching it needs an injection point at the composition seam
+          &mdash; a test-only branch inside shipped orchestration. That is a genuine cost, and it is
+          paid because ADR&nbsp;0015 names this window as the hole that widened&nbsp;#41 from
+          <code>executing</code> to Acceptance&rsquo;s whole eligibility window. A scenario that
+          skipped it would not exercise what&nbsp;#39 inherited. The self-hosted-silence case is
+          kept alongside it, at no cost, because two placements reaching one transition on one
+          shared predicate is what shows the window is placement-neutral.
         </p>
 
         <div class="decision-grid" style="margin-top: 18px">
@@ -755,6 +767,8 @@
               <li>The intercepted GitHub request shape: App JWT, installation token, <code>GET /repos/&hellip;/pulls/42</code>.</li>
               <li>Claim endpoint status and body, for both placements.</li>
               <li>Result endpoint status and the <em>named</em> rejection, for every reachable rejection.</li>
+              <li>Two <em>concurrent</em> Result submissions: exactly one 200, one 409 <code>not_eligible</code>.</li>
+              <li>A Run left at <code>claimed</code> with a null pass id by a hosted <code>start()</code> orphan, terminalized by liveness alone.</li>
               <li>The <code>run</code> row read back under <code>withOwner()</code>: status, token, <code>acceptedAt</code>, failure detail.</li>
               <li>The ingress ledger row&rsquo;s terminal state and disposition.</li>
               <li>The build gate&rsquo;s own assertions: no external module in the workflow bundle, <code>pg</code> in the output trace, the app boots.</li>
@@ -781,15 +795,22 @@
             <p style="color: var(--muted)">
               Acceptance re-probes the Run to name its rejection. That probe runs under
               <code>withOwner()</code>, so a Run belonging to another Owner is not merely
-              ineligible &mdash; it is <em>invisible</em>. The probe returns nothing and the honest
-              answer is <code>unknown_run</code>.
+              ineligible &mdash; it is <em>invisible</em>. The probe returns nothing, and the only
+              answer available from inside the boundary is <code>unknown_run</code>.
             </p>
             <p style="color: var(--muted)">
-              Reaching <code>wrong_tenant</code> would require probing with
-              <code>withoutOwner()</code>, which punches through the tenancy boundary to produce a
-              nicer error message. That is the wrong trade. ADR&nbsp;0014 wanted the distinction for
-              auditability; the prototype says it belongs to the <em>authentication</em> layer
-              &mdash; which credential presented which Run id &mdash; not to Acceptance&rsquo;s probe.
+              Reaching <code>wrong_tenant</code> would mean probing with <code>withoutOwner()</code>,
+              punching through the tenancy boundary to produce a more specific error message. There
+              is a real argument on the other side: ADR&nbsp;0014 named this rejection deliberately,
+              on the grounds that &ldquo;rejected&rdquo; alone cannot distinguish a superseded Run
+              from a forged tenant, and that the distinction is what makes the boundary auditable.
+            </p>
+            <p style="color: var(--muted)">
+              <strong>This prototype does not settle it.</strong> Dropping <code>wrong_tenant</code>
+              amends ADR&nbsp;0014's rejection set, and moving it to the authentication layer
+              relocates an auditability guarantee rather than preserving it. What the prototype
+              establishes is only that the current design cannot deliver it from Acceptance. The
+              choice is the first Human verdict below.
             </p>
           </div>
           <div class="decision-card flag">
@@ -843,7 +864,7 @@
             <tr><td><code>unknown_run</code></td><td>An unknown id &mdash; <em>and</em> another Owner&rsquo;s Run</td><td>Re-probe under Owner context</td></tr>
             <tr><td><code>execution_mismatch</code></td><td>A token that is not the Run&rsquo;s current one</td><td>Re-probe, Run still active</td></tr>
             <tr><td><code>not_eligible</code></td><td>Already accepted, superseded, or terminal</td><td>Re-probe, fall-through</td></tr>
-            <tr><td style="color: var(--muted)"><code>wrong_tenant</code></td><td colspan="2" style="color: var(--muted)">Unreachable behind RLS. Belongs to the auth layer, if kept at all.</td></tr>
+            <tr><td style="color: var(--warning)"><code>wrong_tenant</code></td><td colspan="2" style="color: var(--warning)"><strong>Open.</strong> Unreachable from Acceptance behind RLS. Dropping it or relocating it to the auth layer amends ADR&nbsp;0014 and awaits the human verdict below.</td></tr>
           </tbody>
         </table>
 
@@ -1098,7 +1119,7 @@
         // -------------------------------------------------------------------
         // Claim. Both placements write executionToken and executionExpiresAt.
         // -------------------------------------------------------------------
-        function claim(state, placement) {
+        function claim(state, placement, orphan) {
           const run = liveRun(state);
           if (!run || run.status !== "queued") {
             return commit(state, "CLAIM", {
@@ -1147,18 +1168,51 @@
             workerBuildVersion: "0.0.0-phase0",
           });
 
+          // dispatchHosted: claim, start() the pass, THEN record its id.
+          //
+          //   claimRun()      -> status claimed, executionToken written
+          //   start(hostedRun)-> a durable pass now exists and is RUNNING
+          //   >>> the orphan window: unclosable, because start() takes
+          //       neither an idempotency key nor a caller-supplied run id <<<
+          //   markExecuting() -> hostedWorkflowRunId recorded, status executing
+          //
+          // A crash inside that window leaves a Run at `claimed` with a live,
+          // UNRECORDED pass. claimableUntil never touches it, because it writes
+          // only over `queued`. This is the hole that widened #41 from
+          // `executing` to Acceptance's whole eligibility window, and it is the
+          // case #39 explicitly inherits.
           if (placement === "hosted") {
-            // dispatchHosted: claim, start the pass, THEN record its id. The
-            // gap between start() and markExecuting is the orphan window that
-            // widened #41 from `executing` to the whole eligibility window.
-            claimed.hostedWorkflowRunId = "wf_pass_" + seq;
-            claimed.status = "executing";
+            if (!orphan) {
+              claimed.hostedWorkflowRunId = "wf_pass_" + seq;
+              claimed.status = "executing";
+            }
           }
 
           runs[idx] = claimed;
 
+          let note;
+          if (placement === "hosted" && orphan) {
+            note =
+              "Hosted: claimed, executionToken written, start() SUCCEEDED — a durable pass is running right now — and then the process died before markExecuting could record its id. Status is claimed, hostedWorkflowRunId is NULL, and there is nothing to cancel because nothing knows the pass exists. Liveness expires at " +
+              claimed.executionExpiresAt +
+              "ms.";
+          } else if (placement === "hosted") {
+            note =
+              "Hosted: claimed, pass started, hostedWorkflowRunId recorded, status executing. Liveness expires at " +
+              claimed.executionExpiresAt +
+              "ms.";
+          } else {
+            note =
+              "Self-hosted: claimed, hostedWorkflowRunId is NULL, and nothing in Phase 0 moves it to executing because there is no progress message. A second, placement-neutral route to lostFrom: claimed — not the hosted orphan, which is a different hole. Liveness expires at " +
+              claimed.executionExpiresAt +
+              "ms.";
+          }
+
           return commit(state, "CLAIM", {
-            label: "Claim as " + placement,
+            label:
+              placement === "hosted" && orphan
+                ? "Hosted dispatch, crashed in the orphan window"
+                : "Claim as " + placement,
             patch: { runs, tokenSeq: seq },
             wire: wire(
               "POST",
@@ -1170,14 +1224,7 @@
                 token +
                 '", "spec": { … } }'
             ),
-            note:
-              placement === "hosted"
-                ? "Hosted: claimed, pass started, hostedWorkflowRunId recorded, status executing. Liveness expires at " +
-                  claimed.executionExpiresAt +
-                  "ms."
-                : "Self-hosted: claimed, hostedWorkflowRunId is NULL, and nothing in Phase 0 moves it to executing because there is no progress message. This IS ADR 0015's case 2, reached by construction rather than by injecting a crash. Liveness expires at " +
-                  claimed.executionExpiresAt +
-                  "ms.",
+            note,
             changed: ["status", "executionToken", "executionExpiresAt", "hostedWorkflowRunId"],
           });
         }
@@ -1348,6 +1395,72 @@
         }
 
         // -------------------------------------------------------------------
+        // Two identical valid Results, submitted concurrently over HTTP.
+        //
+        // Both requests reach Acceptance before either commits, so both aim the
+        // SAME conditional UPDATE at the SAME row. Postgres serializes them on
+        // the row lock: the first matches one row and commits; the second then
+        // re-evaluates its WHERE clause against the committed row, finds
+        // acceptedAt no longer null, and matches zero. Modelling this as two
+        // sequential reductions is not a simplification — sequential-after-lock
+        // is exactly what the database does.
+        //
+        // This is what makes at-most-one-accepted-Result a property of the
+        // statement rather than of Worker good behaviour: a Worker-supplied
+        // idempotency key is a convenience for network retry and must not be
+        // what enforces it.
+        // -------------------------------------------------------------------
+        function submitConcurrently(state) {
+          const before = liveRun(state) || latestRun(state);
+          const first = submit(state, "complete");
+          const second = submit(first, "complete");
+
+          const firstEntry = first.history[first.history.length - 1];
+          const secondEntry = second.history[second.history.length - 1];
+          const accepted = [firstEntry, secondEntry].filter((h) => h.ok).length;
+
+          // Collapse both into one trace entry, because they were one event.
+          const history = state.history.concat([
+            {
+              at: state.clock,
+              action: "SUBMIT_CONCURRENT",
+              label: "Two identical Results, submitted at once",
+              ok: accepted === 1,
+              rejection: accepted === 1 ? null : "invariant_violated",
+              note:
+                "Request A → " +
+                (firstEntry.ok ? "200 accepted" : "409 " + firstEntry.rejection) +
+                ".  Request B → " +
+                (secondEntry.ok ? "200 accepted" : "409 " + secondEntry.rejection) +
+                ".  Exactly " +
+                accepted +
+                " accepted. Both aimed the same conditional UPDATE at " +
+                (before ? before.id : "no Run") +
+                "; the row lock serialized them and the loser's WHERE clause no longer matched.",
+            },
+          ]);
+
+          return Object.assign({}, second, {
+            history,
+            lastNote:
+              accepted === 1
+                ? "Exactly one of two concurrent submissions was accepted. The eligibility window and the write are the same statement, so there is no gap to race through."
+                : "INVARIANT VIOLATED: " + accepted + " submissions were accepted.",
+            lastWire: wire(
+              "POST",
+              "/api/worker/runs/" + (before ? before.id : "?") + "/result  ×2 concurrent",
+              accepted === 1 ? 200 : 500,
+              '{ "A": ' +
+                (firstEntry.ok ? '"accepted"' : '"' + firstEntry.rejection + '"') +
+                ', "B": ' +
+                (secondEntry.ok ? '"accepted"' : '"' + secondEntry.rejection + '"') +
+                " }"
+            ),
+            changed: ["status", "acceptedAt", "result"],
+          });
+        }
+
+        // -------------------------------------------------------------------
         // The lifecycle: a state-driven loop over two windows, re-reading
         // authoritative Run state on every wake rather than trusting the
         // timestamp it slept toward.
@@ -1457,6 +1570,12 @@
           },
           {
             group: "Claim",
+            type: "CLAIM_HOSTED_ORPHAN",
+            label: "Hosted dispatch, crashing in the orphan window",
+            hint: "start() succeeded; markExecuting never ran",
+          },
+          {
+            group: "Claim",
             type: "CLAIM_SELFHOSTED",
             label: "Claim as a self-hosted Worker",
             hint: "Authenticated HTTP claim, then silence",
@@ -1466,6 +1585,12 @@
             type: "SUBMIT_COMPLETE",
             label: "Submit a complete Result",
             hint: "Valid, current token",
+          },
+          {
+            group: "Result submission",
+            type: "SUBMIT_CONCURRENT",
+            label: "Submit the same Result twice, at once",
+            hint: "Two concurrent HTTP requests, one row",
           },
           {
             group: "Result submission",
@@ -1564,11 +1689,16 @@
             case "CLAIM_HOSTED":
               return claim(state, "hosted");
 
+            case "CLAIM_HOSTED_ORPHAN":
+              return claim(state, "hosted", true);
+
             case "CLAIM_SELFHOSTED":
               return claim(state, "self-hosted");
 
             case "SUBMIT_COMPLETE":
               return submit(state, "complete");
+            case "SUBMIT_CONCURRENT":
+              return submitConcurrently(state);
             case "SUBMIT_PARTIAL":
               return submit(state, "partial");
             case "SUBMIT_STALE_TOKEN":
@@ -1617,8 +1747,8 @@
             id: "once",
             title: "Accepted exactly once",
             blurb:
-              "The same valid Result, twice. The second is rejected not_eligible because acceptedAt is no longer null — the eligibility window and the write are one statement, so a concurrent duplicate serializes on the row and finds nothing to update. A Worker-supplied idempotency key is a convenience, never the enforcement.",
-            steps: ["DELIVER_OPENED", "CLAIM_HOSTED", "SUBMIT_COMPLETE", "SUBMIT_COMPLETE"],
+              "The same valid Result submitted twice CONCURRENTLY, not twice in a row — two HTTP requests that both reach Acceptance before either commits, so both aim the same conditional UPDATE at the same row. Postgres serializes them on the row lock; the loser re-evaluates its WHERE clause against the committed row and matches nothing. Sequential clicks would prove only that a terminal Run rejects a Result, which is a much weaker claim.",
+            steps: ["DELIVER_OPENED", "CLAIM_HOSTED", "SUBMIT_CONCURRENT"],
           },
           {
             id: "superseded",
@@ -1660,10 +1790,22 @@
             ],
           },
           {
-            id: "abandoned-claimed",
-            title: "Abandoned at claimed",
+            id: "orphan",
+            title: "The hosted start() orphan",
             blurb:
-              "ADR 0015 case 2, and the mandatory one. A self-hosted Worker claims over the authenticated endpoint and goes silent, which leaves a Run at claimed with a null pass id — reached by construction, with no injected crash. claimableUntil never touches it, because it writes only over queued. lostFrom: claimed.",
+              "ADR 0015 case 2, and the mandatory one — the exact hole #39 inherits. A hosted dispatch claims the Run, start() succeeds so a durable pass IS running, and the process dies before markExecuting records its id. The Run sits at claimed with executionToken assigned and hostedWorkflowRunId null. claimableUntil never touches it, because it writes only over queued; without ADR 0015 this Run stays eligible forever. Liveness closes it on the executionToken alone, and there is nothing to cancel, which is fine: a pass that emerges afterward cannot change a Run whose Acceptance has closed.",
+            steps: [
+              "DELIVER_OPENED",
+              "CLAIM_HOSTED_ORPHAN",
+              "ADVANCE_TO_LIVENESS_DEADLINE",
+              "SUBMIT_COMPLETE",
+            ],
+          },
+          {
+            id: "abandoned-claimed",
+            title: "Self-hosted silence",
+            blurb:
+              "The same terminal state by a different route, and the pair is the point: a self-hosted Worker claims over the authenticated endpoint and goes quiet. Also lostFrom: claimed, also failed(worker_lost), reached with no injected crash. Two placements, two causes, one transition on one shared predicate — which is what shows the eligibility window is placement-neutral rather than a hosted special case.",
             steps: [
               "DELIVER_OPENED",
               "CLAIM_SELFHOSTED",

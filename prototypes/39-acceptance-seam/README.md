@@ -20,15 +20,26 @@ supersession, claim for both placements, the ADR 0015 eligibility predicate, Acc
 rejection checks, and the lifecycle's state-driven loop over the claim and liveness windows. The
 page around it is throwaway; the module is what lifts into the real scenario harness.
 
-Nine guided walkthroughs cover the spine plus the eight terminations that are hard to reason about
-on paper. Free play exposes every action in any order.
+Ten guided walkthroughs cover the spine plus the nine terminations that are hard to reason about on
+paper. Free play exposes every action in any order.
+
+Two of them carry the weight. **The hosted `start()` orphan** is the hole #39 inherits: the dispatch
+path claims, `start()` succeeds so a durable pass is running, and the process dies before
+`markExecuting` records its id, leaving `status=claimed`, `executionToken` assigned and
+`hostedWorkflowRunId` null. Reaching it needs an injection point at the composition seam, which is a
+real cost, paid because nothing else exercises that window. **Accepted exactly once** submits two
+identical Results concurrently rather than sequentially, so it challenges the atomic conditional
+UPDATE instead of merely showing that a terminal Run rejects a Result.
 
 ## What it found
 
-1. **`wrong_tenant` is unreachable behind RLS.** Acceptance's re-probe runs under `withOwner()`, so
-   another Owner's Run is invisible rather than merely ineligible, and the honest rejection is
-   `unknown_run`. Reaching `wrong_tenant` would mean probing with `withoutOwner()` to produce a
-   nicer error, which punches through the tenancy boundary for a message.
+1. **`wrong_tenant` is unreachable from Acceptance behind RLS.** The re-probe runs under
+   `withOwner()`, so another Owner's Run is invisible rather than merely ineligible, and the only
+   available answer is `unknown_run`. Reaching `wrong_tenant` would mean probing with
+   `withoutOwner()`. **Not settled here:** dropping it amends ADR 0014's rejection set, and moving
+   it to the auth layer relocates an auditability guarantee rather than preserving it. The
+   prototype establishes only that the current design cannot deliver it from Acceptance; the choice
+   is a human verdict.
 2. **`livenessFor` has no home.** ADR 0015 fixes `executionExpiresAt = claimedAt + livenessFor` but
    never says where `livenessFor` is configured. It belongs in `Phase0RunProfile` beside the
    claimable-deadline policy, for the same reason ADR 0013 put that there.
