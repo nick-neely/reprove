@@ -76,11 +76,12 @@ write by accident rather than merely forbidden by convention.
 
 Rule 6's assertion set is **seven checks, six read from the catalog and one behavioural**: the
 role is neither superuser nor `BYPASSRLS`; it owns no table in the schema; every table Reprove's
-migration manifest manages is classified; every tenant table has RLS enabled *and* forced; every tenant table has a policy
-reaching this role; the schema is not behind the migration journal; and a tenant table actually
-reads empty with no Owner context. The last one is not redundant with the other six - catalog
-flags can all be correct while the predicate is wrong - and it is what caught the empty-string
-cast above.
+migration manifest manages is classified; every tenant table has RLS enabled *and* forced; the
+policies applying to this role on a tenant table are **exactly** the canonical tenant policy;
+every applied migration's stored hash still matches the committed file and none is pending; and a
+tenant table actually reads empty with no Owner context. The last one is not redundant with the
+other six - catalog flags can all be correct while the predicate is wrong - and it is what caught
+the empty-string cast above.
 
 **"Every table is classified" is what keeps the Better Auth exemption from becoming the allowlist
 this ADR rejects.** The check is not "these four tables are exempt" but "every table Reprove's own
@@ -89,20 +90,29 @@ classified **refuses boot**
 rather than landing silently outside the tenant boundary. The list cannot grow without a table
 name appearing in the schema module, in a reviewable diff, next to the rule that says why.
 
-> **Corrected against [ADR 0014](0014-workflow-orchestration-seam.md).** The set the check
-> ranges over is **the tables Reprove's own migration manifest manages** - its domain tables
-> and the Better Auth tables it adopts - and explicitly not every table in the database.
-> ADR 0010 permits Vercel Workflow to share the same Postgres server, and
+> **Corrected against [ADR 0014](0014-workflow-orchestration-seam.md), then against
+> [ADR 0017](0017-authoring-time-tenancy-boundary.md).** The set the check ranges over is **the
+> tables Reprove's own migration manifest manages** - its domain tables and the Better Auth
+> tables it adopts - and explicitly not every table in the database. ADR 0010 permits Vercel
+> Workflow to share the same Postgres server, and
 > [measurement](../research/workflow-sdk-build-constraints.md) shows it creates its tables in
 > three schemas of its own (`workflow`, `workflow_drizzle`, `graphile_worker`) and none in
 > `public`. Scoped to the database rather than to the manifest, a co-located deployment would
-> refuse to boot - a production refusal caused by a correctly-behaving neighbour. Scoping to
-> the manifest rather than to a schema name also survives the case where `public` comes to
-> hold tables some other operator manages.
+> refuse to boot - a production refusal caused by a correctly-behaving neighbour. Reprove must
+> refuse over its **own** malformed boundary, not because a neighbour legitimately placed a
+> table beside it.
 >
-> Authoring-time enforcement of the classification, so that an unclassified table fails on the
-> pull request that introduced it rather than in a deployment, remains
-> [#40](https://github.com/nick-neely/reprove/issues/40)'s decision.
+> **The manifest is not the classification.** As first written, this correction made the check a
+> tautology: the manifest *was* the two declared sets, so "every managed table is classified"
+> could only catch a declared table absent from the database, never a present table nobody
+> classified - the direction it exists for. ADR 0017 fixes the manifest to
+> **every `pgTable` the schema module exports or adopts**, enumerable independently of the
+> classification, giving `MANAGED_TABLES == TENANT_TABLES ∪ NON_TENANT_TABLES` with an empty
+> intersection.
+>
+> Authoring-time enforcement - so that an unclassified or unforced table fails on the pull
+> request that introduced it rather than in a deployment - is decided by
+> [ADR 0017](0017-authoring-time-tenancy-boundary.md).
 
 **Not** Neon RLS (formerly Neon Authorize): it is JWT-based via `pg_session_jwt` and expects a
 per-request signed token from an external issuer, while Better Auth issues an opaque cookie
@@ -118,11 +128,17 @@ release produces a `TypeError`. Better Auth independently requires `drizzle-orm 
 the floor is not Reprove's to choose.
 
 **Drizzle emits `ENABLE ROW LEVEL SECURITY` and the policies, but never `FORCE`.** Forcing is a
-DDL alteration with no Drizzle representation, so it lives in hand-written migration SQL - which
-means nothing at authoring time guarantees that a newly added Owner-scoped table is forced, and
-the boot assertion is the only thing that catches it. That is a refusal in a deployment rather
-than a failure on the pull request that introduced it, and closing the gap is
-[#40](https://github.com/nick-neely/reprove/issues/40).
+DDL alteration with no representation anywhere in `drizzle-orm` or `drizzle-kit` - measured, not
+inferred - so it cannot come from the schema module.
+
+> **Corrected by [ADR 0017](0017-authoring-time-tenancy-boundary.md).** Forcing does **not** live
+> in hand-written migration SQL, and it does not live in provisioning either: a database that
+> already exists would get a new table's policy from a migration and never get its `FORCE`. It is
+> **generated from the classification** as an append-only delta into a
+> `drizzle-kit generate --custom` migration, and hand-authored migrations may not contain
+> boundary DDL at all. Migration history is append-only because
+> `PgDialect.migrate` writes a hash it never reads: an edited applied migration is silently
+> ignored, leaving every existing database on the old DDL with no error raised anywhere.
 
 ### The tenant key is GitHub's numeric Owner id
 
