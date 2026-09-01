@@ -396,6 +396,11 @@ Shared tooling configuration (TypeScript base configs, lint configuration) lives
 workspace packages that are never published. Public source does not imply every package is a
 user-facing npm product.
 
+> **Amended by [issue #29](https://github.com/nick-neely/reprove/issues/29):** it settled that
+> TypeScript, Vitest, Turbo, lint, format and boundary configuration all live at the repository
+> root instead. No private tooling workspace exists, so the workspace set stays exactly the eight
+> packages and two apps.
+
 ## Consequences
 
 - **ADR 0005's type boundary is now mechanically enforced** rather than reviewed, by the two-package

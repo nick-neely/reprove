@@ -1,0 +1,26 @@
+{
+  "name": "@reprove/control-plane-app",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The thin Next.js composition shell: route wiring, environment parsing and deployment configuration, and nothing else.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "build": "next build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@reprove/control-plane": "workspace:*",
+    "@reprove/control-plane-workflow": "workspace:*",
+    "@reprove/worker-hosted": "workspace:*",
+    "next": "^16.3.4",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.4",
+    "typescript": "catalog:"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  // The root project: the tests, tools and configs that sit outside every
+  // workspace. It applies the same settings the workspaces get, and Turbo's
+  // root `//#typecheck` task runs it, so `pnpm verify` covers this code the way
+  // the per-workspace `typecheck` tasks cover theirs.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    // The workspace verifier is plain Node ESM; let an editor read its JSDoc.
+    "allowJs": true,
+    "declaration": false,
+    "declarationMap": false
+  },
+  "include": [
+    "tests",
+    "tools",
+    "vitest.config.ts",
+    "oxlint.config.ts",
+    "oxfmt.config.ts"
+  ]
+}

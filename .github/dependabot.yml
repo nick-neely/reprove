@@ -1,0 +1,55 @@
+# Version updates only. Dependabot security updates are immediate and ungrouped,
+# and are governed by repository settings rather than by this file.
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # The AI SDK Harness family is one catalog set: the bridges exact-pin
+      # core, so it has to move atomically or the store ends up with two
+      # copies of core and type identity breaks.
+      harness:
+        patterns:
+          - "@ai-sdk/harness*"
+      # The Workflow family has its own catalog because its packages release on
+      # different cadences.
+      workflow:
+        patterns:
+          - workflow
+          - "@workflow/*"
+      # Routine freshness, one pull request per scope. Majors match no group
+      # here, so each arrives as its own reviewable pull request. A dependency
+      # is placed in the first group it matches, so the two families above are
+      # already claimed; the exclusions state that rather than imply it.
+      production-minor-patch:
+        dependency-type: production
+        update-types:
+          - minor
+          - patch
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "@ai-sdk/harness*"
+          - workflow
+          - "@workflow/*"
+      development-minor-patch:
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "@ai-sdk/harness*"
+          - workflow
+          - "@workflow/*"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5

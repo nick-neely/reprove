@@ -3,7 +3,8 @@
 Open-source agentic code review for GitHub pull requests. See [README.md](README.md)
 for the overview and [docs/prd.md](docs/prd.md) for the full product definition.
 
-**Status:** pre-implementation. No source code exists yet; the PRD is the spec of record.
+**Status:** Phase 0. The pnpm workspace exists and `pnpm verify` is the repository proof;
+the PRD is the spec of record. Setup: [CONTRIBUTING.md](CONTRIBUTING.md#getting-started).
 
 ## Agent skills
 

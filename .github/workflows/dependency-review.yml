@@ -1,0 +1,33 @@
+name: dependency-review
+
+on:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-review:
+    name: dependency-review
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # High and critical vulnerabilities newly introduced in either scope block
+      # the merge. Development tooling runs with CI authority, so it is inside
+      # the supply-chain boundary. Lower severities stay visible without
+      # blocking. No allow or deny lists: an exception names its advisory and
+      # carries a review-by date instead of living here permanently.
+      - name: Dependency review
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
+          fail-on-scopes: runtime, development

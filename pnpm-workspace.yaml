@@ -1,0 +1,44 @@
+# ADR 0010 requires explicit workspace globs. `prototypes/**` stays outside the
+# workspace so its throwaway dependencies and lockfiles never join this graph.
+packages:
+  - packages/*
+  - apps/*
+
+# Shared versions live in the default catalog so one bump moves every workspace.
+# The AI SDK Harness family and the Workflow family get their own named catalogs
+# when their dependencies actually arrive (ADR 0010, issue #30).
+catalog:
+  "@types/node": ^22.20.1
+  typescript: ^5.9.3
+  zod: ^4.5.4
+
+# --- Package manager selection -------------------------------------------------
+# pnpm 11 removed `managePackageManagerVersions` and `packageManagerStrict`.
+# `pmOnFail: error` is the v11 spelling of "a mismatched running pnpm fails":
+# pnpm errors instead of downloading a different version or merely warning.
+pmOnFail: error
+
+# --- Supply chain (issue #30) --------------------------------------------------
+# A version must be 24h old before it may be installed.
+minimumReleaseAge: 1440
+# Reject a package whose publish authentication got weaker than it was.
+trustPolicy: no-downgrade
+# Reviewed exceptions, each pinned to the exact version so a later one is
+# re-checked. Every entry states its reason and ends with a `review-by` date;
+# tools/verify-workspace.mjs fails once that date passes, so an exception cannot
+# settle into a permanent silent allowlist (issue #30).
+trustPolicyExclude:
+  # `undici-types@6.21.0` is the transitive dependency of `@types/node@^22` and
+  # is the only version in its `~6.21.0` range. Earlier 6.x releases carried a
+  # provenance attestation and this one does not, which pnpm reports as a
+  # downgrade. It is a publishing gap in the upstream release, not a takeover:
+  # the package is types-only, ships no runtime code and no install script.
+  # Revisit when `@types/node@22` moves off it.
+  # review-by: 2026-12-01
+  - undici-types@6.21.0
+# Installation fails on an unreviewed lifecycle script rather than skipping it.
+strictDepBuilds: true
+dangerouslyAllowAllBuilds: false
+# Every dependency lifecycle script is decided explicitly. `true` admits it,
+# `false` records a reviewed denial. `pnpm approve-builds --all` is never used.
+allowBuilds: {}

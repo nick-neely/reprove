@@ -35,3 +35,7 @@ coverage/
 # Prototype scratch
 prototypes/**/node_modules/
 prototypes/**/package-lock.json
+
+# Next.js
+.next/
+next-env.d.ts
