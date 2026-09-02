@@ -1,0 +1,37 @@
+{
+  "name": "@reprove/control-plane",
+  "version": "0.0.0",
+  "description": "Control-plane substance: GitHub ingress, scheduling, persistence, Acceptance, Reconciliation and publication. Reads no environment variables.",
+  "license": "Apache-2.0",
+  "bin": {
+    "reprove-control-plane": "./dist/bin.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@reprove/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

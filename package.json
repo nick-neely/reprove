@@ -1,0 +1,36 @@
+{
+  "name": "reprove",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "verify": "pnpm run verify:workspace && pnpm run verify:build && pnpm run verify:test && pnpm run verify:lint",
+    "verify:workspace": "node tools/verify-workspace.mjs",
+    "verify:build": "turbo run build typecheck",
+    "verify:test": "vitest run",
+    "verify:lint": "ultracite check .",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@reprove/adapters": "workspace:*",
+    "@reprove/control-plane": "workspace:*",
+    "@reprove/control-plane-workflow": "workspace:*",
+    "@reprove/protocol": "workspace:*",
+    "@reprove/sandbox-container": "workspace:*",
+    "@reprove/worker": "workspace:*",
+    "@reprove/worker-core": "workspace:*",
+    "@reprove/worker-hosted": "workspace:*",
+    "@types/node": "catalog:",
+    "oxfmt": "^0.65.0",
+    "oxlint": "^1.80.0",
+    "turbo": "^2.10.12",
+    "typescript": "catalog:",
+    "ultracite": "^7.10.7",
+    "vitest": "^4.1.11"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@11.25.0+sha512.5cde925b4f075f725eb71fbae18a42ffe784524789f19b61c731cb8721ec28aaee160e01a8d5af4fedb2a42cdbf300efe23db356b0d4a17b4d63e11f8ab7c956"
+}

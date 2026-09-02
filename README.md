@@ -16,8 +16,9 @@ authentication, your configuration, your provider usage.
 inspect → question → execute → verify → fix → re-prove
 ```
 
-**Status:** Pre-implementation. The [PRD](docs/prd.md) is the spec of record;
-no code has been written yet.
+**Status:** Phase 0 - the foundation is in progress. The [PRD](docs/prd.md) is
+the spec of record. The workspace builds and proves itself; see
+[Getting started](CONTRIBUTING.md#getting-started) to run it.
 
 ## Why
 
@@ -105,10 +106,11 @@ Gateway.
 ## Contributing
 
 Reprove is open source and contributions are welcome. Start with
-[CONTRIBUTING.md](CONTRIBUTING.md) for how the Repository is organized and how
-decisions get made. There is no CLA and no sign-off to remember - open a pull
-request. Everyone participating is held to the
-[Code of Conduct](CODE_OF_CONDUCT.md).
+[CONTRIBUTING.md](CONTRIBUTING.md) - its
+[Getting started](CONTRIBUTING.md#getting-started) section is the setup path,
+and the rest covers how the Repository is organized and how decisions get made.
+There is no CLA and no sign-off to remember - open a pull request. Everyone
+participating is held to the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 Found a security problem? Do not open an issue - see [SECURITY.md](SECURITY.md).
 

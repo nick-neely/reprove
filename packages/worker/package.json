@@ -1,0 +1,38 @@
+{
+  "name": "@reprove/worker",
+  "version": "0.0.0",
+  "description": "The self-hosted Worker lifecycle: a long-lived daemon with enrollment, polling, claim, lease and cancellation.",
+  "license": "Apache-2.0",
+  "bin": {
+    "reprove": "./dist/bin.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@reprove/protocol": "workspace:*",
+    "@reprove/worker-core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

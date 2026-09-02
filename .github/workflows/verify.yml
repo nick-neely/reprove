@@ -1,0 +1,50 @@
+name: verify
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Superseded pull-request runs cancel. Pushes to main are given a group of their
+# own per run, so a later push neither cancels nor queues behind an earlier one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # No `version` input: the action reads the exact pnpm version from the
+      # root `packageManager` field, so this activates the project version
+      # rather than declaring a second one. `standalone` installs the
+      # Node.js-bundled pnpm executable, which does not depend on the runner's
+      # Node.js. Checkout has to come first for `packageManager` to be readable.
+      - name: Activate the project pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          standalone: true
+
+      # `cache: pnpm` persists only pnpm's content-addressed store, keyed by the
+      # committed lockfile and the runner platform. It never caches node_modules.
+      - name: Activate Node 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Install from the lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify
+        run: pnpm verify

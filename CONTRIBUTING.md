@@ -6,10 +6,50 @@ Thanks for your interest. Reprove is open source under
 Everyone participating is held to the [Code of Conduct](CODE_OF_CONDUCT.md).
 Security problems do **not** go in a public issue - see [SECURITY.md](SECURITY.md).
 
+## Getting started
+
+The stack is TypeScript on Node 22 (ESM), pnpm workspaces with Turborepo,
+Vitest for tests (Playwright later), and Oxlint/Oxfmt through Ultracite.
+
+A clean clone installs and proves itself in four steps:
+
+```text
+install Node 22
+corepack enable
+pnpm install --frozen-lockfile
+pnpm verify
+```
+
+`pnpm verify` is the repository's proof. It sequences four independently owned
+layers - `node tools/verify-workspace.mjs`, `turbo run build typecheck`,
+`vitest run`, then `ultracite check .` - and the first layer to fail names the
+workspace and the rule it broke. Each of those four is runnable on its own as an
+inner-loop shortcut, but passing one is never equivalent to passing
+`pnpm verify`. A fifth layer - the packed-package contract settled by issue #31
+(an API report, a forbidden-type gate, `pnpm pack` into a consumer fixture,
+`publint` and `attw`) - is not yet part of `pnpm verify`; it is tracked in
+[issue #43](https://github.com/nick-neely/reprove/issues/43).
+
+Two things catch people out:
+
+- **A dependency change is deliberate.** Adding, removing or bumping a
+  dependency uses a plain `pnpm install` rather than the frozen one, and the
+  manifest, catalog and `pnpm-lock.yaml` changes are committed together.
+- **A dependency's build script runs only if it has been admitted.**
+  Install-time scripts are approved per package and version in
+  `pnpm-workspace.yaml`'s `allowBuilds`; an unreviewed one fails the install
+  rather than executing.
+
+Continuous integration runs the same command. Two checks are required on every
+pull request: `verify`, which is the four steps above on Ubuntu and Node 22, and
+`dependency-review`, which blocks newly introduced high or critical
+vulnerabilities in runtime and development dependencies alike.
+
 ## Where the project is right now
 
-**Pre-implementation.** No source code exists yet. The repository currently
-holds the specification and the decision record:
+**Phase 0 - the foundation.** The workspace, the verification seam, and the
+package shells exist; the product behaviour does not yet. The specification and
+the decision record are still where the reasoning lives:
 
 | Path | What it is |
 |---|---|
@@ -19,13 +59,9 @@ holds the specification and the decision record:
 | [`docs/research/`](docs/research/) | Findings from investigations that decisions depended on. |
 | [`docs/agents/`](docs/agents/) | Conventions for the coding agents that work in this repo. |
 
-Until the first package lands there is nothing to install and nothing to run.
-The most useful contribution today is **argument**: reading the PRD or an ADR
-and telling us where it is wrong.
-
-Once code exists, this section will carry the real setup steps. The stack is
-TypeScript on Node.js 22+ (ESM) in a Turborepo monorepo, with Vitest and
-Playwright for tests and Oxlint/Oxfmt for lint and format.
+Code is not the only useful contribution, and at this stage it is not even the
+most useful one. Reading the PRD or an ADR and telling us where it is wrong is
+worth more than most patches.
 
 ## Speak the glossary
 

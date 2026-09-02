@@ -200,6 +200,11 @@ materializes it with every remote and host reference stripped, so it carries no 
 GitHub and nothing inside the Sandbox can fetch what the Worker did not put there.
 _Avoid_: working tree, clone, repo
 
+pnpm also calls a member package of a monorepo a "workspace". By naming rule 4 the foreign
+word is qualified at the seam: that sense survives only in this repository's own tooling and
+the file names it already owns - `pnpm-workspace.yaml`, `tools/verify-workspace.mjs` - and is
+never a domain type. Domain code and the protocol use Workspace only in the sense above.
+
 **Project commands**:
 The install, build, test and typecheck commands a repository declares for its own toolchain,
 which a Reviewer may run while verifying.

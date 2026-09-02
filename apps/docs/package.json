@@ -1,0 +1,16 @@
+{
+  "name": "@reprove/docs-app",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Reserved documentation application. ADR 0010 creates it when there is content.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:"
+  }
+}
