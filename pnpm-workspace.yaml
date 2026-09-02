@@ -9,7 +9,7 @@ packages:
 # when their dependencies actually arrive (ADR 0010, issue #30).
 catalog:
   "@types/node": ^26.4.0
-  typescript: ^5.9.3
+  typescript: ^7.0.2
   zod: ^4.5.4
 
 # --- Package manager selection -------------------------------------------------

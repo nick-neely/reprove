@@ -16,7 +16,7 @@ import { builtinModules } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import ts from "typescript";
+import { createScanner } from "typescript/unstable/ast/scanner";
 
 /** ADR 0010: explicit globs only, so `prototypes/**` stays outside the workspace. */
 const WORKSPACE_GLOBS = ["packages/*", "apps/*"];
@@ -224,8 +224,9 @@ const DEPENDENCY_FIELDS = [
  * Extensions the import walk reads. JavaScript belongs here alongside
  * TypeScript: `allowJs` is on for the Next.js app, and any workspace may ship a
  * `.mjs` or `.cjs` file, so a boundary crossing hides in one exactly as it does
- * in a `.ts` file. `ts.preProcessFile` is a lexical scanner, so it reports the
- * specifiers in these files without needing them to type-check.
+ * in a `.ts` file. TypeScript 7 exposes its lexical scanner from the unstable
+ * AST entrypoint; it reports the specifiers in these files without needing them
+ * to type-check.
  */
 const SOURCE_EXTENSIONS = new Set([
   ".js",
@@ -332,6 +333,130 @@ const listSourceFiles = (dir) => {
     }
   }
   return found;
+};
+
+const isStringLiteral = (token) =>
+  token?.text.startsWith('"') || token?.text.startsWith("'");
+
+const isPropertyAccess = (tokens, index) =>
+  tokens[index - 1]?.text === "." || tokens[index - 1]?.text === "?.";
+
+const DEPTH_DELTAS = new Map([
+  ["{", [0, 1]],
+  ["}", [0, -1]],
+  ["(", [1, 1]],
+  [")", [1, -1]],
+  ["[", [2, 1]],
+  ["]", [2, -1]],
+]);
+
+/**
+ * Finds the module specifier after `from` in an import or export declaration.
+ * Bracket depth keeps an imported binding named `from` from being mistaken for
+ * the declaration's module clause.
+ */
+const findFromSpecifier = (tokens, start) => {
+  const depths = [0, 0, 0];
+  const isTopLevel = () => depths.every((depth) => depth === 0);
+
+  for (let index = start; index < tokens.length; index += 1) {
+    const token = tokens[index];
+
+    if (token.text === ";" && isTopLevel()) {
+      return null;
+    }
+
+    if (["import", "export"].includes(token.text) && isTopLevel()) {
+      return null;
+    }
+
+    const depthDelta = DEPTH_DELTAS.get(token.text);
+    if (depthDelta) {
+      const [dimension, delta] = depthDelta;
+      depths[dimension] = Math.max(0, depths[dimension] + delta);
+      continue;
+    }
+
+    if (
+      token.text === "from" &&
+      isTopLevel() &&
+      isStringLiteral(tokens[index + 1])
+    ) {
+      return tokens[index + 1];
+    }
+  }
+
+  return null;
+};
+
+/**
+ * TypeScript 7 no longer exposes `preProcessFile` from its root module. The
+ * unstable scanner is the replacement lexical primitive, and keeping the
+ * small declaration recognizer here means the boundary check does not need a
+ * full parser or type-checking pass.
+ */
+const importedSpecifiers = (source) => {
+  const scanner = createScanner(true);
+  scanner.setText(source);
+  const tokens = [];
+
+  while (true) {
+    scanner.scan();
+    const text = scanner.getTokenText();
+    if (text === "") {
+      break;
+    }
+    tokens.push({ text, value: scanner.getTokenValue() });
+  }
+
+  const imported = [];
+  const add = (token) => {
+    if (isStringLiteral(token)) {
+      imported.push({ fileName: token.value });
+    }
+  };
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (isPropertyAccess(tokens, index)) {
+      continue;
+    }
+
+    if (token.text === "import") {
+      if (tokens[index + 1]?.text === "(") {
+        add(tokens[index + 2]);
+      } else if (isStringLiteral(tokens[index + 1])) {
+        add(tokens[index + 1]);
+      } else {
+        add(findFromSpecifier(tokens, index + 1));
+      }
+      continue;
+    }
+
+    if (token.text === "export") {
+      let declarationStart = index + 1;
+      if (tokens[declarationStart]?.text === "type") {
+        declarationStart += 1;
+      }
+      if (
+        tokens[declarationStart]?.text === "{" ||
+        tokens[declarationStart]?.text === "*"
+      ) {
+        add(findFromSpecifier(tokens, declarationStart + 1));
+      }
+      continue;
+    }
+
+    if (
+      token.text === "require" &&
+      tokens[index + 1]?.text === "(" &&
+      isStringLiteral(tokens[index + 2])
+    ) {
+      add(tokens[index + 2]);
+    }
+  }
+
+  return imported;
 };
 
 /**
@@ -789,13 +914,9 @@ const checkImports = (rootDir, workspace, spec, manifest, violations) => {
     const add = (message) =>
       violations.push({ workspace, rule: "import-boundary", message });
     const context = { spec, declared, relative, add };
-    const preprocessed = ts.preProcessFile(
-      readFileSync(file, "utf-8"),
-      true,
-      true
-    );
+    const preprocessed = importedSpecifiers(readFileSync(file, "utf-8"));
 
-    for (const { fileName: specifier } of preprocessed.importedFiles) {
+    for (const { fileName: specifier } of preprocessed) {
       if (specifier.startsWith(".")) {
         const resolved = path.resolve(path.dirname(file), specifier);
         if (path.relative(workspaceDir, resolved).startsWith("..")) {
