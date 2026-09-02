@@ -220,7 +220,23 @@ const DEPENDENCY_FIELDS = [
   "optionalDependencies",
 ];
 
-const SOURCE_EXTENSIONS = new Set([".ts", ".tsx", ".mts"]);
+/**
+ * Extensions the import walk reads. JavaScript belongs here alongside
+ * TypeScript: `allowJs` is on for the Next.js app, and any workspace may ship a
+ * `.mjs` or `.cjs` file, so a boundary crossing hides in one exactly as it does
+ * in a `.ts` file. `ts.preProcessFile` is a lexical scanner, so it reports the
+ * specifiers in these files without needing them to type-check.
+ */
+const SOURCE_EXTENSIONS = new Set([
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".cjs",
+  ".ts",
+  ".tsx",
+  ".mts",
+  ".cts",
+]);
 
 /**
  * Directories the import walk never descends into: installed dependencies and

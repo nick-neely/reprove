@@ -395,6 +395,24 @@ describe(verifyWorkspace, () => {
     ).toBeTruthy();
   });
 
+  it("rejects a boundary violation in a JavaScript file, naming the file", () => {
+    const root = copyRepository();
+    writeSource(
+      root,
+      "packages/control-plane/src/extra.mjs",
+      'import "@reprove/worker-core";\n'
+    );
+
+    expect(
+      broke(
+        verifyWorkspace({ rootDir: root }),
+        "import-boundary",
+        "packages/control-plane",
+        "packages/control-plane/src/extra.mjs"
+      )
+    ).toBeTruthy();
+  });
+
   it("rejects a published package importing a shared dev dependency", () => {
     const root = copyRepository();
     writeSource(
