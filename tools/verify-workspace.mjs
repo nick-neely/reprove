@@ -526,7 +526,13 @@ const checkSupplyChainExceptions = (rootDir, violations) => {
   let reviewBy = null;
 
   for (const rawLine of readFileSync(file, "utf-8").split("\n")) {
-    const line = rawLine.trim();
+    // Two views of the same line. Structure is read with the comment stripped,
+    // the way readWorkspaceGlobs reads `packages:`, so `trustPolicyExclude: #
+    // note` still opens the block instead of silently skipping every exception
+    // under it. The review-by date is read from the raw line, which is the only
+    // view that still carries the comment.
+    const line = rawLine.replace(YAML_COMMENT, "").trimEnd();
+    const raw = rawLine.trim();
     if (TRUST_POLICY_EXCLUDE_KEY.test(line)) {
       inExclude = true;
       reviewBy = null;
@@ -535,16 +541,14 @@ const checkSupplyChainExceptions = (rootDir, violations) => {
     if (!inExclude) {
       continue;
     }
-    if (line.startsWith("#")) {
+    if (raw.startsWith("#")) {
       // Only the nearest comment counts, so a date higher up a block cannot be
       // read as covering an entry appended under it later.
-      reviewBy = REVIEW_BY_COMMENT.exec(line)?.groups?.date ?? null;
+      reviewBy = REVIEW_BY_COMMENT.exec(raw)?.groups?.date ?? null;
       continue;
     }
 
-    const item = YAML_LIST_ITEM.exec(
-      rawLine.replace(YAML_COMMENT, "").trimEnd()
-    );
+    const item = YAML_LIST_ITEM.exec(line);
     if (item?.groups) {
       const entry = item.groups.item.replaceAll(YAML_QUOTES, "");
       if (reviewBy === null) {
@@ -560,7 +564,7 @@ const checkSupplyChainExceptions = (rootDir, violations) => {
       continue;
     }
 
-    if (line !== "") {
+    if (line.trim() !== "") {
       inExclude = false;
     }
     reviewBy = null;

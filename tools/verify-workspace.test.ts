@@ -100,10 +100,14 @@ const writeSource = (root: string, file: string, source: string): void => {
  * Rewrites `pnpm-workspace.yaml` around one `trustPolicyExclude` block, keeping
  * the settled globs so only the supply-chain rule is under test.
  */
-const writeWorkspaceYaml = (root: string, exclude: string): void => {
+const writeWorkspaceYaml = (
+  root: string,
+  exclude: string,
+  key = "trustPolicyExclude:"
+): void => {
   writeFileSync(
     path.join(root, "pnpm-workspace.yaml"),
-    `packages:\n  - packages/*\n  - apps/*\n\ntrustPolicyExclude:\n${exclude}`
+    `packages:\n  - packages/*\n  - apps/*\n\n${key}\n${exclude}`
   );
 };
 
@@ -510,6 +514,41 @@ describe(verifyWorkspace, () => {
     writeWorkspaceYaml(
       root,
       `  # review-by: ${today}\n  - undici-types@6.21.0\n`
+    );
+
+    expect(
+      broke(
+        verifyWorkspace({ rootDir: root }),
+        "supply-chain-exception",
+        "<root>"
+      )
+    ).toBeFalsy();
+  });
+
+  it("rejects an expired exception under a key line carrying a comment", () => {
+    const root = copyRepository();
+    writeWorkspaceYaml(
+      root,
+      "  # review-by: 2020-01-01\n  - undici-types@6.21.0\n",
+      "trustPolicyExclude: # reviewed exceptions"
+    );
+
+    expect(
+      broke(
+        verifyWorkspace({ rootDir: root }),
+        "supply-chain-exception",
+        "<root>",
+        "undici-types@6.21.0"
+      )
+    ).toBeTruthy();
+  });
+
+  it("accepts a reviewed exception under a key line carrying a comment", () => {
+    const root = copyRepository();
+    writeWorkspaceYaml(
+      root,
+      `  # review-by: ${today}\n  - undici-types@6.21.0\n`,
+      "trustPolicyExclude: # reviewed exceptions"
     );
 
     expect(

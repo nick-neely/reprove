@@ -2,8 +2,8 @@
 
 The self-hosted Worker lifecycle: a long-lived daemon with enrollment, polling, claim, lease and cancellation. It exposes the single globally meaningful command:
 
-```
-reprove enroll | start | status
+```text
+reprove <enroll|start|status>
 ```
 
 The artifact is the package, not an installation command: it is distributed on npm and installed with whatever npm-compatible client the operator uses. There is no standalone binary and no primary container image ([ADR 0004](../../docs/adr/0004-sandbox-boundary-and-credential-isolation.md) already requires the Worker to run as a host process).
