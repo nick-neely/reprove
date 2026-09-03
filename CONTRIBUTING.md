@@ -11,12 +11,13 @@ Security problems do **not** go in a public issue - see [SECURITY.md](SECURITY.m
 The stack is TypeScript on Node 22 (ESM), pnpm workspaces with Turborepo,
 Vitest for tests (Playwright later), and Oxlint/Oxfmt through Ultracite.
 
-A clean clone installs and proves itself in four steps:
+A clean clone installs and proves itself in five steps:
 
 ```text
 install Node 22
 corepack enable
 pnpm install --frozen-lockfile
+pnpm db:up                          Docker; see "Database" below
 pnpm verify
 ```
 
@@ -27,7 +28,7 @@ layers, and the first to fail names the workspace and the rule it broke:
 node tools/verify-workspace.mjs    the ADR 0010 workspace and dependency matrix
 turbo run build typecheck          every workspace builds and type-checks
 node tools/verify-packages.mjs     the packed package contract
-vitest run                         the tests
+vitest run                         the tests, against the local database stack
 ultracite check .                  lint and format
 ```
 
