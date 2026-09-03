@@ -12,7 +12,9 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate as applyMigrations } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
 
+import { CLASSIFICATION, tableNames } from "./classification.js";
 import { MIGRATIONS_FOLDER, readCommittedMigrations } from "./migrations.js";
+import { applyRuntimeGrants } from "./privileges.js";
 import { RUNTIME_ROLE } from "./roles.js";
 
 /** What `migrate()` connects with. No value here is read from the environment. */
@@ -43,7 +45,15 @@ const appliedMillis = async (pool: Pool): Promise<Set<number>> => {
 };
 
 /**
- * Applies every committed migration that has not been applied yet.
+ * Applies every committed migration that has not been applied yet, then brings
+ * the runtime role's privileges on the managed tables to exactly what
+ * `privileges.ts` declares.
+ *
+ * The grants live here rather than in `bootstrap()` because they name the
+ * managed tables one by one, and the only moment those tables are known to exist
+ * is after the migrations have run. That has a consequence worth stating: a
+ * `migrate()` that applied nothing still re-applies the grants, so re-running it
+ * is how an operator repairs a privilege that drifted.
  *
  * It refuses if the runtime role is missing, rather than failing halfway
  * through: the generated migrations carry `CREATE POLICY ... TO
@@ -59,7 +69,9 @@ const appliedMillis = async (pool: Pool): Promise<Set<number>> => {
  * this side.
  *
  * @param config The admin connection.
- * @returns The journal tags this call applied, in order.
+ * @returns The journal tags this call applied, in order. An empty array means
+ *   the database was already up to date, not that nothing happened: the grants
+ *   were re-applied either way.
  * @throws {Error} If `bootstrap()` has not run against this cluster.
  */
 export const migrate = async (config: MigrateConfig): Promise<string[]> => {
@@ -79,6 +91,22 @@ export const migrate = async (config: MigrateConfig): Promise<string[]> => {
       migrationsFolder: MIGRATIONS_FOLDER,
     });
     const after = await appliedMillis(pool);
+
+    const client = await pool.connect();
+    try {
+      await client.query("begin");
+      await applyRuntimeGrants(client, tableNames(CLASSIFICATION.managed));
+      await client.query("commit");
+    } catch (error) {
+      try {
+        await client.query("rollback");
+      } catch {
+        // The transaction is already gone, which the original error explains.
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
 
     return readCommittedMigrations()
       .filter(

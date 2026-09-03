@@ -10,7 +10,7 @@
 /** The stable name of each of rule 6's seven checks. */
 export type CheckName =
   | "runtime-role-is-not-privileged"
-  | "runtime-role-owns-no-table"
+  | "runtime-role-reaches-only-the-managed-tables"
   | "every-managed-table-is-classified"
   | "tenant-tables-are-forced"
   | "tenant-policies-are-exactly-canonical"

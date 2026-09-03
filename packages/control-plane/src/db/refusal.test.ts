@@ -21,6 +21,7 @@ import {
   bootRefusal,
   createBypassRlsRole,
   createTestDatabase,
+  onRuntimeConnection,
   RUNTIME_PASSWORD,
   runtimeUrl,
 } from "./local-stack.test-support.js";
@@ -243,10 +244,100 @@ describe("boot refuses to serve", () => {
       createRuntimeDb({ connectionString: database.runtimeUrl })
     );
 
-    expect(failedChecks(refusal)).toStrictEqual(["runtime-role-owns-no-table"]);
-    expect(detailOf(refusal, "runtime-role-owns-no-table")).toContain(
-      "owns smuggled in public"
+    expect(failedChecks(refusal)).toStrictEqual([
+      "runtime-role-reaches-only-the-managed-tables",
+    ]);
+    expect(
+      detailOf(refusal, "runtime-role-reaches-only-the-managed-tables")
+    ).toContain("owns smuggled (relkind r) in public");
+  });
+
+  it("an admin-owned view over a tenant table, which reads every Owner", async () => {
+    const database = await arrange("reprove_test_refusal_view");
+    // The bypass every `relkind = 'r'` filter walked past. A view executes as
+    // *its owner* unless it carries `security_invoker`, so this one reads `run`
+    // as the admin - outside RLS entirely - and carries no policy of its own for
+    // a policy check to find wrong.
+    await database.admin(
+      "insert into owner (id, login, type) values (1001, 'acme', 'organization')"
     );
+    await database.admin(
+      "insert into repository (id, owner_id, name_with_owner) values (10, 1001, 'acme/reprove')"
+    );
+    await database.admin(
+      `insert into run (owner_id, repository_id, pull_request_number, base_sha, head_sha,
+                        provenance, provenance_basis, trigger, harness, model, strategy,
+                        autonomy, placement, config_digest)
+       values (1001, 10, 7, 'a', 'b', 'internal', '{}'::jsonb, 'automatic', 'codex',
+               'gpt-5', 'single', 'verify', 'hosted', 'sha256:1')`
+    );
+    await database.admin("create view run_every_owner as select * from run");
+    await database.admin(
+      `grant select on run_every_owner to ${RUNTIME_ROLE}`
+    );
+
+    // Stated rather than assumed: with no Owner context at all, the view hands
+    // the runtime role a row the tenant boundary denies it.
+    const leaked = await onRuntimeConnection(database.name, async (client) => {
+      const { rows } = await client.query<{ n: string }>(
+        "select count(*)::text as n from run_every_owner"
+      );
+      return rows[0]?.n;
+    });
+    expect(leaked).toBe("1");
+
+    const refusal = await bootRefusal(
+      createRuntimeDb({ connectionString: database.runtimeUrl })
+    );
+
+    // The only check that names it, which is the point: every other one ranges
+    // over the managed tables and a view is not one of them.
+    expect(failedChecks(refusal)).toStrictEqual([
+      "runtime-role-reaches-only-the-managed-tables",
+    ]);
+    expect(
+      detailOf(refusal, "runtime-role-reaches-only-the-managed-tables")
+    ).toContain("reaches run_every_owner (relkind v) in public");
+  });
+
+  it("a runtime role granted TRUNCATE, which ignores row-level security", async () => {
+    const database = await arrange("reprove_test_refusal_truncate");
+    // No policy denies a TRUNCATE, because TRUNCATE is not a row operation. A
+    // role holding it empties another Owner's table through a boundary that
+    // denies it every individual row.
+    await database.admin(`grant truncate on run to ${RUNTIME_ROLE}`);
+
+    const refusal = await bootRefusal(
+      createRuntimeDb({ connectionString: database.runtimeUrl })
+    );
+
+    expect(failedChecks(refusal)).toStrictEqual([
+      "runtime-role-reaches-only-the-managed-tables",
+    ]);
+    expect(
+      detailOf(refusal, "runtime-role-reaches-only-the-managed-tables")
+    ).toContain("holds TRUNCATE on run");
+  });
+
+  it("an unmanaged table in public the runtime role can read", async () => {
+    const database = await arrange("reprove_test_refusal_unmanaged");
+    // The same shape as a table added to the schema module and classified as
+    // neither, reached through the real factory rather than through a doctored
+    // classification: the boundary was never measured over this relation, so
+    // whether it carries a tenant policy was never asked.
+    await database.admin("create table stowaway (owner_id bigint)");
+    await database.admin(`grant select on stowaway to ${RUNTIME_ROLE}`);
+
+    const refusal = await bootRefusal(
+      createRuntimeDb({ connectionString: database.runtimeUrl })
+    );
+
+    expect(failedChecks(refusal)).toStrictEqual([
+      "runtime-role-reaches-only-the-managed-tables",
+    ]);
+    expect(
+      detailOf(refusal, "runtime-role-reaches-only-the-managed-tables")
+    ).toContain("reaches stowaway (relkind r) in public");
   });
 
   it("a database ahead of the repository", async () => {
@@ -376,5 +467,36 @@ describe("boot refuses to serve", () => {
     expect(
       detailOf(refusal, "tenant-policies-are-exactly-canonical")
     ).toContain("run has 2 policies applying to this role");
+  });
+});
+
+describe("boot serves", () => {
+  afterEach(async () => {
+    await Promise.all(opened.splice(0).map((database) => database.drop()));
+  });
+
+  it("beside a neighbour's table the runtime role cannot reach", async () => {
+    const database = await arrange("reprove_test_neighbour");
+    // ADR 0010 permits Vercel Workflow to share this Postgres server, and ADR
+    // 0017 keeps the assertion over Reprove's own boundary rather than over the
+    // database. So the reach check is stated as reach and not as existence: a
+    // relation beside Reprove's that the runtime role cannot touch is a
+    // correctly-behaving neighbour, and refusing over it would be a production
+    // refusal somebody else caused.
+    //
+    // It is also what proves the grants are manifest-scoped. Under the
+    // `alter default privileges ... in schema public` this replaced, a table the
+    // admin created after bootstrap arrived pre-granted to the runtime role, and
+    // this case would refuse.
+    await database.admin("create table neighbour_workload (id bigint)");
+
+    const runtime = await createRuntimeDb({
+      connectionString: database.runtimeUrl,
+    });
+    try {
+      expect(runtime.checks.filter((check) => !check.ok)).toStrictEqual([]);
+    } finally {
+      await runtime.close();
+    }
   });
 });

@@ -85,7 +85,8 @@ all application traffic uses.
 
 Setting a database up is two ordered commands, not two interchangeable ones:
 `reprove-control-plane bootstrap` provisions the runtime role, then
-`reprove-control-plane migrate` applies the schema. Every migration grants the
+`reprove-control-plane migrate` applies the schema and grants the runtime role
+its reach over exactly the tables that schema manages. Every migration grants the
 tenant boundary to that role, so the role has to exist first. See
 [`packages/control-plane`](packages/control-plane/README.md#the-database).
 

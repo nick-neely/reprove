@@ -151,6 +151,33 @@ export const createTestDatabase = async (
 };
 
 /**
+ * One plain `pg` client on the pooled endpoint, as the runtime role, with no
+ * Owner context and no boot assertion in front of it.
+ *
+ * The shipped client has no such door, on purpose: all access runs through
+ * `withOwner`, and there is no `withoutOwner` beside it to reach for. A test
+ * that needs to observe what the boundary does with **no** tenant set therefore
+ * opens its own connection, which is honest about what it is doing - this is a
+ * measurement apparatus rather than an application path.
+ *
+ * @param database The database to connect to.
+ * @param fn The work to run on the connection.
+ * @returns Whatever the work returned.
+ */
+export const onRuntimeConnection = async <T>(
+  database: string,
+  fn: (client: Client) => Promise<T>
+): Promise<T> => {
+  const client = new Client(runtimeUrl(database));
+  await client.connect();
+  try {
+    return await fn(client);
+  } finally {
+    await client.end();
+  }
+};
+
+/**
  * Creates a login role that carries `BYPASSRLS`, which is the shape a provider
  * console hands out: `neon_superuser` carries the flag and is granted to every
  * role created through the console, and connecting as one of those makes every

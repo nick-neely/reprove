@@ -9,6 +9,10 @@
  * class ADR 0004 bans outright, so without this the strongest guarantee in the
  * schema is one connection-string typo away from being decorative.
  *
+ * Seven is the count ADR 0008 fixed and ADR 0017 kept. A gap the checks did not
+ * cover is closed by strengthening one of them rather than by adding an eighth;
+ * {@link checkPrivilegeReach} is the second one so widened.
+ *
  * The behavioural check is not redundant with the other six. Every catalog flag
  * can be correct while the predicate is wrong; that is exactly what the bare
  * `::bigint` cast was, and the behavioural check is what caught it.
@@ -22,6 +26,10 @@ import type { Classification } from "./classification.js";
 import { CLASSIFICATION, tableName, tableNames } from "./classification.js";
 import { readCommittedMigrations } from "./migrations.js";
 import { normalizePredicate } from "./predicate.js";
+import {
+  REACHING_TABLE_PRIVILEGES,
+  WITHHELD_TABLE_PRIVILEGES,
+} from "./privileges.js";
 import type { CheckName, CheckResult } from "./refusal.js";
 import { BootRefusalError } from "./refusal.js";
 import { RUNTIME_ROLE } from "./roles.js";
@@ -255,21 +263,91 @@ const checkRolePrivileges = async (pool: Pool): Promise<string | null> => {
     : null;
 };
 
+/** The relation kinds a privilege can be granted on and rows can be read from. */
+const READABLE_RELKINDS = "{r,p,v,m,f}";
+
 /**
- * A table's owner is exempt from its own RLS unless `FORCE` is set, so the role
- * must not own tables **and** the tables must be forced. Bootstrap closes the
- * route by revoking `CREATE` on the schema; this measures the result.
+ * How far the runtime role can reach, which is meant to be exactly the managed
+ * tables and exactly four verbs on them.
+ *
+ * This is ADR 0008's "owns no table", strengthened rather than joined by an
+ * eighth check, because the original wording measured one corner of one
+ * property. Three clauses now, and each closes something the `relkind = 'r'`
+ * filter let through:
+ *
+ * 1. **The role owns no relation of any kind in `public`.** An owner is exempt
+ *    from its own RLS unless `FORCE` is set, and that is as true of a view or a
+ *    materialized view as of a table.
+ * 2. **It holds no `TRUNCATE`, `REFERENCES` or `TRIGGER` on a managed table.**
+ *    `TRUNCATE` ignores row-level security outright, so a role holding it can
+ *    empty another Owner's table through a boundary that denies it every row.
+ *    No policy check sees this, because it is not a policy.
+ * 3. **It can reach no relation in `public` outside the managed set.** This is
+ *    the view bypass: a view runs as *its owner* unless it carries
+ *    `security_invoker`, so an admin-owned view over a tenant table returns
+ *    every Owner's rows and carries no policy of its own to fail. Nothing that
+ *    filtered on `relkind = 'r'` could ever see it.
+ *
+ * Clause 3 is stated as reach rather than as existence, which is what keeps it
+ * neighbour-safe: a relation a co-located component placed in `public` and the
+ * runtime role cannot touch is not Reprove's boundary failing. Only a relation
+ * the role can actually read or write refuses the boot.
  */
-const checkOwnsNoTable = async (pool: Pool): Promise<string | null> => {
-  const { rows } = await pool.query<{ relname: string }>(
-    `select c.relname from pg_class c
+const checkPrivilegeReach = async (
+  pool: Pool,
+  classification: Classification
+): Promise<string | null> => {
+  const managed = tableNames(classification.managed);
+
+  const owned = await pool.query<{ relname: string; relkind: string }>(
+    `select c.relname, c.relkind from pg_class c
        join pg_namespace n on n.oid = c.relnamespace
        join pg_roles o on o.oid = c.relowner
-      where n.nspname = 'public' and c.relkind = 'r' and o.rolname = current_user`
+      where n.nspname = 'public' and o.rolname = current_user`
   );
-  return rows.length > 0
-    ? `owns ${rows.map((row) => row.relname).join(", ")} in public`
-    : null;
+
+  const excess = await pool.query<{ relname: string; privilege: string }>(
+    `select c.relname, p.privilege from pg_class c
+       join pg_namespace n on n.oid = c.relnamespace
+       cross join unnest($2::text[]) as p(privilege)
+      where n.nspname = 'public'
+        and c.relname = any($1::text[])
+        and has_table_privilege(current_user, c.oid, p.privilege)
+      order by c.relname, p.privilege`,
+    [managed, WITHHELD_TABLE_PRIVILEGES]
+  );
+
+  // Relations the role owns are excluded, because clause 1 already names them
+  // and an owner reaches everything it owns by definition.
+  const reachable = await pool.query<{ relname: string; relkind: string }>(
+    `select c.relname, c.relkind from pg_class c
+       join pg_namespace n on n.oid = c.relnamespace
+       join pg_roles o on o.oid = c.relowner
+      where n.nspname = 'public'
+        and c.relkind = any($3::"char"[])
+        and not (c.relname = any($1::text[]))
+        and o.rolname <> current_user
+        and exists (
+          select 1 from unnest($2::text[]) as p(privilege)
+           where has_table_privilege(current_user, c.oid, p.privilege)
+        )
+      order by c.relname`,
+    [managed, REACHING_TABLE_PRIVILEGES, READABLE_RELKINDS]
+  );
+
+  const problems = [
+    owned.rows.length > 0
+      ? `owns ${owned.rows.map((row) => `${row.relname} (relkind ${row.relkind})`).join(", ")} in public, and an owner is exempt from its own RLS unless FORCE is set`
+      : null,
+    excess.rows.length > 0
+      ? `holds ${excess.rows.map((row) => `${row.privilege} on ${row.relname}`).join(", ")}, and TRUNCATE in particular ignores row-level security`
+      : null,
+    reachable.rows.length > 0
+      ? `reaches ${reachable.rows.map((row) => `${row.relname} (relkind ${row.relkind})`).join(", ")} in public, which the schema module does not manage and the boundary was therefore never measured over`
+      : null,
+  ].filter((problem) => problem !== null);
+
+  return problems.length > 0 ? problems.join("; ") : null;
 };
 
 /**
@@ -587,7 +665,10 @@ export const runBootChecks = async (
 ): Promise<CheckResult[]> => {
   const checks: [CheckName, () => Promise<string | null>][] = [
     ["runtime-role-is-not-privileged", () => checkRolePrivileges(pool)],
-    ["runtime-role-owns-no-table", () => checkOwnsNoTable(pool)],
+    [
+      "runtime-role-reaches-only-the-managed-tables",
+      () => checkPrivilegeReach(pool, classification),
+    ],
     [
       "every-managed-table-is-classified",
       () => checkClassification(pool, classification),

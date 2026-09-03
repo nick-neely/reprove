@@ -22,6 +22,7 @@
 import type { PoolClient } from "pg";
 import { Pool } from "pg";
 
+import { ddl } from "./privileges.js";
 import { RUNTIME_ROLE } from "./roles.js";
 
 /** `CREATE ROLE` against a name another connection created first. */
@@ -47,33 +48,6 @@ export interface BootstrapConfig {
   /** The password the runtime role will authenticate with. */
   readonly runtimePassword: string;
 }
-
-/**
- * Runs one DDL statement whose variable parts Postgres itself quotes.
- *
- * `format('%I', ...)` and `format('%L', ...)` are why the role name and the
- * password travel as bind parameters rather than as interpolated text: DDL takes
- * no parameters, so something has to do the quoting, and Postgres's own quoting
- * is the one thing guaranteed to agree with Postgres's own parser.
- */
-const ddl = async (
-  client: PoolClient,
-  template: string,
-  ...args: string[]
-): Promise<void> => {
-  // Cast every placeholder, because `format(text, VARIADIC "any")` gives the
-  // planner nothing to infer a parameter's type from.
-  const placeholders = args.map((_, index) => `, $${index + 2}::text`).join("");
-  const { rows } = await client.query<{ statement: string }>(
-    `select format($1::text${placeholders}) as statement`,
-    [template, ...args]
-  );
-  const statement = rows[0]?.statement;
-  if (statement === undefined) {
-    throw new Error(`Postgres could not format the statement: ${template}`);
-  }
-  await client.query(statement);
-};
 
 /**
  * Creates the runtime role, or brings an existing one back to these exact flags.
@@ -109,8 +83,8 @@ const provisionRole = async (
 };
 
 /**
- * Provisions the restricted runtime role and the privileges the migrations will
- * hand it, idempotently.
+ * Provisions the restricted runtime role and the reach it has *before* any table
+ * exists, idempotently.
  *
  * The role name is not configurable. The committed policies name it, so a
  * deployment that renamed it would migrate a boundary granted to a role that
@@ -120,13 +94,16 @@ const provisionRole = async (
  * fails outright if the role does not exist yet, so the two commands are
  * ordered rather than interchangeable.
  *
- * Re-running it after `migrate()` is safe and is the supported way to repair
- * privileges: the `ALTER DEFAULT PRIVILEGES` below only reach tables created
- * *after* it, so the grants over what already exists are issued as well.
+ * What it does **not** do is grant anything on Reprove's tables. Those grants
+ * name the managed tables one by one and are issued by `migrate()`, which is the
+ * only moment those tables are known to exist; see
+ * {@link import("./privileges.js").applyRuntimeGrants} for why naming them
+ * matters. Re-running `migrate()` is therefore how a table grant is repaired,
+ * and re-running `bootstrap` remains safe at any point.
  *
  * **Run it as the same role that runs `migrate()`.** A default privilege is
- * recorded against the role that granted it, so a migration applied by a
- * different admin creates tables the runtime role was never granted. That fails
+ * recorded against the role that granted it, so the `drizzle` ledger grant below
+ * reaches a migration ledger only when the same admin creates it. That fails
  * closed - the boot assertion refuses on `permission denied` - and re-running
  * `bootstrap` as the migrating role is the repair.
  *
@@ -177,44 +154,37 @@ export const bootstrap = async (config: BootstrapConfig): Promise<void> => {
     await ddl(client, "revoke create on schema public from %I", RUNTIME_ROLE);
     await ddl(client, "grant usage on schema public to %I", RUNTIME_ROLE);
 
+    // The same route through a different door. A temporary table lands in
+    // `pg_temp`, which the search path resolves *before* `public`, so a role
+    // that can create one can shadow a managed table with a relation it owns
+    // and is therefore exempt from the policies on. The check that the role
+    // owns no relation looks in `public` and would not see it.
+    await ddl(client, "revoke temporary on database %I from public", database);
+    await ddl(
+      client,
+      "revoke temporary on database %I from %I",
+      database,
+      RUNTIME_ROLE
+    );
+
     // Read access to the migration ledger, so the runtime can refuse to serve
     // when it is behind without needing the admin credential to find out.
     await client.query("create schema if not exists drizzle");
     await ddl(client, "grant usage on schema drizzle to %I", RUNTIME_ROLE);
 
-    // What the migrations are about to create. A default privilege reaches only
-    // tables created after it, and only ones created by the admin role. The
-    // statements are spelled out one by one rather than looped, because they
-    // share a connection and Postgres takes them in order.
-    await ddl(
-      client,
-      "alter default privileges for role %I in schema public grant select, insert, update, delete on tables to %I",
-      admin,
-      RUNTIME_ROLE
-    );
-    await ddl(
-      client,
-      "alter default privileges for role %I in schema public grant usage, select on sequences to %I",
-      admin,
-      RUNTIME_ROLE
-    );
+    // The ledger `migrate()` is about to create, and the one it may already have
+    // created. A default privilege reaches only tables created after it, and
+    // only ones created by the admin role, so both statements are needed for
+    // `bootstrap` to be re-runnable at any point in a database's life.
+    //
+    // Deliberately scoped to `drizzle` and not to `public`. Nothing that grants
+    // "every table in a schema" survives here: a schema is somewhere a
+    // neighbour may legitimately put a relation, and `migrate()` names Reprove's
+    // own tables instead.
     await ddl(
       client,
       "alter default privileges for role %I in schema drizzle grant select on tables to %I",
       admin,
-      RUNTIME_ROLE
-    );
-
-    // And what they created already, so bootstrapping after a migration repairs
-    // privileges instead of silently covering only the next table.
-    await ddl(
-      client,
-      "grant select, insert, update, delete on all tables in schema public to %I",
-      RUNTIME_ROLE
-    );
-    await ddl(
-      client,
-      "grant usage, select on all sequences in schema public to %I",
       RUNTIME_ROLE
     );
     await ddl(
