@@ -14,6 +14,7 @@
  * The database is the one PgBouncer serves through a pool of exactly one server
  * connection, so reuse is deterministic rather than load-dependent.
  */
+import { PgDialect } from "drizzle-orm/pg-core";
 import { Client } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -28,9 +29,18 @@ import {
 } from "./local-stack.test-support.js";
 import { migrate } from "./migrate.js";
 import { createRuntimeDb } from "./runtime.js";
+import { ownerContext } from "./schema.js";
 
 const OWNER = 4242;
 const SMUGGLED_OWNER = "77";
+
+/**
+ * The policies' own Owner-context fragment, rendered. Spelling it again here
+ * would let this file and the boundary drift apart while both still passed:
+ * an observation that disagrees with the policy about what "no context" means
+ * is measuring something the boundary does not depend on.
+ */
+const OWNER_CONTEXT = new PgDialect().sqlToQuery(ownerContext).sql;
 
 let database: TestDatabase;
 
@@ -40,10 +50,7 @@ const readTenantContext = async (): Promise<string | null> => {
   await client.connect();
   try {
     const { rows } = await client.query<{ owner: string | null }>(
-      // Deliberately the same expression the policies use. If the observation
-      // and the policy disagreed about what "no context" means, the observation
-      // would be measuring something the boundary does not depend on.
-      "select nullif(current_setting('app.owner_id', true), '') as owner"
+      `select ${OWNER_CONTEXT} as owner`
     );
     return rows[0]?.owner ?? null;
   } finally {
@@ -77,7 +84,7 @@ describe.sequential("one server connection, handed to client after client", () =
     try {
       await runtime.withOwner(OWNER, async (tx) => {
         const { rows } = await tx.execute<{ owner: string | null }>(
-          "select nullif(current_setting('app.owner_id', true), '') as owner"
+          `select ${OWNER_CONTEXT} as owner`
         );
         // Inside the transaction the context is set, so the next assertion is
         // about it being released rather than about it never existing.

@@ -47,8 +47,15 @@ export const runtimeRole = pgRole(RUNTIME_ROLE).existing();
  * `current_setting(..., true)` returns NULL when the GUC was never set, so a
  * missing tenant context reads as zero rows rather than as an error - the same
  * shape as the wrong tenant.
+ *
+ * The empty string is not only a pooler's doing, which is measured rather than
+ * inferred: a transaction-local `set_config('app.owner_id', ..., true)` also
+ * leaves `''` behind on the session once its transaction ends, on the direct
+ * endpoint as much as the pooled one. So `withOwner` itself creates the value
+ * that would break the bare cast, and the guard is load-bearing on every
+ * connection this package hands out rather than only after a reset.
  */
-const ownerContext = sql`nullif(current_setting('app.owner_id', true), '')::bigint`;
+export const ownerContext = sql`nullif(current_setting('app.owner_id', true), '')::bigint`;
 
 /**
  * The canonical tenant policy, applied identically to every Owner-scoped table.
@@ -60,7 +67,7 @@ const ownerContext = sql`nullif(current_setting('app.owner_id', true), '')::bigi
  * The column is typed `SQLWrapper` because inside the extra-config callback a
  * column is an `ExtraConfigColumn` rather than the builder it was declared with.
  */
-const tenantPolicy = (name: string, column: SQLWrapper) =>
+export const tenantPolicy = (name: string, column: SQLWrapper) =>
   pgPolicy(name, {
     for: "all",
     to: runtimeRole,
@@ -290,9 +297,11 @@ export const run = pgTable(
     tenantPolicy("run_tenant", t.ownerId),
     index("run_owner_idx").on(t.ownerId),
     // ADR 0013's duplicate-live-Run invariant. Defense in depth, not the
-    // ordering primitive: ordering comes from the advisory lock taken inside
-    // `withOwner`. Deliberately not unique on `head_sha`, because ADR 0007
-    // allows a retry to produce a new Run at the same head.
+    // ordering primitive: ordering comes from `pg_try_advisory_xact_lock(
+    // repositoryId, pullRequestNumber)` on the ingress path, which #48 and #49
+    // build. Nothing in this package takes that lock yet. Deliberately not
+    // unique on `head_sha`, because ADR 0007 allows a retry to produce a new
+    // Run at the same head.
     uniqueIndex("run_one_live_per_pull_request")
       .on(t.repositoryId, t.pullRequestNumber)
       .where(sql`${t.status} in ('queued', 'claimed', 'executing')`),

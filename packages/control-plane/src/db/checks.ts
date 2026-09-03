@@ -25,8 +25,20 @@ import { normalizePredicate } from "./predicate.js";
 import type { CheckName, CheckResult } from "./refusal.js";
 import { BootRefusalError } from "./refusal.js";
 import { RUNTIME_ROLE } from "./roles.js";
+import { ownerContext } from "./schema.js";
 
 const DIALECT = new PgDialect();
+
+/**
+ * The tenant predicate's Owner-context half, as SQL.
+ *
+ * Rendered from the fragment the policies are built out of rather than spelled
+ * again here, so there is exactly one definition of it in the package. ADR 0008
+ * requires the behavioural check to evaluate the **same expression** the
+ * policies use; a second spelling would satisfy that on the day it was written
+ * and stop satisfying it the day one of them changed.
+ */
+const OWNER_CONTEXT = DIALECT.sqlToQuery(ownerContext).sql;
 
 /** `select` against a relation that does not exist. */
 const UNDEFINED_TABLE = "42P01";
@@ -494,8 +506,9 @@ const checkMigrations = async (pool: Pool): Promise<string | null> => {
 
 /**
  * The behavioural one. It reads every tenant table with no Owner context set,
- * using the **same expression the policies use** - if the assertion and the
- * policy disagreed about what "no context" means, the assertion would be
+ * having first evaluated {@link OWNER_CONTEXT} - which is the policies' own
+ * fragment, rendered - rather than a second spelling of it. If the assertion and
+ * the policy disagreed about what "no context" means, the assertion would be
  * measuring something the boundary does not depend on.
  *
  * One statement rather than one per table, because it has to observe a single
@@ -525,7 +538,7 @@ const checkNoContextReadsEmpty = async (
   try {
     await client.query("begin");
     const context = await client.query<{ owner: string | null }>(
-      "select nullif(current_setting('app.owner_id', true), '') as owner"
+      `select ${OWNER_CONTEXT} as owner`
     );
     const leaked = context.rows[0]?.owner;
     if (leaked !== null && leaked !== undefined) {
