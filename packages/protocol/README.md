@@ -10,4 +10,8 @@ The _wire contract_ under `/v1` is compatibility-governed by [ADR 0006](../../do
 
 Version families are subpath exports, not a growing union: import `@reprove/protocol/v1`. There is deliberately no `.` export.
 
-At Phase 0 this is a shell and carries no product behaviour.
+Protocol v1 exports the shared Zod schemas and inferred TypeScript types for the
+three payloads crossing the Worker boundary: `RunSpec`, `Result` and `Refusal`.
+`protocolSchemas` groups exactly those payload schemas for consumers that need
+the whole boundary. Nested schemas are exported for composition, but Adapter
+output is intentionally absent because it stays inside the Worker core.

@@ -47,9 +47,9 @@ vulnerabilities in runtime and development dependencies alike.
 
 ## Where the project is right now
 
-**Phase 0 - the foundation.** The workspace, the verification seam, and the
-package shells exist; the product behaviour does not yet. The specification and
-the decision record are still where the reasoning lives:
+**Phase 0 - the foundation.** The workspace, verification seam, and initial
+protocol v1 contract exist; most product behaviour does not yet. The
+specification and the decision record are still where the reasoning lives:
 
 | Path | What it is |
 |---|---|

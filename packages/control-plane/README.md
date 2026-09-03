@@ -16,4 +16,6 @@ The command is namespaced deliberately and does not expect global installation; 
 
 **Published by necessity** ([ADR 0010](../../docs/adr/0010-package-graph-and-open-core-boundary.md)). The supported self-hosting surface is `apps/control-plane` **as a deployable application, not as a package**. Public source, gated by every CI check, carrying **no stability promise**.
 
-At Phase 0 this is a shell: the bin prints usage and implements nothing.
+`workerProtocolSchemas` is the control-plane reference to the authoritative
+schemas from `@reprove/protocol/v1`; the package does not define a second wire
+shape. The bin still prints usage and implements no operational commands.

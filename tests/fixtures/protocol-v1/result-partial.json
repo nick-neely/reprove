@@ -1,0 +1,31 @@
+{
+  "runId": "run_02",
+  "completeness": "partial",
+  "stoppedBy": "budget_exhausted",
+  "summary": "The review budget ended before any finding was established.",
+  "disprovedHypothesisCount": 1,
+  "findings": [],
+  "passes": [
+    {
+      "passId": "pass_02",
+      "harness": "codex",
+      "pinnedModel": "gpt-5.6",
+      "resolvedModel": null,
+      "startedAt": "2026-09-03T12:01:00Z",
+      "endedAt": "2026-09-03T12:21:00Z",
+      "outcome": "completed",
+      "failureReason": null,
+      "repairTurnUsed": false,
+      "usage": {
+        "inputTokens": 240000,
+        "outputTokens": 11300
+      }
+    }
+  ],
+  "usage": {
+    "inputTokens": 240000,
+    "outputTokens": 11300
+  },
+  "protocolVersion": 1,
+  "workerBuildVersion": "0.1.0"
+}
