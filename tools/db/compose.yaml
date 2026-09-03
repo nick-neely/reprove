@@ -9,11 +9,13 @@
 # silently collided with one would either refuse to start or, worse, point these
 # tests at somebody else's database.
 #
-# PgBouncer is not convenience. Three of ADR 0008's failures exist only on a
-# pooled connection - a bare `SET` outliving the client that issued it, an empty
-# string left behind by a reset, and a policy predicate that is correct until
-# either happens - so a stack without it would prove the tenant boundary against
-# an arrangement production does not run.
+# PgBouncer is not convenience. A pooler in transaction mode hands one server
+# connection to client after client without scrubbing session state, and that is
+# what ADR 0008's rules 2 and 3 exist for: a bare `SET` outlives the client that
+# issued it, and so does the empty string a custom GUC is left as once anything
+# has set it. Both are reproduced against this stack, along with the predicate
+# that turns the second into an outage. A stack without a pooler would prove the
+# tenant boundary against an arrangement production does not run.
 #
 # `docker compose -f tools/db/compose.yaml up -d --wait`, or `pnpm db:up`.
 # Docker is the only prerequisite; nothing here needs a local Postgres.

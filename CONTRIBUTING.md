@@ -73,9 +73,11 @@ pnpm db:down    # and away again, volumes included
 ```
 
 If it is not up, those tests **fail with instructions rather than skipping**.
-Three of [ADR 0008](docs/adr/0008-persistence-tenancy-and-retention.md)'s
-failures exist only on a pooled connection, so a run that quietly skipped them
-would prove the boundary against an arrangement production does not use.
+The failures [ADR 0008](docs/adr/0008-persistence-tenancy-and-retention.md)'s
+rules 2 and 3 exist for are only observable on a pooled connection - session
+state outliving the client that set it, and reaching a client that set nothing -
+so a run that quietly skipped them would prove the boundary against an
+arrangement production does not use.
 
 The stack serves the two connections ADR 0008 keeps separate and never crosses:
 an **admin** role on the direct endpoint at `127.0.0.1:55532`, which owns the
