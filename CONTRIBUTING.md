@@ -20,15 +20,46 @@ pnpm install --frozen-lockfile
 pnpm verify
 ```
 
-`pnpm verify` is the repository's proof. It sequences four independently owned
-layers - `node tools/verify-workspace.mjs`, `turbo run build typecheck`,
-`vitest run`, then `ultracite check .` - and the first layer to fail names the
-workspace and the rule it broke. Each of those four is runnable on its own as an
-inner-loop shortcut, but passing one is never equivalent to passing
-`pnpm verify`. A fifth layer - the packed-package contract settled by issue #31
-(an API report, a forbidden-type gate, `pnpm pack` into a consumer fixture,
-`publint` and `attw`) - is not yet part of `pnpm verify`; it is tracked in
-[issue #43](https://github.com/nick-neely/reprove/issues/43).
+`pnpm verify` is the repository's proof. It sequences five independently owned
+layers, and the first to fail names the workspace and the rule it broke:
+
+```text
+node tools/verify-workspace.mjs    the ADR 0010 workspace and dependency matrix
+turbo run build typecheck          every workspace builds and type-checks
+node tools/verify-packages.mjs     the packed package contract
+vitest run                         the tests
+ultracite check .                  lint and format
+```
+
+Each layer is runnable on its own as an inner-loop shortcut - `verify:workspace`,
+`verify:build`, `verify:packages`, `verify:test` and `verify:lint`, each under
+`pnpm run` - but passing one is never equivalent to passing `pnpm verify`.
+
+`verify:packages` proves the artifact a consumer would actually install. It
+discovers the publishable packages from their own manifests, packs each one with
+`pnpm pack`, and installs the tarballs into a throwaway fixture that holds **one
+consumer per package, each depending on its own tarball and nothing else**. In
+each it type-checks, imports and smoke-runs that package's published subpaths,
+then puts `publint` and `attw` over the same tarballs. Giving each package a
+consumer of its own is what makes a dependency a package uses but never declared
+fail: module resolution walks up from the importing file, so a consumer holding
+every tarball would let the siblings satisfy it. It runs after the build because
+it packs `dist`, and it needs no network: the fixture installs `--offline` from
+the store your `pnpm install` already filled.
+
+It also owns the two checks that guard the published TypeScript surface:
+
+- **The API report.** Each publishable package carries an `api-report.md`
+  holding its emitted declarations verbatim, so a public API change shows up as
+  a reviewable diff. When a change to it is intended, run
+  `pnpm verify:packages --update` and commit the result with the change.
+- **The forbidden-type gate.** No `HarnessV1*`, `Experimental_*` or
+  `@ai-sdk/*` may appear on a packed declaration surface, because an upstream
+  type leaks through an exported signature even when the package never imports
+  it ([ADR 0005](docs/adr/0005-adapter-boundary.md)).
+
+`pnpm verify:packages --keep` leaves the consumer fixture on disk and prints its
+path, which is the fastest way to see what a consumer actually received.
 
 Two things catch people out:
 
@@ -41,9 +72,10 @@ Two things catch people out:
   rather than executing.
 
 Continuous integration runs the same command. Two checks are required on every
-pull request: `verify`, which is the four steps above on Ubuntu and Node 22, and
+pull request: `verify`, which is the five steps above on Ubuntu and Node 22, and
 `dependency-review`, which blocks newly introduced high or critical
-vulnerabilities in runtime and development dependencies alike.
+vulnerabilities in runtime and development dependencies alike. A new layer is
+sequenced inside `pnpm verify` rather than added as a third required check.
 
 ## Where the project is right now
 

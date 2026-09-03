@@ -5,14 +5,16 @@
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
-    "verify": "pnpm run verify:workspace && pnpm run verify:build && pnpm run verify:test && pnpm run verify:lint",
+    "verify": "pnpm run verify:workspace && pnpm run verify:build && pnpm run verify:packages && pnpm run verify:test && pnpm run verify:lint",
     "verify:workspace": "node tools/verify-workspace.mjs",
     "verify:build": "turbo run build typecheck",
+    "verify:packages": "node tools/verify-packages.mjs",
     "verify:test": "vitest run",
     "verify:lint": "ultracite check .",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
     "@reprove/adapters": "workspace:*",
     "@reprove/control-plane": "workspace:*",
     "@reprove/control-plane-workflow": "workspace:*",
@@ -24,6 +26,8 @@
     "@types/node": "catalog:",
     "oxfmt": "^0.65.0",
     "oxlint": "^1.80.0",
+    "publint": "^0.3.24",
+    "semver": "^7.8.5",
     "turbo": "^2.10.12",
     "typescript": "catalog:",
     "ultracite": "^7.10.7",
