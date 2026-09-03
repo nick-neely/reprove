@@ -231,6 +231,64 @@ describe("boot refuses to serve", () => {
     }
   });
 
+  it("a runtime role that owns a table, and is therefore exempt from its RLS", async () => {
+    const database = await arrange("reprove_test_refusal_owned_table");
+    // FORCE is what stops an owner being exempt from its own policies, and the
+    // runtime role cannot create a table - but a table handed to it out of band
+    // is still a table it owns.
+    await database.admin("create table smuggled (owner_id bigint)");
+    await database.admin(`alter table smuggled owner to ${RUNTIME_ROLE}`);
+
+    const refusal = await bootRefusal(
+      createRuntimeDb({ connectionString: database.runtimeUrl })
+    );
+
+    expect(failedChecks(refusal)).toStrictEqual(["runtime-role-owns-no-table"]);
+    expect(detailOf(refusal, "runtime-role-owns-no-table")).toContain(
+      "owns smuggled in public"
+    );
+  });
+
+  it("a database ahead of the repository", async () => {
+    const database = await arrange("reprove_test_refusal_ahead");
+    await database.admin(
+      "insert into drizzle.__drizzle_migrations (hash, created_at) values ('from-the-future', 99999999999999)"
+    );
+
+    const refusal = await bootRefusal(
+      createRuntimeDb({ connectionString: database.runtimeUrl })
+    );
+
+    expect(failedChecks(refusal)).toStrictEqual([
+      "migrations-match-the-committed-files",
+    ]);
+    expect(detailOf(refusal, "migrations-match-the-committed-files")).toContain(
+      "no journal entry, so the database is ahead of this build"
+    );
+  });
+
+  it("a wide-open policy over a table that actually holds rows", async () => {
+    const database = await arrange("reprove_test_refusal_open_policy");
+    // The behavioural check is vacuous on an empty table, so this is the case
+    // that shows it carries weight: a row exists, and no Owner context is set.
+    await database.admin(
+      "insert into owner (id, login, type) values (1001, 'acme', 'organization')"
+    );
+    await database.admin("drop policy owner_tenant on owner");
+    await database.admin(
+      `create policy owner_tenant on owner as permissive for all to ${RUNTIME_ROLE} using (true) with check (true)`
+    );
+
+    const refusal = await bootRefusal(
+      createRuntimeDb({ connectionString: database.runtimeUrl })
+    );
+
+    expect(failedChecks(refusal)).toContain("no-owner-context-reads-empty");
+    expect(detailOf(refusal, "no-owner-context-reads-empty")).toContain(
+      "rows are visible with no tenant context in owner"
+    );
+  });
+
   it("a policy that guards a space instead of the empty string", async () => {
     const database = await arrange("reprove_test_refusal_space_guard");
     // `nullif(x, ' ')` is the bare cast wearing a disguise: a pooler's reset

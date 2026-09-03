@@ -14,6 +14,7 @@ import {
   RUNTIME_PASSWORD,
 } from "./local-stack.test-support.js";
 import { migrate } from "./migrate.js";
+import { readCommittedMigrations } from "./migrations.js";
 import type { RuntimeDb } from "./runtime.js";
 import { createRuntimeDb } from "./runtime.js";
 
@@ -77,6 +78,13 @@ describe("a database bootstrapped and migrated from clean", () => {
     await expect(
       migrate({ connectionString: database.adminUrl })
     ).resolves.toStrictEqual([]);
+
+    // Asserted separately, because "applied nothing" is also what a migrate
+    // that silently failed to detect an application would return.
+    const ledger = await database.admin<{ n: string }>(
+      "select count(*)::text as n from drizzle.__drizzle_migrations"
+    );
+    expect(ledger[0]?.n).toBe(String(readCommittedMigrations().length));
   });
 
   it("refuses the runtime role a table of its own", async () => {

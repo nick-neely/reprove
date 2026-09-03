@@ -427,7 +427,17 @@ const checkForced = async (
           .join(", ")})`
     );
 
-  return bad.length > 0 ? bad.join("; ") : null;
+  // Absence is not success. The query returns a row only for an ordinary table
+  // in `public`, so a tenant table that is missing, or that is a view or a
+  // partitioned table, would otherwise pass an assertion whose whole job is to
+  // refuse.
+  const seen = new Set(rows.map((row) => row.relname));
+  const unseen = tableNames(classification.tenant)
+    .filter((name) => !seen.has(name))
+    .map((name) => `${name} (absent, or not an ordinary table in public)`);
+
+  const problems = [...bad, ...unseen];
+  return problems.length > 0 ? problems.join("; ") : null;
 };
 
 /**
@@ -512,6 +522,9 @@ const checkMigrations = async (pool: Pool): Promise<string | null> => {
   const byMillis = new Map(
     applied.map((row) => [Number(row.created_at), row.hash])
   );
+  // A Map keeps the last row per key, so two rows sharing a `created_at` would
+  // hide one another from the hash comparison below. There should never be two.
+  const duplicated = applied.length !== byMillis.size;
   const pending = committed.filter(
     (migration) => !byMillis.has(migration.folderMillis)
   );
@@ -537,6 +550,9 @@ const checkMigrations = async (pool: Pool): Promise<string | null> => {
     ahead.length > 0
       ? `${ahead.length} applied migration(s) have no journal entry, so the database is ahead of this build`
       : null,
+    duplicated
+      ? `the ledger holds ${applied.length} rows for ${byMillis.size} distinct migrations, so one is shadowing another`
+      : null,
   ].filter((problem) => problem !== null);
 
   return problems.length > 0 ? problems.join("; ") : null;
@@ -551,6 +567,13 @@ const checkMigrations = async (pool: Pool): Promise<string | null> => {
  * One statement rather than one per table, because it has to observe a single
  * transaction: a context that leaked from a pooled connection would be released
  * by a second one.
+ *
+ * **What it does not prove.** An empty table reads empty under any policy, so on
+ * a freshly migrated database this check passes without exercising the
+ * predicate. It still catches the failure ADR 0008 built it for - the bare
+ * `::bigint` cast raises from inside the policy rather than returning rows - and
+ * it is the six catalog checks beside it that carry the rest. Writing a row to
+ * make it non-vacuous is not available: a boot assertion does not write.
  */
 const checkNoContextReadsEmpty = async (
   pool: Pool,

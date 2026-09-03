@@ -51,6 +51,13 @@ const appliedMillis = async (pool: Pool): Promise<Set<number>> => {
  * "run bootstrap first" is a better thing to read than a Postgres role error
  * raised from inside migration `0000`.
  *
+ * Drizzle applies only migrations whose `folderMillis` exceeds the newest
+ * `created_at` in the ledger, so a journal entry appended with an *older*
+ * timestamp than one already applied is skipped here and reported as pending by
+ * the boot assertion forever. ADR 0017's authoring-time append-only verifier is
+ * what keeps the journal from reaching that state; there is no recovery from
+ * this side.
+ *
  * @param config The admin connection.
  * @returns The journal tags this call applied, in order.
  * @throws {Error} If `bootstrap()` has not run against this cluster.

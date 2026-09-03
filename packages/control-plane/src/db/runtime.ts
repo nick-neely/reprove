@@ -28,6 +28,16 @@ export interface RuntimeDbConfig {
   readonly connectionString: string;
   /** Client connections the pool may hold open. Defaults to 8. */
   readonly poolSize?: number;
+  /**
+   * Called when the pool's own connection to Postgres fails while idle - a
+   * restart, a pooler recycling a server connection, a reset network.
+   *
+   * A handler is attached whether or not one is supplied, because `pg.Pool` is
+   * an `EventEmitter` and an unhandled `error` event **takes the process down**.
+   * The pool discards the failed client itself, so there is nothing to do but
+   * observe; this package holds no logger, so observing is the caller's.
+   */
+  readonly onConnectionError?: (error: Error) => void;
 }
 
 type Database = NodePgDatabase<typeof schema>;
@@ -93,6 +103,7 @@ export const createRuntimeDb = async (
     connectionString: config.connectionString,
     max: config.poolSize ?? DEFAULT_POOL_SIZE,
   });
+  pool.on("error", (error) => config.onConnectionError?.(error));
 
   let checks: CheckResult[];
   try {
@@ -104,13 +115,18 @@ export const createRuntimeDb = async (
 
   const db = drizzle(pool, { schema });
 
-  const withOwner = <T>(ownerId: number, fn: InTransaction<T>): Promise<T> => {
+  const withOwner = async <T>(
+    ownerId: number,
+    fn: InTransaction<T>
+  ): Promise<T> => {
+    // `async`, so a caller that only ever writes `.catch()` sees this the same
+    // way it sees a failed transaction rather than as a synchronous throw.
     if (!Number.isSafeInteger(ownerId)) {
       throw new TypeError(
         `an Owner id must be GitHub's durable numeric id, not ${String(ownerId)}`
       );
     }
-    return db.transaction(async (tx) => {
+    return await db.transaction(async (tx) => {
       // ADR 0008 rule 2, and the reason it is `set_config` rather than the
       // literal `SET LOCAL`: Postgres will not bind a parameter into a `SET`,
       // so that statement form forces string interpolation of a value that

@@ -124,9 +124,24 @@ const provisionRole = async (
  * privileges: the `ALTER DEFAULT PRIVILEGES` below only reach tables created
  * *after* it, so the grants over what already exists are issued as well.
  *
+ * **Run it as the same role that runs `migrate()`.** A default privilege is
+ * recorded against the role that granted it, so a migration applied by a
+ * different admin creates tables the runtime role was never granted. That fails
+ * closed - the boot assertion refuses on `permission denied` - and re-running
+ * `bootstrap` as the migrating role is the repair.
+ *
  * @param config The admin connection and the runtime role's password.
  */
 export const bootstrap = async (config: BootstrapConfig): Promise<void> => {
+  // `format('%L', NULL)` renders the bare token `NULL`, which would create a
+  // role with no password at all. The bin rejects an unset variable, but the
+  // exported function is reachable without it.
+  if (config.runtimePassword === "") {
+    throw new Error(
+      `the runtime role "${RUNTIME_ROLE}" needs a password; an empty one would provision a role with none.`
+    );
+  }
+
   const pool = new Pool({ connectionString: config.connectionString, max: 1 });
   const client = await pool.connect();
   try {
@@ -154,6 +169,10 @@ export const bootstrap = async (config: BootstrapConfig): Promise<void> => {
     // owner is exempt from its own RLS unless FORCE is set. Removing the ability
     // to create one closes that route entirely, and it is removed from PUBLIC as
     // well, because PUBLIC is how the role would otherwise still hold it.
+    //
+    // Revoking from PUBLIC is a no-op on Postgres 15 and later, where `public`
+    // is owned by `pg_database_owner` and PUBLIC never held CREATE. It is kept
+    // for older clusters and for a database restored from one.
     await client.query("revoke create on schema public from public");
     await ddl(client, "revoke create on schema public from %I", RUNTIME_ROLE);
     await ddl(client, "grant usage on schema public to %I", RUNTIME_ROLE);

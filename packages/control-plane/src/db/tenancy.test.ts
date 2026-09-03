@@ -133,9 +133,9 @@ describe("two Owners through withOwner", () => {
     expect(rows).toStrictEqual([]);
   });
 
-  it("refuses an Owner id that is not one of GitHub's", () => {
-    expect(() =>
+  it("refuses an Owner id that is not one of GitHub's", async () => {
+    await expect(
       runtime.withOwner(Number.NaN, () => Promise.resolve(null))
-    ).toThrow(TypeError);
+    ).rejects.toThrow(TypeError);
   });
 });

@@ -39,6 +39,12 @@ export interface BootstrapConfig {
  * privileges: the `ALTER DEFAULT PRIVILEGES` below only reach tables created
  * *after* it, so the grants over what already exists are issued as well.
  *
+ * **Run it as the same role that runs `migrate()`.** A default privilege is
+ * recorded against the role that granted it, so a migration applied by a
+ * different admin creates tables the runtime role was never granted. That fails
+ * closed - the boot assertion refuses on `permission denied` - and re-running
+ * `bootstrap` as the migrating role is the repair.
+ *
  * @param config The admin connection and the runtime role's password.
  */
 export declare const bootstrap: (config: BootstrapConfig) => Promise<void>;
@@ -175,6 +181,13 @@ export interface MigrateConfig {
  * "run bootstrap first" is a better thing to read than a Postgres role error
  * raised from inside migration `0000`.
  *
+ * Drizzle applies only migrations whose `folderMillis` exceeds the newest
+ * `created_at` in the ledger, so a journal entry appended with an *older*
+ * timestamp than one already applied is skipped here and reported as pending by
+ * the boot assertion forever. ADR 0017's authoring-time append-only verifier is
+ * what keeps the journal from reaching that state; there is no recovery from
+ * this side.
+ *
  * @param config The admin connection.
  * @returns The journal tags this call applied, in order.
  * @throws {Error} If `bootstrap()` has not run against this cluster.
@@ -291,6 +304,16 @@ export interface RuntimeDbConfig {
     readonly connectionString: string;
     /** Client connections the pool may hold open. Defaults to 8. */
     readonly poolSize?: number;
+    /**
+     * Called when the pool's own connection to Postgres fails while idle - a
+     * restart, a pooler recycling a server connection, a reset network.
+     *
+     * A handler is attached whether or not one is supplied, because `pg.Pool` is
+     * an `EventEmitter` and an unhandled `error` event **takes the process down**.
+     * The pool discards the failed client itself, so there is nothing to do but
+     * observe; this package holds no logger, so observing is the caller's.
+     */
+    readonly onConnectionError?: (error: Error) => void;
 }
 type Database = NodePgDatabase<typeof schema>;
 /**
