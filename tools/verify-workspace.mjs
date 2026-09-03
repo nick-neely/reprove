@@ -56,7 +56,7 @@ const SHARED_DEV_DEPENDENCIES = new Set([
  * left the file that knows the address of a local Docker stack unshipped in
  * fact and shipped as far as this rule could tell.
  */
-const UNSHIPPED_FILE = /\.test(-support)?\.[cm]?tsx?$/u;
+const UNSHIPPED_FILE = /\.test(?:-support)?\.[cm]?tsx?$/u;
 
 const DEFAULT_EXPORT = {
   ".": { types: "./dist/index.d.ts", default: "./dist/index.js" },

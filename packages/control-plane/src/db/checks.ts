@@ -89,7 +89,7 @@ const comparablePolicy = (
   table: string,
   raw: RawPolicy
 ): { policy: Policy } | { problem: string } => {
-  const refused = (side: string, connective: string): { problem: string } => ({
+  const refused = (side: string, connective: string) => ({
     problem: `${table}'s policy ${raw.name} has \`${connective}\` in its ${side} expression; a predicate the boot assertion can compare carries no boolean connective, because the comparison drops parentheses and grouping changes what a connective means`,
   });
 
@@ -478,7 +478,9 @@ const checkPolicies = async (
     // refuses has no comparable value to stand in for it.
     const applying: Policy[] = [];
     let refused = false;
-    for (const row of live.filter((candidate) => candidate.tablename === name)) {
+    for (const row of live.filter(
+      (candidate) => candidate.tablename === name
+    )) {
       const built = fromCatalog(row);
       if ("problem" in built) {
         problems.push(built.problem);

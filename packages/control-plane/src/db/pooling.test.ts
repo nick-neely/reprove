@@ -142,30 +142,42 @@ describe.sequential("one server connection, handed to client after client", () =
  * where it is enabled.
  */
 const SET_SESSION = `select set_config('app.owner_id', '${SEEDED_OWNER}', false)`;
-const SET_THEN_RESET_ALL = [SET_SESSION, "reset all"];
+const SET_LOCAL = `select set_config('app.owner_id', '${SEEDED_OWNER}', true)`;
 
-const CLEARED: [string, string[]][] = [
+/** One arrangement: whatever it takes to leave the GUC as the empty string. */
+type Clear = (client: Client) => Promise<void>;
+
+const setThenResetAll: Clear = async (client) => {
+  await client.query(SET_SESSION);
+  await client.query("reset all");
+};
+
+const CLEARED: [string, Clear][] = [
   [
     "a committed transaction-local set_config, which is what withOwner issues",
-    [
-      "begin",
-      `select set_config('app.owner_id', '${SEEDED_OWNER}', true)`,
-      "commit",
-    ],
+    async (client) => {
+      await client.query("begin");
+      await client.query(SET_LOCAL);
+      await client.query("commit");
+    },
   ],
-  ["RESET ALL", SET_THEN_RESET_ALL],
-  ["DISCARD ALL", [SET_SESSION, "discard all"]],
+  ["RESET ALL", setThenResetAll],
+  [
+    "DISCARD ALL",
+    async (client) => {
+      await client.query(SET_SESSION);
+      await client.query("discard all");
+    },
+  ],
 ];
 
-/** Runs the statements, then reports the GUC and the rows a tenant read returns. */
+/** Runs the arrangement, then reports the GUC and what a tenant read returns. */
 const afterClearing = async (
   db: string,
-  statements: string[]
+  clear: Clear
 ): Promise<{ guc: string | null; rows: unknown[] }> =>
   await onRuntimeConnection(db, async (client) => {
-    for (const statement of statements) {
-      await client.query(statement);
-    }
+    await clear(client);
     const { rows: setting } = await client.query<{ guc: string | null }>(
       `select ${RAW_OWNER_CONTEXT} as guc`
     );
@@ -181,6 +193,15 @@ const afterClearing = async (
     }
   });
 
+/** A database bootstrapped and migrated, in the order the two commands take. */
+const provision = async (db: string): Promise<void> => {
+  await bootstrap({
+    connectionString: adminUrl(db),
+    runtimePassword: RUNTIME_PASSWORD,
+  });
+  await migrate({ connectionString: adminUrl(db) });
+};
+
 describe("a tenant read after the Owner context was cleared", () => {
   let reset: TestDatabase;
   let bareCast: TestDatabase;
@@ -189,13 +210,11 @@ describe("a tenant read after the Owner context was cleared", () => {
     reset = await createTestDatabase(RESET_DATABASE);
     bareCast = await createTestDatabase(BARE_CAST_DATABASE);
 
-    for (const db of [RESET_DATABASE, BARE_CAST_DATABASE]) {
-      await bootstrap({
-        connectionString: adminUrl(db),
-        runtimePassword: RUNTIME_PASSWORD,
-      });
-      await migrate({ connectionString: adminUrl(db) });
-    }
+    // One after the other, not together. `bootstrap` provisions a cluster-wide
+    // role, and two of them alter it at once with `tuple concurrently updated`
+    // - measured, by writing this the other way round first.
+    await provision(RESET_DATABASE);
+    await provision(BARE_CAST_DATABASE);
 
     // A row on both, so "zero rows" is the policy answering rather than an
     // empty table, and so the bare cast has something to raise over.
@@ -219,8 +238,8 @@ describe("a tenant read after the Owner context was cleared", () => {
 
   it.each(CLEARED)(
     "reads empty, and does not raise, after %s",
-    async (_label, statements) => {
-      const { guc, rows } = await afterClearing(RESET_DATABASE, statements);
+    async (_label, clear) => {
+      const { guc, rows } = await afterClearing(RESET_DATABASE, clear);
 
       // The empty string, not NULL. A custom GUC that was ever set is not
       // removed by any of these; it is set to `''`.
@@ -236,10 +255,10 @@ describe("a tenant read after the Owner context was cleared", () => {
     // unqueryable, so the failure mode is an outage rather than a leak - and it
     // arrives only after something cleared the context, which on a direct
     // connection during development is nothing.
-    // Deliberately the same statements the honest policy absorbed above, so the
+    // Deliberately the same arrangement the honest policy absorbed above, so the
     // only difference between passing and raising is the predicate.
     const failure = await driverFailure(
-      afterClearing(BARE_CAST_DATABASE, SET_THEN_RESET_ALL)
+      afterClearing(BARE_CAST_DATABASE, setThenResetAll)
     );
 
     // 22P02 is invalid_text_representation.

@@ -272,9 +272,7 @@ describe("boot refuses to serve", () => {
                'gpt-5', 'single', 'verify', 'hosted', 'sha256:1')`
     );
     await database.admin("create view run_every_owner as select * from run");
-    await database.admin(
-      `grant select on run_every_owner to ${RUNTIME_ROLE}`
-    );
+    await database.admin(`grant select on run_every_owner to ${RUNTIME_ROLE}`);
 
     // Stated rather than assumed: with no Owner context at all, the view hands
     // the runtime role a row the tenant boundary denies it.

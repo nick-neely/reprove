@@ -24,8 +24,8 @@ export interface BootstrapConfig {
     readonly runtimePassword: string;
 }
 /**
- * Provisions the restricted runtime role and the privileges the migrations will
- * hand it, idempotently.
+ * Provisions the restricted runtime role and the reach it has *before* any table
+ * exists, idempotently.
  *
  * The role name is not configurable. The committed policies name it, so a
  * deployment that renamed it would migrate a boundary granted to a role that
@@ -35,13 +35,16 @@ export interface BootstrapConfig {
  * fails outright if the role does not exist yet, so the two commands are
  * ordered rather than interchangeable.
  *
- * Re-running it after `migrate()` is safe and is the supported way to repair
- * privileges: the `ALTER DEFAULT PRIVILEGES` below only reach tables created
- * *after* it, so the grants over what already exists are issued as well.
+ * What it does **not** do is grant anything on Reprove's tables. Those grants
+ * name the managed tables one by one and are issued by `migrate()`, which is the
+ * only moment those tables are known to exist; see
+ * {@link import("./privileges.js").applyRuntimeGrants} for why naming them
+ * matters. Re-running `migrate()` is therefore how a table grant is repaired,
+ * and re-running `bootstrap` remains safe at any point.
  *
  * **Run it as the same role that runs `migrate()`.** A default privilege is
- * recorded against the role that granted it, so a migration applied by a
- * different admin creates tables the runtime role was never granted. That fails
+ * recorded against the role that granted it, so the `drizzle` ledger grant below
+ * reaches a migration ledger only when the same admin creates it. That fails
  * closed - the boot assertion refuses on `permission denied` - and re-running
  * `bootstrap` as the migrating role is the repair.
  *
@@ -55,9 +58,9 @@ export declare const bootstrap: (config: BootstrapConfig) => Promise<void>;
 ```ts
 import type { Pool } from "pg";
 import type { Classification } from "./classification.js";
-import type { CheckResult } from "./refusal.js";
+import type { CheckOutcome } from "./refusal.js";
 /**
- * Runs all seven checks and reports every verdict, failures included.
+ * Runs all seven checks and reports every outcome, failures included.
  *
  * A check that throws is a failed check rather than a thrown error, so one
  * unreachable catalog view cannot hide the six answers beside it.
@@ -68,18 +71,18 @@ import type { CheckResult } from "./refusal.js";
  * @param classification The classification to measure against. The parameter
  *   exists so a test can present a deliberately malformed one; production code
  *   never passes it, and `createRuntimeDb()` does not expose it.
- * @returns One result per check, in the order ADR 0008 lists them.
+ * @returns One outcome per check, in the order ADR 0008 lists them.
  */
-export declare const runBootChecks: (pool: Pool, classification?: Classification) => Promise<CheckResult[]>;
+export declare const runBootChecks: (pool: Pool, classification?: Classification) => Promise<CheckOutcome[]>;
 /**
  * Rule 6 as an assertion: either every check passed, or nothing is returned.
  *
  * @param pool A pool on the runtime connection.
  * @param classification See {@link runBootChecks}.
- * @returns Every check's verdict, once they have all passed.
+ * @returns Every check's outcome, once they have all passed.
  * @throws {BootRefusalError} Naming every check that failed and why.
  */
-export declare const assertTenantBoundary: (pool: Pool, classification?: Classification) => Promise<CheckResult[]>;
+export declare const assertTenantBoundary: (pool: Pool, classification?: Classification) => Promise<CheckOutcome[]>;
 ```
 
 ## dist/db/classification.d.ts
@@ -157,7 +160,7 @@ export type { MigrateConfig } from "./migrate.js";
 export { migrate } from "./migrate.js";
 export type { CommittedMigration } from "./migrations.js";
 export { MIGRATIONS_FOLDER, readCommittedMigrations } from "./migrations.js";
-export type { CheckName, CheckResult } from "./refusal.js";
+export type { CheckName, CheckOutcome } from "./refusal.js";
 export { BootRefusalError } from "./refusal.js";
 export { RUNTIME_ROLE } from "./roles.js";
 export type { RuntimeDb, RuntimeDbConfig, TenantTransaction, } from "./runtime.js";
@@ -173,7 +176,15 @@ export interface MigrateConfig {
     readonly connectionString: string;
 }
 /**
- * Applies every committed migration that has not been applied yet.
+ * Applies every committed migration that has not been applied yet, then brings
+ * the runtime role's privileges on the managed tables to exactly what
+ * `privileges.ts` declares.
+ *
+ * The grants live here rather than in `bootstrap()` because they name the
+ * managed tables one by one, and the only moment those tables are known to exist
+ * is after the migrations have run. That has a consequence worth stating: a
+ * `migrate()` that applied nothing still re-applies the grants, so re-running it
+ * is how an operator repairs a privilege that drifted.
  *
  * It refuses if the runtime role is missing, rather than failing halfway
  * through: the generated migrations carry `CREATE POLICY ... TO
@@ -189,7 +200,9 @@ export interface MigrateConfig {
  * this side.
  *
  * @param config The admin connection.
- * @returns The journal tags this call applied, in order.
+ * @returns The journal tags this call applied, in order. An empty array means
+ *   the database was already up to date, not that nothing happened: the grants
+ *   were re-applied either way.
  * @throws {Error} If `bootstrap()` has not run against this cluster.
  */
 export declare const migrate: (config: MigrateConfig) => Promise<string[]>;
@@ -228,6 +241,126 @@ export interface CommittedMigration {
 export declare const readCommittedMigrations: (folder?: string) => CommittedMigration[];
 ```
 
+## dist/db/predicate.d.ts
+
+```ts
+/**
+ * One policy predicate, reduced to the form two deparsers agree on.
+ *
+ * Postgres re-prints a stored expression through its own deparser, so the text
+ * in `pg_policies` never matches the text Drizzle rendered even when the two
+ * mean the same thing: it uppercases function names, adds `::text` to every
+ * string literal, unquotes what it can and re-parenthesises freely. Comparing
+ * the two therefore needs a normal form, and this module is the whole of it.
+ *
+ * It is separated from `checks.ts` because it is pure: no database, no Drizzle,
+ * no catalog. That is what lets `predicate.test.ts` measure the three
+ * distinctions the tenant boundary actually rests on - identifier folding,
+ * literal opacity, and the refusal below - without a Postgres to run against.
+ */
+/** A predicate reduced to comparable form, or the reason it cannot be. */
+export type NormalizedPredicate = {
+    readonly normalized: string;
+} | {
+    readonly connective: string;
+};
+/**
+ * One predicate reduced to the form both deparsers agree on.
+ *
+ * Two reductions run over the token stream. `::text` goes because Postgres adds
+ * one to every string literal and Drizzle does not. The table qualifier goes
+ * because Drizzle renders `"run"."owner_id"` where Postgres, which already
+ * knows the relation, renders `owner_id`.
+ *
+ * @param expression A policy predicate from either side.
+ * @param table The SQL name of the table the policy is attached to.
+ * @returns The predicate as a token sequence, or the connective that refused it.
+ */
+export declare const normalizePredicate: (expression: string, table: string) => NormalizedPredicate;
+```
+
+## dist/db/privileges.d.ts
+
+```ts
+/**
+ * What the runtime role may do, spelled once and read by all three places that
+ * care: `bootstrap()` and `migrate()`, which grant it, and the boot assertion,
+ * which refuses when the live grants say something else.
+ *
+ * The reach is **manifest-scoped**, not schema-wide. A `grant ... on all tables
+ * in schema public` and an `alter default privileges ... on tables` both say
+ * "whatever is in this schema", and a schema is a place a neighbour may
+ * legitimately put a table ([ADR
+ * 0010](../../../../docs/adr/0010-package-graph-and-open-core-boundary.md)
+ * permits Vercel Workflow to share the server). Naming the managed tables one by
+ * one is what keeps a grant from arriving at a relation nobody classified - and
+ * a relation nobody classified is one the boot assertion never measured for a
+ * tenant policy.
+ *
+ * A **view** is the sharpest form of that. A view runs as its owner unless it
+ * carries `security_invoker`, so an admin-owned view over a tenant table reads
+ * every Owner's rows, and a schema-wide grant hands it over.
+ */
+import type { PoolClient } from "pg";
+/**
+ * What the runtime role holds on a managed table. Exactly the four the
+ * application needs, and the list is a SQL fragment because `GRANT` takes no
+ * bind parameter for a privilege name.
+ */
+export declare const RUNTIME_TABLE_PRIVILEGES = "select, insert, update, delete";
+/**
+ * The privileges on a managed table the runtime role must **not** hold, revoked
+ * on every `migrate()` and refused by the boot assertion.
+ *
+ * `TRUNCATE` is the one that matters most and the one a schema-wide grant never
+ * mentioned: it ignores row-level security entirely, so a role holding it can
+ * empty another Owner's table through a boundary that denies it every single
+ * row. `REFERENCES` and `TRIGGER` are DDL rights on someone else's table, which
+ * an application role has no use for.
+ */
+export declare const WITHHELD_TABLE_PRIVILEGES: string[];
+/**
+ * The privileges whose presence means the role can reach a relation at all.
+ *
+ * Used against relations **outside** the managed set, where holding any one of
+ * them is the failure. `has_table_privilege` answers for a view and a foreign
+ * table as readily as for a table, which is the point: `relkind = 'r'` was the
+ * hole a view walked through.
+ */
+export declare const REACHING_TABLE_PRIVILEGES: string[];
+/**
+ * Runs one DDL statement whose variable parts Postgres itself quotes.
+ *
+ * `format('%I', ...)` and `format('%L', ...)` are why a role name, a password or
+ * a table name travels as a bind parameter rather than as interpolated text: DDL
+ * takes no parameters, so something has to do the quoting, and Postgres's own
+ * quoting is the one thing guaranteed to agree with Postgres's own parser.
+ *
+ * @param client A connected admin client.
+ * @param template A `format()` template, with the fixed SQL written out.
+ * @param args One value per placeholder, in order.
+ */
+export declare const ddl: (client: PoolClient, template: string, ...args: string[]) => Promise<void>;
+/**
+ * Brings the runtime role's privileges on the managed tables to exactly what
+ * this module declares, and touches nothing else.
+ *
+ * Run by `migrate()` on the admin connection after the migrations have applied,
+ * which is the only moment at which the managed tables are known to exist. It is
+ * idempotent, so re-running `migrate()` on an up-to-date database is how an
+ * operator repairs a grant that drifted.
+ *
+ * Both halves matter and neither implies the other. The grant is what lets the
+ * application work; the revoke is what stops a privilege granted out of band -
+ * or by an older version of this code, which granted schema-wide - from
+ * outliving the decision that it should not exist.
+ *
+ * @param client A connected admin client, inside a transaction.
+ * @param tables The SQL names of the managed tables.
+ */
+export declare const applyRuntimeGrants: (client: PoolClient, tables: readonly string[]) => Promise<void>;
+```
+
 ## dist/db/refusal.d.ts
 
 ```ts
@@ -240,9 +373,16 @@ export declare const readCommittedMigrations: (folder?: string) => CommittedMigr
  * on this package's published surface.
  */
 /** The stable name of each of rule 6's seven checks. */
-export type CheckName = "runtime-role-is-not-privileged" | "runtime-role-owns-no-table" | "every-managed-table-is-classified" | "tenant-tables-are-forced" | "tenant-policies-are-exactly-canonical" | "migrations-match-the-committed-files" | "no-owner-context-reads-empty";
-/** One check's verdict. `detail` is what a refusal prints. */
-export interface CheckResult {
+export type CheckName = "runtime-role-is-not-privileged" | "runtime-role-reaches-only-the-managed-tables" | "every-managed-table-is-classified" | "tenant-tables-are-forced" | "tenant-policies-are-exactly-canonical" | "migrations-match-the-committed-files" | "no-owner-context-reads-empty";
+/**
+ * One check's outcome. `detail` is what a refusal prints.
+ *
+ * Not `CheckResult`: `CONTEXT.md` gives **Result** to what a Worker submits for
+ * a Run, and a second unrelated meaning for the same noun is exactly the drift
+ * the glossary exists to stop. `verdict` is on its avoid list for the same
+ * reason.
+ */
+export interface CheckOutcome {
     readonly name: CheckName;
     readonly ok: boolean;
     readonly detail: string;
@@ -257,8 +397,8 @@ export interface CheckResult {
  * convention for a throwable and is not a second domain word.
  */
 export declare class BootRefusalError extends Error {
-    readonly checks: readonly CheckResult[];
-    constructor(checks: readonly CheckResult[]);
+    readonly checks: readonly CheckOutcome[];
+    constructor(checks: readonly CheckOutcome[]);
 }
 ```
 
@@ -292,7 +432,7 @@ export declare const RUNTIME_ROLE = "reprove_runtime";
 
 ```ts
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
-import type { CheckResult } from "./refusal.js";
+import type { CheckOutcome } from "./refusal.js";
 import * as schema from "./schema.js";
 /** What the runtime connects with. No value here is read from the environment. */
 export interface RuntimeDbConfig {
@@ -321,32 +461,23 @@ type Database = NodePgDatabase<typeof schema>;
  * Owner-scoped query belongs inside one.
  */
 export type TenantTransaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
-/** Work to run inside a transaction, tenant-scoped or not. */
+/** Work to run inside a tenant transaction. */
 type InTransaction<T> = (tx: TenantTransaction) => Promise<T>;
 /** A client that has passed all seven of rule 6's checks. */
 export interface RuntimeDb {
-    /** Every check's verdict, kept so a deployment can log what it proved. */
-    readonly checks: readonly CheckResult[];
+    /** Every check's outcome, kept so a deployment can log what it proved. */
+    readonly checks: readonly CheckOutcome[];
     /**
-     * The single Owner-scoped entry point. A tenant-scoped query written outside
-     * one of these is difficult to write by accident rather than merely forbidden
-     * by convention.
+     * The single entry point, and there is deliberately no second one. ADR 0008
+     * puts *all* access through a call of this shape, so that a tenant-scoped
+     * query written outside a tenant transaction is difficult to write by accident
+     * rather than merely forbidden by convention. A `withoutOwner` beside this
+     * would be the accident, pre-named and ready to reach for.
      *
      * The first argument is GitHub's durable numeric Owner id, which is the
      * tenant key itself.
      */
     readonly withOwner: <T>(ownerId: number, fn: InTransaction<T>) => Promise<T>;
-    /**
-     * A transaction with **no Owner context**, and therefore no tenant. Every
-     * policy denies, so an Owner-scoped table reads zero rows here rather than
-     * erroring.
-     *
-     * It exists to be the deliberately named exception: the only legitimate uses
-     * are non-tenant work (Better Auth's tables) and proving that the boundary
-     * denies. Reaching for it to "just read one row" is the mistake `withOwner`
-     * exists to make hard.
-     */
-    readonly withoutOwner: <T>(fn: InTransaction<T>) => Promise<T>;
     /** Drains the pool. */
     readonly close: () => Promise<void>;
 }
@@ -367,11 +498,45 @@ export {};
 ## dist/db/schema.d.ts
 
 ```ts
+import type { SQLWrapper } from "drizzle-orm";
 /**
  * Declared `existing()` so drizzle-kit names the role in the policies it emits
  * without taking over its privilege flags, which `bootstrap()` spells out.
  */
 export declare const runtimeRole: import("drizzle-orm/pg-core").PgRole;
+/**
+ * The one tenant predicate, and the reason it is not the bare cast.
+ *
+ * `RESET ALL`, and PgBouncer's `DISCARD ALL` where it is enabled, do not remove
+ * a custom GUC - they set it to the **empty string**. `''::bigint` then raises
+ * `invalid input syntax for type bigint: ""` from inside the policy, so the
+ * table stops being deniable and becomes unqueryable. The bare cast is correct
+ * on every direct connection and fails only behind a pooler after a reset,
+ * which is the worst possible distribution for a defect (ADR 0008).
+ *
+ * `current_setting(..., true)` returns NULL when the GUC was never set, so a
+ * missing tenant context reads as zero rows rather than as an error - the same
+ * shape as the wrong tenant.
+ *
+ * The empty string is not only a pooler's doing, which is measured rather than
+ * inferred: a transaction-local `set_config('app.owner_id', ..., true)` also
+ * leaves `''` behind on the session once its transaction ends, on the direct
+ * endpoint as much as the pooled one. So `withOwner` itself creates the value
+ * that would break the bare cast, and the guard is load-bearing on every
+ * connection this package hands out rather than only after a reset.
+ */
+export declare const ownerContext: import("drizzle-orm").SQL<unknown>;
+/**
+ * The canonical tenant policy, applied identically to every Owner-scoped table.
+ * There is exactly one of these and no second spelling, because ADR 0017 makes
+ * the boot assertion set equality against what this helper renders: a
+ * hand-rolled policy carrying the bare cast fails, and a second permissive
+ * policy beside a correct one fails too.
+ *
+ * The column is typed `SQLWrapper` because inside the extra-config callback a
+ * column is an `ExtraConfigColumn` rather than the builder it was declared with.
+ */
+export declare const tenantPolicy: (name: string, column: SQLWrapper) => import("drizzle-orm/pg-core").PgPolicy;
 /**
  * The tenant. `id` is GitHub's durable numeric Owner id and there is no internal
  * uuid beside it: a Reprove-minted key would reintroduce the circularity on the
@@ -1035,6 +1200,23 @@ export declare const ingressDelivery: import("drizzle-orm/pg-core").PgTableWithC
             isAutoincrement: false;
             hasRuntimeDefault: false;
             enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        repositoryNameWithOwner: import("drizzle-orm/pg-core").PgColumn<{
+            name: "repository_name_with_owner";
+            tableName: "ingress_delivery";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
             baseColumn: never;
             identity: undefined;
             generated: undefined;
@@ -2644,7 +2826,7 @@ export type { MigrateConfig } from "./db/migrate.js";
 export { migrate } from "./db/migrate.js";
 export type { CommittedMigration } from "./db/migrations.js";
 export { MIGRATIONS_FOLDER, readCommittedMigrations } from "./db/migrations.js";
-export type { CheckName, CheckResult } from "./db/refusal.js";
+export type { CheckName, CheckOutcome } from "./db/refusal.js";
 export { BootRefusalError } from "./db/refusal.js";
 export { RUNTIME_ROLE } from "./db/roles.js";
 export declare const packageName: "@reprove/control-plane";
