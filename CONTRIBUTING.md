@@ -61,6 +61,33 @@ It also owns the two checks that guard the published TypeScript surface:
 `pnpm verify:packages --keep` leaves the consumer fixture on disk and prints its
 path, which is the fastest way to see what a consumer actually received.
 
+### Database
+
+`vitest run` includes tests that measure the tenant boundary against a real
+database, so they need one running. Docker is the only prerequisite:
+
+```text
+pnpm db:up      # Postgres 17 and PgBouncer, from tools/db/compose.yaml
+pnpm db:down    # and away again, volumes included
+```
+
+If it is not up, those tests **fail with instructions rather than skipping**.
+Three of [ADR 0008](docs/adr/0008-persistence-tenancy-and-retention.md)'s
+failures exist only on a pooled connection, so a run that quietly skipped them
+would prove the boundary against an arrangement production does not use.
+
+The stack serves the two connections ADR 0008 keeps separate and never crosses:
+an **admin** role on the direct endpoint at `127.0.0.1:55432`, which owns the
+tables and applies migrations, and the restricted **`reprove_runtime`** role
+through **PgBouncer in transaction mode** at `127.0.0.1:56432`, which is what
+all application traffic uses.
+
+Setting a database up is two ordered commands, not two interchangeable ones:
+`reprove-control-plane bootstrap` provisions the runtime role, then
+`reprove-control-plane migrate` applies the schema. Every migration grants the
+tenant boundary to that role, so the role has to exist first. See
+[`packages/control-plane`](packages/control-plane/README.md#the-database).
+
 Two things catch people out:
 
 - **A dependency change is deliberate.** Adding, removing or bumping a

@@ -46,5 +46,13 @@ jobs:
       - name: Install from the lockfile
         run: pnpm install --frozen-lockfile
 
+      # The tenancy tests measure a real Postgres behind a real PgBouncer in
+      # transaction mode, because three of ADR 0008's failures exist only on a
+      # pooled connection. They fail rather than skip when it is absent, so the
+      # stack comes up before `pnpm verify` rather than inside it. Compose v2 is
+      # preinstalled on ubuntu-latest.
+      - name: Start the database stack
+        run: docker compose -f tools/db/compose.yaml up -d --wait
+
       - name: Verify
         run: pnpm verify
