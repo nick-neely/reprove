@@ -230,8 +230,14 @@ export const ingressDelivery = pgTable(
      * or transferred between the delivery and anything that reads the ledger,
      * and the id beside it is what survives that; the locator is what makes the
      * envelope legible to a person reconstructing what arrived.
+     *
+     * Nullable, like the id beside it, and for the same reason: ADR 0013's
+     * envelope is a `pull_request` envelope *or* a lifecycle one, and a
+     * lifecycle delivery - `installation.deleted`, or an
+     * `installation_repositories.removed` naming several - carries only the
+     * bounded ids the removal needs and has no one repository to locate.
      */
-    repositoryNameWithOwner: text("repository_name_with_owner").notNull(),
+    repositoryNameWithOwner: text("repository_name_with_owner"),
     pullRequestNumber: integer("pull_request_number"),
     /** received | done | discarded */
     state: text("state").notNull().default("received"),

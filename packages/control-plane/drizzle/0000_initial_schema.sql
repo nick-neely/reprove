@@ -50,7 +50,7 @@ CREATE TABLE "ingress_delivery" (
 	"action" text,
 	"installation_id" bigint,
 	"repository_id" bigint,
-	"repository_name_with_owner" text NOT NULL,
+	"repository_name_with_owner" text,
 	"pull_request_number" integer,
 	"state" text DEFAULT 'received' NOT NULL,
 	"disposition" text,
