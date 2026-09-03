@@ -468,6 +468,28 @@ describe(verifyWorkspace, () => {
     ).toBeFalsy();
   });
 
+  it("permits a test-support file importing it too, since that is not shipped either", () => {
+    // The exemption and every `tsconfig.build.json`'s `exclude` encode one
+    // decision from two directions, so they name the same files. They did not:
+    // a `*.test-support.ts` was kept out of `dist` and still counted as shipped
+    // source here.
+    const root = copyRepository();
+    writeSource(
+      root,
+      "packages/control-plane/src/shipped.test-support.ts",
+      'import { expect } from "vitest";\nexport const shipped = expect;\n'
+    );
+
+    expect(
+      broke(
+        verifyWorkspace({ rootDir: root }),
+        "import-boundary",
+        "packages/control-plane",
+        "vitest"
+      )
+    ).toBeFalsy();
+  });
+
   it("rejects a package shipping a runtime asset the matrix does not name", () => {
     const root = copyRepository();
     editManifest(root, "packages/worker", (manifest) => {

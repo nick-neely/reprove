@@ -36,9 +36,9 @@ const WORKSPACE_GLOBS = ["packages/*", "apps/*"];
  *
  * The declaration exemption is not an import exemption: shipped source that
  * imports one of these is shipping a compiler or a test runner in a published
- * package. Only a test file may import one, because `tsconfig.build.json`
- * excludes test files from `dist` and the packed artifact therefore never
- * carries the edge.
+ * package. Only an unshipped file may import one, because
+ * `tsconfig.build.json` keeps those out of `dist` and the packed artifact
+ * therefore never carries the edge.
  */
 const SHARED_DEV_DEPENDENCIES = new Set([
   "@types/node",
@@ -46,8 +46,17 @@ const SHARED_DEV_DEPENDENCIES = new Set([
   "vitest",
 ]);
 
-/** Test files, which `tsconfig.build.json` keeps out of every packed artifact. */
-const TEST_FILE = /\.test\.[cm]?tsx?$/u;
+/**
+ * What never reaches `dist`: a test, and the support module a test imports.
+ *
+ * This pattern and every `tsconfig.build.json`'s `exclude` encode the same
+ * decision from two directions - this one grants the import exemption, that one
+ * makes the exemption true - so they have to name the same files. They did not:
+ * a `*.test-support.ts` was excluded from `dist` and not matched here, which
+ * left the file that knows the address of a local Docker stack unshipped in
+ * fact and shipped as far as this rule could tell.
+ */
+const UNSHIPPED_FILE = /\.test(-support)?\.[cm]?tsx?$/u;
 
 const DEFAULT_EXPORT = {
   ".": { types: "./dist/index.d.ts", default: "./dist/index.js" },
@@ -866,12 +875,12 @@ const checkInternalImport = (context, specifier, target, subpath) => {
 };
 
 const checkExternalImport = (context, specifier, target) => {
-  const { spec, declared, relative, isTest, add } = context;
+  const { spec, declared, relative, isUnshipped, add } = context;
 
-  // A test file is not shipped, so the test runner is reachable from one and
-  // from nowhere else. It still has to be declared, so the edge is visible in
-  // the manifest rather than resolved out of whatever the root hoisted.
-  if (isTest && SHARED_DEV_DEPENDENCIES.has(target)) {
+  // An unshipped file is not packed, so the test runner is reachable from one
+  // and from nowhere else. It still has to be declared, so the edge is visible
+  // in the manifest rather than resolved out of whatever the root hoisted.
+  if (isUnshipped && SHARED_DEV_DEPENDENCIES.has(target)) {
     if (!declared.has(target)) {
       add(
         `${relative} imports "${specifier}", which is not declared in package.json.`
@@ -907,7 +916,7 @@ const checkImports = (rootDir, workspace, spec, manifest, violations) => {
       spec,
       declared,
       relative,
-      isTest: TEST_FILE.test(file),
+      isUnshipped: UNSHIPPED_FILE.test(file),
       add,
     };
     const preprocessed = importedSpecifiers(readFileSync(file, "utf-8"));

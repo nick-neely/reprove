@@ -1,7 +1,8 @@
 {
   "extends": "./tsconfig.json",
-  // Tests and the fixtures they share are type-checked by `tsconfig.json` and
-  // never packed: a published package ships neither its tests nor a module that
-  // knows the address of a local Docker stack.
+  // The unshipped files, which `tools/verify-workspace.mjs` matches with one
+  // pattern of its own: a test, and the support module a test imports. Both are
+  // type-checked by `tsconfig.json` and neither is packed - a published package
+  // ships no test, and no module that knows the address of a local Docker stack.
   "exclude": ["src/**/*.test.ts", "src/**/*.test-support.ts"]
 }
