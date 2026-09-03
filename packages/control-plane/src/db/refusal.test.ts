@@ -143,6 +143,11 @@ describe("boot refuses to serve", () => {
     expect(detailOf(refusal, "migrations-match-the-committed-files")).toContain(
       "0000_initial_schema, 0001_force_row_level_security"
     );
+    // The other direction of the classification check: a table the schema module
+    // manages that the database has never heard of.
+    expect(detailOf(refusal, "every-managed-table-is-classified")).toContain(
+      "managed but absent from the database: account"
+    );
   });
 
   it("an applied migration whose committed file changed underneath it", async () => {
