@@ -332,6 +332,32 @@ describe("boot refuses to serve", () => {
     ]);
   });
 
+  it("a policy predicate carrying a boolean connective", async () => {
+    const database = await arrange("reprove_test_refusal_connective");
+    // The normal form the comparison runs on drops parentheses, which is safe
+    // only while no token binds across them. This predicate reads as the
+    // canonical one plus a second escape hatch, and it is refused for carrying
+    // the connective at all rather than for what this particular one does.
+    await database.admin("drop policy run_tenant on run");
+    await database.admin(
+      `create policy run_tenant on run as permissive for all to ${RUNTIME_ROLE}
+         using (run.owner_id = nullif(current_setting('app.owner_id', true), '')::bigint
+                or current_setting('app.escape_hatch', true) = 'yes')
+         with check (run.owner_id = nullif(current_setting('app.owner_id', true), '')::bigint)`
+    );
+
+    const refusal = await bootRefusal(
+      createRuntimeDb({ connectionString: database.runtimeUrl })
+    );
+
+    expect(failedChecks(refusal)).toStrictEqual([
+      "tenant-policies-are-exactly-canonical",
+    ]);
+    expect(
+      detailOf(refusal, "tenant-policies-are-exactly-canonical")
+    ).toContain("run's policy run_tenant has `or` in its using expression");
+  });
+
   it("a second permissive policy beside a correct one", async () => {
     const database = await arrange("reprove_test_refusal_second_policy");
     // Postgres combines permissive policies by OR, so this is a full tenant
