@@ -7,7 +7,8 @@
     "reprove-control-plane": "./dist/bin.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "drizzle"
   ],
   "type": "module",
   "sideEffects": false,
@@ -22,14 +23,20 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
-    "@reprove/protocol": "workspace:*"
+    "@reprove/protocol": "workspace:*",
+    "drizzle-orm": "0.45.2",
+    "pg": "^8.23.0"
   },
   "devDependencies": {
     "@types/node": "catalog:",
-    "typescript": "catalog:"
+    "@types/pg": "^8.23.1",
+    "drizzle-kit": "0.31.10",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   },
   "engines": {
     "node": ">=22"

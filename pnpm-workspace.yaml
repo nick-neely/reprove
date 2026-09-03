@@ -10,6 +10,7 @@ packages:
 catalog:
   "@types/node": ^26.4.0
   typescript: ^7.0.2
+  vitest: ^4.1.11
   zod: ^4.5.4
 
 # --- Package manager selection -------------------------------------------------
@@ -41,4 +42,17 @@ strictDepBuilds: true
 dangerouslyAllowAllBuilds: false
 # Every dependency lifecycle script is decided explicitly. `true` admits it,
 # `false` records a reviewed denial. `pnpm approve-builds --all` is never used.
-allowBuilds: {}
+allowBuilds:
+  # Three copies of esbuild arrive under `drizzle-kit`, which `@reprove/control-plane`
+  # uses to generate migrations (issue #44): one directly, one through `tsx`, and one
+  # through the `@esbuild-kit` loader `drizzle-kit` still carries. Each ships a
+  # `postinstall` that re-resolves its platform binary, which is work pnpm has already
+  # done - `@esbuild/linux-x64` and its siblings install as ordinary optional
+  # dependencies, and esbuild resolves the binary from one of them at run time.
+  # Denied rather than admitted, because an install-time script that may reach the
+  # network is the surface issue #30 closed, and denying it costs nothing here:
+  # `drizzle-kit --version` and `drizzle-kit generate` both work with all three
+  # denied. Each key pins an exact version, so a bump is reviewed again.
+  esbuild@0.18.20: false
+  esbuild@0.25.12: false
+  esbuild@0.28.2: false

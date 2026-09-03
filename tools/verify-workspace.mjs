@@ -30,16 +30,31 @@ import {
 const WORKSPACE_GLOBS = ["packages/*", "apps/*"];
 
 /**
- * Tooling every workspace needs to expose its thin `build` and `typecheck`, and
- * may therefore declare in `devDependencies` without the matrix naming it. It is
- * a declaration exemption only: source that *imports* one of these is shipping a
- * compiler in a published package, so the import check does not consult it.
+ * Tooling every workspace needs to expose its thin `build` and `typecheck` and
+ * to run its own tests, and may therefore declare in `devDependencies` without
+ * the matrix naming it.
+ *
+ * The declaration exemption is not an import exemption: shipped source that
+ * imports one of these is shipping a compiler or a test runner in a published
+ * package. Only a test file may import one, because `tsconfig.build.json`
+ * excludes test files from `dist` and the packed artifact therefore never
+ * carries the edge.
  */
-const SHARED_DEV_DEPENDENCIES = new Set(["@types/node", "typescript"]);
+const SHARED_DEV_DEPENDENCIES = new Set([
+  "@types/node",
+  "typescript",
+  "vitest",
+]);
+
+/** Test files, which `tsconfig.build.json` keeps out of every packed artifact. */
+const TEST_FILE = /\.test\.[cm]?tsx?$/u;
 
 const DEFAULT_EXPORT = {
   ".": { types: "./dist/index.d.ts", default: "./dist/index.js" },
 };
+
+/** What a published package ships when it ships only its build output. */
+const DEFAULT_FILES = ["dist"];
 
 /**
  * ADR 0010's dependency table as amended by ADR 0014, with the concrete package
@@ -55,6 +70,9 @@ const DEFAULT_EXPORT = {
  * - `forbidden` - the matrix's "Must not depend on" column, kept so a violation
  *   can say *forbidden* rather than merely *unlisted*. A pattern may end in `/*`
  *   to cover a scope.
+ * - `files`     - what the package ships, when it ships more than `dist`. A
+ *   runtime asset is a publication decision, so it is named here rather than
+ *   left to whichever manifest happens to list it.
  */
 const WORKSPACES = {
   "packages/protocol": {
@@ -153,8 +171,21 @@ const WORKSPACES = {
     published: true,
     exports: DEFAULT_EXPORT,
     bin: { "reprove-control-plane": "./dist/bin.js" },
+    // ADR 0017 makes the Drizzle migration folder a runtime asset of this
+    // package: the boot assertion joins the applied migration hashes against
+    // the committed files, so the files have to be in the tarball.
+    files: ["dist", "drizzle"],
     internal: ["@reprove/protocol"],
-    external: ["drizzle-orm", "octokit", "better-auth"],
+    external: [
+      "drizzle-orm",
+      "octokit",
+      "better-auth",
+      // ADR 0010 keeps the Postgres drivers on this package rather than in the
+      // app. `drizzle-kit` generates the migrations the package then ships.
+      "pg",
+      "@types/pg",
+      "drizzle-kit",
+    ],
     // ADR 0014 removed `workflow` from this row.
     forbidden: [
       "@reprove/worker-core",
@@ -675,8 +706,12 @@ const checkPublishability = (spec, manifest, add) => {
         `"${spec.name}" must declare "license": "Apache-2.0".`
       );
     }
-    if (!deepEqual(manifest.files, ["dist"])) {
-      add("publishability", `"${spec.name}" must declare "files": ["dist"].`);
+    const files = spec.files ?? DEFAULT_FILES;
+    if (!deepEqual(manifest.files, files)) {
+      add(
+        "publishability",
+        `"${spec.name}" must declare "files": ${JSON.stringify(files)}.`
+      );
     }
     if (manifest.sideEffects !== false) {
       add(
@@ -831,7 +866,19 @@ const checkInternalImport = (context, specifier, target, subpath) => {
 };
 
 const checkExternalImport = (context, specifier, target) => {
-  const { spec, declared, relative, add } = context;
+  const { spec, declared, relative, isTest, add } = context;
+
+  // A test file is not shipped, so the test runner is reachable from one and
+  // from nowhere else. It still has to be declared, so the edge is visible in
+  // the manifest rather than resolved out of whatever the root hoisted.
+  if (isTest && SHARED_DEV_DEPENDENCIES.has(target)) {
+    if (!declared.has(target)) {
+      add(
+        `${relative} imports "${specifier}", which is not declared in package.json.`
+      );
+    }
+    return;
+  }
 
   if (!spec.external.includes(target)) {
     add(
@@ -856,7 +903,13 @@ const checkImports = (rootDir, workspace, spec, manifest, violations) => {
     const relative = path.relative(rootDir, file);
     const add = (message) =>
       violations.push({ workspace, rule: "import-boundary", message });
-    const context = { spec, declared, relative, add };
+    const context = {
+      spec,
+      declared,
+      relative,
+      isTest: TEST_FILE.test(file),
+      add,
+    };
     const preprocessed = importedSpecifiers(readFileSync(file, "utf-8"));
 
     for (const { fileName: specifier } of preprocessed) {
