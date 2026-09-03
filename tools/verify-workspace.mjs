@@ -18,6 +18,14 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { createScanner } from "typescript/unstable/ast/scanner";
 
+import {
+  expandGlobs,
+  readWorkspaceGlobs,
+  YAML_COMMENT,
+  YAML_LIST_ITEM,
+  YAML_QUOTES,
+} from "./workspaces.mjs";
+
 /** ADR 0010: explicit globs only, so `prototypes/**` stays outside the workspace. */
 const WORKSPACE_GLOBS = ["packages/*", "apps/*"];
 
@@ -255,12 +263,8 @@ const UNSCANNED_DIRECTORIES = new Set([
 const NODE_BUILTINS = new Set(builtinModules);
 
 const CHAINED_SCRIPT = /&&|\|\||;/u;
-const PACKAGES_KEY = /^packages:\s*$/u;
 const TRUST_POLICY_EXCLUDE_KEY = /^trustPolicyExclude:\s*$/u;
 const REVIEW_BY_COMMENT = /^#\s*review-by:\s*(?<date>\d{4}-\d{2}-\d{2})\s*$/u;
-const YAML_LIST_ITEM = /^\s+-\s+(?<item>.+?)\s*$/u;
-const YAML_QUOTES = /^['"]|['"]$/gu;
-const YAML_COMMENT = /#.*$/u;
 
 // --- helpers -----------------------------------------------------------------
 
@@ -457,67 +461,6 @@ const importedSpecifiers = (source) => {
   }
 
   return imported;
-};
-
-/**
- * Reads the `packages:` list out of `pnpm-workspace.yaml`. A YAML parser is not
- * worth a runtime dependency for one fixed-shape list; anything this misreads
- * surfaces as a workspace-set violation rather than as silence.
- *
- * @param {string} rootDir The repository root to read from.
- * @returns {string[] | null} The declared globs, or null when the file is absent.
- */
-const readWorkspaceGlobs = (rootDir) => {
-  const file = path.join(rootDir, "pnpm-workspace.yaml");
-  if (!existsSync(file)) {
-    return null;
-  }
-  const globs = [];
-  let inPackages = false;
-  for (const rawLine of readFileSync(file, "utf-8").split("\n")) {
-    const line = rawLine.replace(YAML_COMMENT, "").trimEnd();
-    if (PACKAGES_KEY.test(line)) {
-      inPackages = true;
-      continue;
-    }
-    if (!inPackages) {
-      continue;
-    }
-    const item = YAML_LIST_ITEM.exec(line);
-    if (item?.groups) {
-      globs.push(item.groups.item.replaceAll(YAML_QUOTES, ""));
-      continue;
-    }
-    if (line.trim() !== "") {
-      inPackages = false;
-    }
-  }
-  return globs;
-};
-
-/** Expands the settled `dir/*` glob shape. Nothing deeper is supported on purpose. */
-const expandGlobs = (rootDir, globs) => {
-  const found = [];
-  for (const glob of globs) {
-    if (!glob.endsWith("/*")) {
-      continue;
-    }
-    const prefix = glob.slice(0, -2);
-    const parent = path.join(rootDir, prefix);
-    if (!existsSync(parent)) {
-      continue;
-    }
-    for (const entry of readdirSync(parent, { withFileTypes: true })) {
-      const workspace = `${prefix}/${entry.name}`;
-      if (
-        entry.isDirectory() &&
-        existsSync(path.join(rootDir, workspace, "package.json"))
-      ) {
-        found.push(workspace);
-      }
-    }
-  }
-  return found.toSorted();
 };
 
 /**
