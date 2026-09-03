@@ -10,13 +10,10 @@
  *
  * Every test file creates and drops a database of its own, so the files are
  * independent and can run in parallel. What they share is the cluster: roles are
- * cluster-wide objects, and `bootstrap()` creates the runtime role by catching
- * the name collision rather than by checking first, which is the race-free form.
- *
- * That covers the collision, not every race. Two `bootstrap()` calls started
- * together against one cluster can still meet on the `ALTER ROLE` that follows
- * and raise `tuple concurrently updated` - measured, by writing one of the cases
- * here that way. A file needing two databases provisions them in sequence.
+ * cluster-wide objects, and `bootstrap()` survives concurrent provisioning -
+ * behind a lock where a lock reaches, by re-running its own transaction where it
+ * does not, and `bootstrap.test.ts` is where that is measured rather than
+ * assumed. A file needing two databases may provision them together.
  */
 import { Client } from "pg";
 

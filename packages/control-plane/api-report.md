@@ -48,6 +48,14 @@ export interface BootstrapConfig {
  * closed - the boot assertion refuses on `permission denied` - and re-running
  * `bootstrap` as the migrating role is the repair.
  *
+ * **Two of these started together survive each other.** Everything it provisions
+ * runs in one transaction that takes {@link BOOTSTRAP_LOCK} first, so bootstraps
+ * against one database queue; the runtime role is cluster-wide, so bootstraps
+ * against *different* databases in one cluster can still meet on it, and a
+ * bootstrap that loses that race re-runs its own transaction - see
+ * {@link CONTENDED_ATTEMPTS}. A deployment scaling out and a test suite running
+ * a database per file are the same case.
+ *
  * @param config The admin connection and the runtime role's password.
  */
 export declare const bootstrap: (config: BootstrapConfig) => Promise<void>;

@@ -210,11 +210,13 @@ describe("a tenant read after the Owner context was cleared", () => {
     reset = await createTestDatabase(RESET_DATABASE);
     bareCast = await createTestDatabase(BARE_CAST_DATABASE);
 
-    // One after the other, not together. `bootstrap` provisions a cluster-wide
-    // role, and two of them alter it at once with `tuple concurrently updated`
-    // - measured, by writing this the other way round first.
-    await provision(RESET_DATABASE);
-    await provision(BARE_CAST_DATABASE);
+    // Together, which `bootstrap` serializes for itself: it provisions a
+    // cluster-wide role, and two of them meeting on it is what `bootstrap.test.ts`
+    // measures.
+    await Promise.all([
+      provision(RESET_DATABASE),
+      provision(BARE_CAST_DATABASE),
+    ]);
 
     // A row on both, so "zero rows" is the policy answering rather than an
     // empty table, and so the bare cast has something to raise over.
