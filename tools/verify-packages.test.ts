@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   apiReport,
+  consumerDirectory,
   consumerFixture,
   consumerIdentifier,
   exportSubpaths,
@@ -304,53 +305,77 @@ describe(consumerFixture, () => {
     externals: { zod: "4.5.4" },
     nodeTypes: "26.4.0",
   });
+  const workspace = fixture["pnpm-workspace.yaml"] ?? "";
 
-  it("depends on each tarball by absolute file path", () => {
+  it("gives each package a consumer that installs only that package", () => {
+    // The isolation this step claims rests entirely on this. A consumer holding
+    // every tarball puts the siblings on its own module resolution walk-up, and
+    // an undeclared dependency resolves through them.
     // SAFETY: the string under test is one this function just generated.
-    const manifest = JSON.parse(fixture["package.json"] ?? "") as Manifest;
+    const protocol = JSON.parse(
+      fixture["consumers/protocol/package.json"] ?? ""
+    ) as Manifest;
+    // SAFETY: the string under test is one this function just generated.
+    const workerCore = JSON.parse(
+      fixture["consumers/worker-core/package.json"] ?? ""
+    ) as Manifest;
 
-    expect(manifest.dependencies).toStrictEqual({
+    expect(protocol.dependencies).toStrictEqual({
       "@reprove/protocol": "file:/tmp/pack/reprove-protocol-0.0.0.tgz",
+    });
+    expect(workerCore.dependencies).toStrictEqual({
       "@reprove/worker-core": "file:/tmp/pack/reprove-worker-core-0.0.0.tgz",
     });
-    expect(manifest.devDependencies).toStrictEqual({
-      "@types/node": "26.4.0",
-    });
+    expect(protocol.devDependencies).toStrictEqual({ "@types/node": "26.4.0" });
+  });
+
+  it("leaves the fixture root with no dependencies of its own", () => {
+    // SAFETY: the string under test is one this function just generated.
+    const root = JSON.parse(fixture["package.json"] ?? "") as Manifest;
+
+    expect(root.dependencies).toBeUndefined();
+    expect(root.devDependencies).toBeUndefined();
+  });
+
+  it("turns hoisting off, so nothing sits on the walk-up path", () => {
+    // pnpm's default `["*"]` builds node_modules/.pnpm/node_modules, which is
+    // exactly the directory a package's own resolution walks up through.
+    expect(workspace).toContain("hoistPattern: []");
+    expect(workspace).toContain("publicHoistPattern: []");
+    expect(workspace).toContain("nodeLinker: isolated");
+  });
+
+  it("makes the consumers one workspace, so they share one install", () => {
+    expect(workspace).toContain('- "consumers/*"');
   });
 
   it("overrides every internal edge to its sibling tarball", () => {
     // `pnpm pack` rewrites `workspace:*` to a version no registry has, so the
     // override is what makes the transitive edge resolve at all.
-    expect(fixture["pnpm-workspace.yaml"]).toContain(
+    expect(workspace).toContain(
       '"@reprove/protocol": "file:/tmp/pack/reprove-protocol-0.0.0.tgz"'
     );
   });
 
   it("pins every external to the version the workspace installed", () => {
-    expect(fixture["pnpm-workspace.yaml"]).toContain('"zod": "4.5.4"');
+    expect(workspace).toContain('"zod": "4.5.4"');
   });
 
-  it("keeps the fixture out of any enclosing workspace and unhoisted", () => {
-    expect(fixture["pnpm-workspace.yaml"]).toContain("packages: []");
-    expect(fixture["pnpm-workspace.yaml"]).toContain("nodeLinker: isolated");
-  });
+  it("imports only its own package's subpaths, and uses each import", () => {
+    const protocol = fixture["consumers/protocol/consumer.ts"] ?? "";
 
-  it("imports every subpath exactly once and uses each import", () => {
-    expect(fixture["consumer.ts"]).toContain(
+    expect(protocol).toContain(
       'import * as protocolV1 from "@reprove/protocol/v1";'
     );
-    expect(fixture["consumer.ts"]).toContain(
-      'import * as workerCore from "@reprove/worker-core";'
-    );
-    expect(fixture["consumer.ts"]).toContain("export const surface = {");
-    expect(fixture["consumer.ts"]).toContain("  protocolV1,");
-    expect(fixture["consumer.ts"]).toContain("  workerCore,");
+    expect(protocol).toContain("export const surface = {");
+    expect(protocol).toContain("  protocolV1,");
+    expect(protocol).not.toContain("@reprove/worker-core");
   });
 
   it("type-checks the packed declarations rather than skipping them", () => {
     // SAFETY: the string under test is one this function just generated.
     const tsconfig = JSON.parse(
-      fixture["tsconfig.json"] ?? ""
+      fixture["consumers/worker-core/tsconfig.json"] ?? ""
     ) as ConsumerTsconfig;
 
     // `skipLibCheck` is asserted here rather than left to the repository base
@@ -363,9 +388,19 @@ describe(consumerFixture, () => {
     });
   });
 
-  it("smoke-imports every subpath at runtime", () => {
-    expect(fixture["smoke.mjs"]).toContain('"@reprove/protocol/v1"');
-    expect(fixture["smoke.mjs"]).toContain('"@reprove/worker-core"');
+  it("smoke-imports only its own package's subpaths at runtime", () => {
+    const workerCore = fixture["consumers/worker-core/smoke.mjs"] ?? "";
+
+    expect(workerCore).toContain('"@reprove/worker-core"');
+    expect(workerCore).not.toContain('"@reprove/protocol/v1"');
+  });
+});
+
+describe(consumerDirectory, () => {
+  it("drops the scope, so each package gets its own fixture directory", () => {
+    expect(consumerDirectory("@reprove/control-plane-workflow")).toBe(
+      "control-plane-workflow"
+    );
   });
 });
 

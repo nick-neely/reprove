@@ -37,11 +37,15 @@ Each layer is runnable on its own as an inner-loop shortcut - `verify:workspace`
 
 `verify:packages` proves the artifact a consumer would actually install. It
 discovers the publishable packages from their own manifests, packs each one with
-`pnpm pack`, installs the tarballs into a throwaway consumer fixture, and there
-type-checks, imports and smoke-runs every published subpath, then puts `publint`
-and `attw` over the same tarballs. It runs after the build because it packs
-`dist`, and it needs no network: the fixture installs `--offline` from the store
-your `pnpm install` already filled.
+`pnpm pack`, and installs the tarballs into a throwaway fixture that holds **one
+consumer per package, each depending on its own tarball and nothing else**. In
+each it type-checks, imports and smoke-runs that package's published subpaths,
+then puts `publint` and `attw` over the same tarballs. Giving each package a
+consumer of its own is what makes a dependency a package uses but never declared
+fail: module resolution walks up from the importing file, so a consumer holding
+every tarball would let the siblings satisfy it. It runs after the build because
+it packs `dist`, and it needs no network: the fixture installs `--offline` from
+the store your `pnpm install` already filled.
 
 It also owns the two checks that guard the published TypeScript surface:
 

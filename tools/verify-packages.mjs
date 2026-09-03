@@ -5,9 +5,14 @@
  *
  * Every check here reads the *packed* tarball rather than the source tree,
  * because the defects this step exists to catch - a wrong `files` list, an
- * export map that resolves only inside the workspace, an upstream type leaking
- * through a signature - are invisible from the workspace and appear only once
- * the package has been packed and installed somewhere else.
+ * export map that resolves only inside the workspace, a dependency used but
+ * never declared, an upstream type leaking through a signature - are invisible
+ * from the workspace and appear only once the package has been packed and
+ * installed somewhere else.
+ *
+ * The fixture it installs into holds one consumer per package, each depending
+ * on its own tarball alone; `consumerFixture` explains why that shape is what
+ * the isolation claim rests on.
  *
  * It owns no allowlist. Publishable workspaces are discovered from their own
  * manifests through tools/workspaces.mjs; ADR 0010's table stays in
@@ -261,14 +266,52 @@ export const consumerIdentifier = (specifier) =>
     .join("");
 
 /**
+ * The directory one package's consumer occupies inside the fixture.
+ *
+ * @param {string} name A package name.
+ * @returns {string} A directory name unique across the publishable set.
+ */
+export const consumerDirectory = (name) => name.replace(SCOPE_PREFIX, "");
+
+/**
+ * The tsconfig every consumer type-checks under. The repository base config
+ * skips lib checking for build speed; here the opposite is the point, that the
+ * shipped declarations themselves compile for a consumer rather than merely the
+ * consumer's own file.
+ */
+const CONSUMER_TSCONFIG = {
+  compilerOptions: {
+    target: "ES2022",
+    lib: ["ES2022"],
+    module: "NodeNext",
+    moduleResolution: "NodeNext",
+    moduleDetection: "force",
+    types: ["node"],
+    strict: true,
+    verbatimModuleSyntax: true,
+    isolatedModules: true,
+    skipLibCheck: false,
+    noEmit: true,
+  },
+  include: ["consumer.ts"],
+};
+
+/**
  * The whole consumer fixture as text, generated from the packed manifests so no
  * list of packages, subpaths or dependencies is maintained by hand.
  *
- * One fixture holds every package rather than one fixture each. pnpm's isolated
- * `node_modules` layout means an installed package still resolves only what its
- * own manifest declares, so a missing dependency fails here exactly as it would
- * in a consumer that installed that package alone - and `nodeLinker: isolated`
- * is written out rather than assumed, because the guarantee is the point.
+ * **One consumer package per published package**, each depending on its own
+ * tarball and nothing else. A single consumer depending on all eight would not
+ * prove isolation, however the store is laid out: Node and TypeScript resolve
+ * by walking *up* from the importing file, so a package installed beside the
+ * others reaches them through the fixture root's own `node_modules` and an
+ * undeclared dependency resolves anyway. Separate consumer packages put a
+ * different set of siblings above each one, which is what makes an undeclared
+ * dependency fail. `hoistPattern` and `publicHoistPattern` are emptied for the
+ * same reason: pnpm's default `["*"]` builds a `node_modules/.pnpm/node_modules`
+ * that sits on exactly that walk-up path.
+ *
+ * They share one `pnpm install`, because they are one pnpm workspace.
  *
  * @param {{
  *   packages: { tarball: string, manifest: Record<string, unknown> }[],
@@ -276,92 +319,102 @@ export const consumerIdentifier = (specifier) =>
  *   nodeTypes: string,
  * }} options The packed packages, exact external pins, and the `@types/node`
  *   version the workspace installed.
- * @returns {Record<string, string>} File name to contents.
+ * @returns {Record<string, string>} Path within the fixture to contents.
  */
 export const consumerFixture = ({ packages, externals, nodeTypes }) => {
   const ordered = packages.toSorted((a, b) =>
     byText(a.manifest.name, b.manifest.name)
   );
-  const subpaths = ordered.flatMap((entry) => exportSubpaths(entry.manifest));
-  const tarballs = Object.fromEntries(
-    ordered.map((entry) => [entry.manifest.name, `file:${entry.tarball}`])
-  );
-  const overrides = { ...tarballs, ...externals };
+  const overrides = {
+    ...Object.fromEntries(
+      ordered.map((entry) => [entry.manifest.name, `file:${entry.tarball}`])
+    ),
+    ...externals,
+  };
 
-  const manifest = {
+  const consumers = ordered.flatMap((entry) => {
+    const { name } = entry.manifest;
+    const dir = `consumers/${consumerDirectory(name)}`;
+    const subpaths = exportSubpaths(entry.manifest);
+    const manifest = {
+      name: `consumer-${consumerDirectory(name)}`,
+      version: "0.0.0",
+      private: true,
+      type: "module",
+      dependencies: { [name]: `file:${entry.tarball}` },
+      devDependencies: { "@types/node": nodeTypes },
+    };
+
+    return [
+      [`${dir}/package.json`, `${JSON.stringify(manifest, null, 2)}\n`],
+      [
+        `${dir}/tsconfig.json`,
+        `${JSON.stringify(CONSUMER_TSCONFIG, null, 2)}\n`,
+      ],
+      [
+        `${dir}/consumer.ts`,
+        [
+          `// Generated by tools/verify-packages.mjs. What an outside consumer of`,
+          `// "${name}" would write, resolved through the packed export map.`,
+          ...subpaths.map(
+            (specifier) =>
+              `import * as ${consumerIdentifier(specifier)} from "${specifier}";`
+          ),
+          "",
+          "export const surface = {",
+          ...subpaths.map((specifier) => `  ${consumerIdentifier(specifier)},`),
+          "};",
+          "",
+        ].join("\n"),
+      ],
+      [
+        `${dir}/smoke.mjs`,
+        [
+          "// Generated by tools/verify-packages.mjs.",
+          "const subpaths = [",
+          ...subpaths.map((specifier) => `  "${specifier}",`),
+          "];",
+          "",
+          "for (const subpath of subpaths) {",
+          "  const namespace = await import(subpath);",
+          "  if (Object.keys(namespace).length === 0) {",
+          '    throw new Error(subpath + " imported but exported nothing.");',
+          "  }",
+          '  process.stdout.write(subpath + " -> " + Object.keys(namespace).join(", ") + "\\n");',
+          "}",
+          "",
+        ].join("\n"),
+      ],
+    ];
+  });
+
+  const root = {
     name: "reprove-consumer-fixture",
     version: "0.0.0",
     private: true,
     type: "module",
-    dependencies: tarballs,
-    devDependencies: { "@types/node": nodeTypes },
-  };
-
-  const tsconfig = {
-    compilerOptions: {
-      target: "ES2022",
-      lib: ["ES2022"],
-      module: "NodeNext",
-      moduleResolution: "NodeNext",
-      moduleDetection: "force",
-      types: ["node"],
-      strict: true,
-      verbatimModuleSyntax: true,
-      isolatedModules: true,
-      // The repository base config skips lib checking for build speed. Here the
-      // opposite is the point: that the shipped declarations themselves compile
-      // for a consumer, not merely that the consumer's own file does.
-      skipLibCheck: false,
-      noEmit: true,
-    },
-    include: ["consumer.ts"],
   };
 
   return {
-    "package.json": `${JSON.stringify(manifest, null, 2)}\n`,
+    "package.json": `${JSON.stringify(root, null, 2)}\n`,
     "pnpm-workspace.yaml": [
       "# Generated by tools/verify-packages.mjs.",
-      "# `packages: []` keeps this fixture out of any enclosing workspace, and",
-      "# every version is pinned exactly so `pnpm install --offline` resolves it",
+      "# The root declares no dependencies and hoisting is off, so nothing sits",
+      "# on a consumer's module resolution walk-up except what it declared.",
+      "# Every version is pinned exactly so `pnpm install --offline` resolves it",
       "# from the store the repository install already filled.",
-      "packages: []",
+      "packages:",
+      '  - "consumers/*"',
       "nodeLinker: isolated",
+      "hoistPattern: []",
+      "publicHoistPattern: []",
       "overrides:",
       ...Object.keys(overrides)
         .toSorted(byText)
         .map((key) => `  "${key}": "${overrides[key]}"`),
       "",
     ].join("\n"),
-    "consumer.ts": [
-      "// Generated by tools/verify-packages.mjs. This is what an outside",
-      "// consumer would write: every published subpath, resolved through the",
-      "// packed export map rather than through the workspace.",
-      ...subpaths.map(
-        (specifier) =>
-          `import * as ${consumerIdentifier(specifier)} from "${specifier}";`
-      ),
-      "",
-      "export const surface = {",
-      ...subpaths.map((specifier) => `  ${consumerIdentifier(specifier)},`),
-      "};",
-      "",
-    ].join("\n"),
-    "tsconfig.json": `${JSON.stringify(tsconfig, null, 2)}\n`,
-    "smoke.mjs": [
-      "// Generated by tools/verify-packages.mjs.",
-      "const subpaths = [",
-      ...subpaths.map((specifier) => `  "${specifier}",`),
-      "];",
-      "",
-      "for (const subpath of subpaths) {",
-      "  const namespace = await import(subpath);",
-      "  if (Object.keys(namespace).length === 0) {",
-      '    throw new Error(subpath + " imported but exported nothing.");',
-      "  }",
-      '  process.stdout.write(subpath + " -> " + Object.keys(namespace).join(", ") + "\\n");',
-      "}",
-      "",
-    ].join("\n"),
+    ...Object.fromEntries(consumers),
   };
 };
 
@@ -632,13 +685,15 @@ const checkConsumerFixture = (rootDir, packages, fixtureDir, violations) => {
     return;
   }
 
-  mkdirSync(fixtureDir, { recursive: true });
   for (const [file, contents] of Object.entries(
     consumerFixture({ packages, externals, nodeTypes })
   )) {
-    writeFileSync(path.join(fixtureDir, file), contents);
+    const target = path.join(fixtureDir, file);
+    mkdirSync(path.dirname(target), { recursive: true });
+    writeFileSync(target, contents);
   }
 
+  // One install for the whole fixture: the consumers are one pnpm workspace.
   const installed = run("pnpm", ["install", "--ignore-scripts", "--offline"], {
     cwd: fixtureDir,
   });
@@ -651,23 +706,38 @@ const checkConsumerFixture = (rootDir, packages, fixtureDir, violations) => {
     return;
   }
 
-  const checked = run(localBin(rootDir, "tsc"), [
-    "--noEmit",
-    "-p",
-    path.join(fixtureDir, "tsconfig.json"),
-  ]);
-  if (checked !== RAN) {
-    add(
-      checked === ABSENT
-        ? notInstalled("tsc")
-        : "the packed declarations did not type-check in a clean consumer; tsc's own output is above."
+  for (const packed of packages) {
+    const { name } = packed.manifest;
+    const consumerDir = path.join(
+      fixtureDir,
+      "consumers",
+      consumerDirectory(name)
     );
-  }
+    const blame = (message) =>
+      violations.push({
+        workspace: packed.source.workspace,
+        rule: "consumer-fixture",
+        message,
+      });
 
-  if (run(process.execPath, ["smoke.mjs"], { cwd: fixtureDir }) !== RAN) {
-    add(
-      "an installed package did not import at runtime; node's own output is above."
-    );
+    const checked = run(localBin(rootDir, "tsc"), [
+      "--noEmit",
+      "-p",
+      path.join(consumerDir, "tsconfig.json"),
+    ]);
+    if (checked !== RAN) {
+      blame(
+        checked === ABSENT
+          ? notInstalled("tsc")
+          : `"${name}" did not type-check in a consumer that installed only it; tsc's own output is above. An unresolved import here is a dependency the package uses but does not declare.`
+      );
+    }
+
+    if (run(process.execPath, ["smoke.mjs"], { cwd: consumerDir }) !== RAN) {
+      blame(
+        `"${name}" did not import at runtime in a consumer that installed only it; node's own output is above. An unresolved specifier here is a dependency the package uses but does not declare.`
+      );
+    }
   }
 };
 
