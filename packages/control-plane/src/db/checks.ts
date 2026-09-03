@@ -169,6 +169,12 @@ interface CatalogPolicyRow {
  * policy granted to `PUBLIC`, or to a role the runtime role inherits, applies
  * just as much and has no representation in the schema module. Only the catalog
  * can see either.
+ *
+ * `usage` rather than `member`, and the difference was measured rather than
+ * inferred. Postgres 16 records `INHERIT` per grant, and a policy applies only
+ * through an inheritable one: the same `GRANT ... WITH INHERIT FALSE` leaves the
+ * policy inert. `usage` reports exactly that, where `member` would report a
+ * membership that grants nothing and refuse a boot that was fine.
  */
 const applicablePolicies = async (
   pool: Pool,

@@ -31,6 +31,7 @@ import { createRuntimeDb } from "./runtime.js";
 import { publication } from "./schema.js";
 
 const BYPASSRLS_ROLE = "reprove_bypassrls";
+const GROUP_ROLE = "reprove_test_group";
 
 const opened: TestDatabase[] = [];
 
@@ -185,6 +186,44 @@ describe("boot refuses to serve", () => {
     expect(
       detailOf(refusal, "tenant-policies-are-exactly-canonical")
     ).toContain("run carries run_tenant");
+  });
+
+  it("a policy the runtime role reaches only through a group it inherits", async () => {
+    const database = await arrange("reprove_test_refusal_inherited");
+    // Role inheritance is a database fact with no representation in the schema
+    // module, so only the catalog can see it. Postgres applies a policy through
+    // an *inheritable* membership - measured, not assumed: the same grant made
+    // `WITH INHERIT FALSE` leaves the policy inert, which is exactly what
+    // `pg_has_role(..., 'usage')` reports.
+    await database.admin(
+      `do $$ begin
+         if not exists (select 1 from pg_roles where rolname = '${GROUP_ROLE}') then
+           create role ${GROUP_ROLE} nologin;
+         end if;
+       end $$`
+    );
+    await database.admin(
+      `grant ${GROUP_ROLE} to ${RUNTIME_ROLE} with inherit true`
+    );
+    try {
+      await database.admin(
+        `create policy run_group_open on run as permissive for all to ${GROUP_ROLE} using (true)`
+      );
+
+      const refusal = await bootRefusal(
+        createRuntimeDb({ connectionString: database.runtimeUrl })
+      );
+
+      expect(failedChecks(refusal)).toStrictEqual([
+        "tenant-policies-are-exactly-canonical",
+      ]);
+      expect(
+        detailOf(refusal, "tenant-policies-are-exactly-canonical")
+      ).toContain("run has 2 policies applying to this role");
+    } finally {
+      // A role grant is cluster-wide, unlike the policy above.
+      await database.admin(`revoke ${GROUP_ROLE} from ${RUNTIME_ROLE}`);
+    }
   });
 
   it("a second permissive policy beside a correct one", async () => {
