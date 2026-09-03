@@ -27,40 +27,131 @@ import { RUNTIME_ROLE } from "./roles.js";
 
 const DIALECT = new PgDialect();
 
-// Postgres re-prints a stored expression through its own deparser, so the text
-// in `pg_policies` never matches the text Drizzle rendered even when the two
-// mean the same thing: it adds `::text` to every string literal, drops
-// identifier quotes and re-parenthesises freely. These reductions are what the
-// comparison strips from *both* sides, so what is compared is the token
-// sequence rather than either deparser's formatting.
-const TEXT_CAST = /::text\b/gu;
-const IDENTIFIER_QUOTE = /"/gu;
-const WHITESPACE = /\s+/gu;
-const PARENTHESIS = /[()]/gu;
-
 /** `select` against a relation that does not exist. */
 const UNDEFINED_TABLE = "42P01";
+
+/** An identifier Postgres would print without quoting it. */
+const BARE_IDENTIFIER = /^[a-z_][\da-z_$]*$/u;
+const WORD_START = /[A-Za-z_\d]/u;
+const WORD_BODY = /[\dA-Za-z_$]/u;
+const WHITESPACE = /\s/u;
+
+/**
+ * Postgres's own identifier folding, applied to one token: an unquoted
+ * identifier folds to lower case, a quoted one does not. That distinction is
+ * load-bearing rather than pedantic - `"Owner_Id"` is a **different column**
+ * from `owner_id`, and a policy comparing the wrong one is a tenant boundary
+ * over nothing.
+ */
+const foldIdentifier = (raw: string): string => {
+  if (!raw.startsWith('"')) {
+    return raw.toLowerCase();
+  }
+  const inner = raw.slice(1, -1).replaceAll('""', '"');
+  return BARE_IDENTIFIER.test(inner) ? inner : `"${inner}"`;
+};
+
+/**
+ * One SQL expression as a token sequence.
+ *
+ * Postgres re-prints a stored expression through its own deparser, so the text
+ * in `pg_policies` never matches the text Drizzle rendered even when the two
+ * mean the same thing: it uppercases function names, adds `::text` to every
+ * string literal, unquotes what it can and re-parenthesises freely. Tokenising
+ * is what lets those differences be reconciled **without** reaching inside a
+ * string literal or a quoted identifier, which a blanket lowercase-and-strip
+ * would do - and doing it would make `nullif(x, ' ')` indistinguishable from
+ * `nullif(x, '')`, which is the ADR 0008 outage wearing a disguise.
+ *
+ * Whitespace and parentheses are dropped. Dropping parentheses is the one
+ * reduction that loses information: two expressions differing only in how a
+ * fixed token sequence is grouped compare equal. Nothing in the grammar of a
+ * tenant predicate - a comparison, a cast and two function calls - can express
+ * such a pair, and the alternative is a SQL parser.
+ */
+const tokenize = (expression: string): string[] => {
+  const tokens: string[] = [];
+  let index = 0;
+
+  const readQuoted = (quote: string): string => {
+    let end = index + 1;
+    while (end < expression.length) {
+      if (expression[end] === quote) {
+        if (expression[end + 1] === quote) {
+          end += 2;
+          continue;
+        }
+        break;
+      }
+      end += 1;
+    }
+    const raw = expression.slice(index, Math.min(end + 1, expression.length));
+    index = end + 1;
+    return raw;
+  };
+
+  while (index < expression.length) {
+    const character = expression[index] ?? "";
+    if (WHITESPACE.test(character) || character === "(" || character === ")") {
+      index += 1;
+    } else if (character === "'") {
+      // Verbatim, quotes included: what is inside a literal is data, and a
+      // space is not an empty string.
+      tokens.push(readQuoted("'"));
+    } else if (character === '"') {
+      tokens.push(foldIdentifier(readQuoted('"')));
+    } else if (WORD_START.test(character)) {
+      let end = index;
+      while (end < expression.length && WORD_BODY.test(expression[end] ?? "")) {
+        end += 1;
+      }
+      tokens.push(foldIdentifier(expression.slice(index, end)));
+      index = end;
+    } else if (expression.startsWith("::", index)) {
+      tokens.push("::");
+      index += 2;
+    } else {
+      tokens.push(character);
+      index += 1;
+    }
+  }
+
+  return tokens;
+};
+
+/** A separator no token can contain, so a join cannot forge a boundary. */
+const TOKEN_SEPARATOR = " ";
 
 /**
  * One predicate reduced to the form both deparsers agree on.
  *
- * The table qualifier goes too: Drizzle renders `"run"."owner_id"` where
- * Postgres, which already knows the relation, renders `owner_id`. Table names
- * come from `getTableConfig()` and are plain lower-case identifiers, so
- * interpolating one into the pattern introduces nothing.
+ * Two reductions run over the token stream. `::text` goes because Postgres adds
+ * one to every string literal and Drizzle does not. The table qualifier goes
+ * because Drizzle renders `"run"."owner_id"` where Postgres, which already
+ * knows the relation, renders `owner_id`.
  *
  * @param expression A policy predicate from either side.
  * @param table The SQL name of the table the policy is attached to.
  * @returns The predicate as a token sequence, comparable across deparsers.
  */
-const normalizePredicate = (expression: string, table: string): string =>
-  expression
-    .toLowerCase()
-    .replaceAll(TEXT_CAST, "")
-    .replaceAll(IDENTIFIER_QUOTE, "")
-    .replaceAll(new RegExp(`\\b${table}\\.`, "gu"), "")
-    .replaceAll(WHITESPACE, "")
-    .replaceAll(PARENTHESIS, "");
+const normalizePredicate = (expression: string, table: string): string => {
+  const tokens = tokenize(expression);
+  const reduced: string[] = [];
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (tokens[index] === "::" && tokens[index + 1] === "text") {
+      index += 1;
+      continue;
+    }
+    if (tokens[index] === table && tokens[index + 1] === ".") {
+      index += 1;
+      continue;
+    }
+    reduced.push(tokens[index] ?? "");
+  }
+
+  return reduced.join(TOKEN_SEPARATOR);
+};
 
 /** A policy as either the schema module declares it or the catalog holds it. */
 interface Policy {

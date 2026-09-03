@@ -231,6 +231,49 @@ describe("boot refuses to serve", () => {
     }
   });
 
+  it("a policy that guards a space instead of the empty string", async () => {
+    const database = await arrange("reprove_test_refusal_space_guard");
+    // `nullif(x, ' ')` is the bare cast wearing a disguise: a pooler's reset
+    // leaves the GUC as the empty string, not a space, so the guard never fires
+    // and `''::bigint` raises from inside the policy again.
+    await database.admin("drop policy run_tenant on run");
+    await database.admin(
+      `create policy run_tenant on run as permissive for all to ${RUNTIME_ROLE}
+         using (run.owner_id = nullif(current_setting('app.owner_id', true), ' ')::bigint)
+         with check (run.owner_id = nullif(current_setting('app.owner_id', true), ' ')::bigint)`
+    );
+
+    const refusal = await bootRefusal(
+      createRuntimeDb({ connectionString: database.runtimeUrl })
+    );
+
+    expect(failedChecks(refusal)).toStrictEqual([
+      "tenant-policies-are-exactly-canonical",
+    ]);
+  });
+
+  it("a policy reading a column that differs from the tenant key only in case", async () => {
+    const database = await arrange("reprove_test_refusal_case_collision");
+    // Postgres folds an unquoted identifier to lower case and leaves a quoted
+    // one alone, so `"Owner_Id"` is a different column from `owner_id` - and a
+    // policy comparing the wrong one is a tenant boundary over nothing.
+    await database.admin('alter table run add column "Owner_Id" bigint');
+    await database.admin("drop policy run_tenant on run");
+    await database.admin(
+      `create policy run_tenant on run as permissive for all to ${RUNTIME_ROLE}
+         using ("Owner_Id" = nullif(current_setting('app.owner_id', true), '')::bigint)
+         with check ("Owner_Id" = nullif(current_setting('app.owner_id', true), '')::bigint)`
+    );
+
+    const refusal = await bootRefusal(
+      createRuntimeDb({ connectionString: database.runtimeUrl })
+    );
+
+    expect(failedChecks(refusal)).toStrictEqual([
+      "tenant-policies-are-exactly-canonical",
+    ]);
+  });
+
   it("a second permissive policy beside a correct one", async () => {
     const database = await arrange("reprove_test_refusal_second_policy");
     // Postgres combines permissive policies by OR, so this is a full tenant
