@@ -7,35 +7,37 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { bootstrap } from "./bootstrap.js";
 import { CLASSIFICATION, tableNames } from "./classification.js";
+import type { TestDatabase } from "./local-stack.test-support.js";
 import {
   createTestDatabase,
+  driverFailure,
   RUNTIME_PASSWORD,
-  type TestDatabase,
 } from "./local-stack.test-support.js";
 import { migrate } from "./migrate.js";
-import { createRuntimeDb, type RuntimeDb } from "./runtime.js";
+import type { RuntimeDb } from "./runtime.js";
+import { createRuntimeDb } from "./runtime.js";
 
 const DATABASE = "reprove_test_boot";
 
 let database: TestDatabase;
 let runtime: RuntimeDb;
 
-beforeAll(async () => {
-  database = await createTestDatabase(DATABASE);
-  await bootstrap({
-    connectionString: database.adminUrl,
-    runtimePassword: RUNTIME_PASSWORD,
-  });
-  await migrate({ connectionString: database.adminUrl });
-  runtime = await createRuntimeDb({ connectionString: database.runtimeUrl });
-});
-
-afterAll(async () => {
-  await runtime?.close();
-  await database?.drop();
-});
-
 describe("a database bootstrapped and migrated from clean", () => {
+  beforeAll(async () => {
+    database = await createTestDatabase(DATABASE);
+    await bootstrap({
+      connectionString: database.adminUrl,
+      runtimePassword: RUNTIME_PASSWORD,
+    });
+    await migrate({ connectionString: database.adminUrl });
+    runtime = await createRuntimeDb({ connectionString: database.runtimeUrl });
+  });
+
+  afterAll(async () => {
+    await runtime?.close();
+    await database?.drop();
+  });
+
   it("returns a client only after all seven of rule 6's checks pass", () => {
     expect(runtime.checks.filter((check) => !check.ok)).toStrictEqual([]);
     expect(runtime.checks.map((check) => check.name)).toStrictEqual([
@@ -78,19 +80,18 @@ describe("a database bootstrapped and migrated from clean", () => {
   });
 
   it("refuses the runtime role a table of its own", async () => {
-    // A table the runtime role created would be a table it owns, and an owner
-    // is exempt from its own RLS unless FORCE is set. Bootstrap revokes CREATE
-    // on the schema - from the role and from PUBLIC - so the route is closed
-    // rather than merely unused.
-    const failure = await runtime
-      .withoutOwner((tx) =>
-        tx.execute(sql`create table smuggled (owner_id bigint)`)
+    // A table the runtime role created would be a table it owns, and an owner is
+    // exempt from its own RLS unless FORCE is set. Bootstrap revokes CREATE on
+    // the schema - from the role and from PUBLIC - so the route is closed rather
+    // than merely unused.
+    await expect(
+      driverFailure(
+        runtime.withoutOwner((tx) =>
+          tx.execute(sql`create table smuggled (owner_id bigint)`)
+        )
       )
-      .then(() => null, (error: unknown) => error);
-
-    // Drizzle wraps the driver error, so the Postgres code - 42501,
-    // insufficient_privilege - is on the cause rather than on the message.
-    expect((failure as { cause?: unknown } | null)?.cause).toMatchObject({
+      // 42501 is insufficient_privilege.
+    ).resolves.toStrictEqual({
       code: "42501",
       message: "permission denied for schema public",
     });

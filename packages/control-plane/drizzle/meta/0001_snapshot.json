@@ -82,13 +82,9 @@
         "account_user_id_user_id_fk": {
           "name": "account_user_id_user_id_fk",
           "tableFrom": "account",
-          "columnsFrom": [
-            "user_id"
-          ],
+          "columnsFrom": ["user_id"],
           "tableTo": "user",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "cascade"
         }
@@ -156,13 +152,9 @@
         "enrollment_code_owner_id_owner_id_fk": {
           "name": "enrollment_code_owner_id_owner_id_fk",
           "tableFrom": "enrollment_code",
-          "columnsFrom": [
-            "owner_id"
-          ],
+          "columnsFrom": ["owner_id"],
           "tableTo": "owner",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "cascade"
         }
@@ -174,9 +166,7 @@
           "name": "enrollment_code_tenant",
           "as": "PERMISSIVE",
           "for": "ALL",
-          "to": [
-            "reprove_runtime"
-          ],
+          "to": ["reprove_runtime"],
           "using": "\"enrollment_code\".\"owner_id\" = nullif(current_setting('app.owner_id', true), '')::bigint",
           "withCheck": "\"enrollment_code\".\"owner_id\" = nullif(current_setting('app.owner_id', true), '')::bigint"
         }
@@ -334,26 +324,18 @@
         "finding_owner_id_owner_id_fk": {
           "name": "finding_owner_id_owner_id_fk",
           "tableFrom": "finding",
-          "columnsFrom": [
-            "owner_id"
-          ],
+          "columnsFrom": ["owner_id"],
           "tableTo": "owner",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "cascade"
         },
         "finding_run_id_run_id_fk": {
           "name": "finding_run_id_run_id_fk",
           "tableFrom": "finding",
-          "columnsFrom": [
-            "run_id"
-          ],
+          "columnsFrom": ["run_id"],
           "tableTo": "run",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "cascade"
         }
@@ -365,9 +347,7 @@
           "name": "finding_tenant",
           "as": "PERMISSIVE",
           "for": "ALL",
-          "to": [
-            "reprove_runtime"
-          ],
+          "to": ["reprove_runtime"],
           "using": "\"finding\".\"owner_id\" = nullif(current_setting('app.owner_id', true), '')::bigint",
           "withCheck": "\"finding\".\"owner_id\" = nullif(current_setting('app.owner_id', true), '')::bigint"
         }
@@ -510,13 +490,9 @@
         "ingress_delivery_owner_id_owner_id_fk": {
           "name": "ingress_delivery_owner_id_owner_id_fk",
           "tableFrom": "ingress_delivery",
-          "columnsFrom": [
-            "owner_id"
-          ],
+          "columnsFrom": ["owner_id"],
           "tableTo": "owner",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "cascade"
         }
@@ -528,9 +504,7 @@
           "name": "ingress_delivery_tenant",
           "as": "PERMISSIVE",
           "for": "ALL",
-          "to": [
-            "reprove_runtime"
-          ],
+          "to": ["reprove_runtime"],
           "using": "\"ingress_delivery\".\"owner_id\" = nullif(current_setting('app.owner_id', true), '')::bigint",
           "withCheck": "\"ingress_delivery\".\"owner_id\" = nullif(current_setting('app.owner_id', true), '')::bigint"
         }
@@ -582,13 +556,9 @@
         "installation_owner_id_owner_id_fk": {
           "name": "installation_owner_id_owner_id_fk",
           "tableFrom": "installation",
-          "columnsFrom": [
-            "owner_id"
-          ],
+          "columnsFrom": ["owner_id"],
           "tableTo": "owner",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "cascade"
         }
@@ -600,9 +570,7 @@
           "name": "installation_tenant",
           "as": "PERMISSIVE",
           "for": "ALL",
-          "to": [
-            "reprove_runtime"
-          ],
+          "to": ["reprove_runtime"],
           "using": "\"installation\".\"owner_id\" = nullif(current_setting('app.owner_id', true), '')::bigint",
           "withCheck": "\"installation\".\"owner_id\" = nullif(current_setting('app.owner_id', true), '')::bigint"
         }
@@ -642,9 +610,7 @@
           "name": "owner_tenant",
           "as": "PERMISSIVE",
           "for": "ALL",
-          "to": [
-            "reprove_runtime"
-          ],
+          "to": ["reprove_runtime"],
           "using": "\"owner\".\"id\" = nullif(current_setting('app.owner_id', true), '')::bigint",
           "withCheck": "\"owner\".\"id\" = nullif(current_setting('app.owner_id', true), '')::bigint"
         }
@@ -745,26 +711,18 @@
         "publication_owner_id_owner_id_fk": {
           "name": "publication_owner_id_owner_id_fk",
           "tableFrom": "publication",
-          "columnsFrom": [
-            "owner_id"
-          ],
+          "columnsFrom": ["owner_id"],
           "tableTo": "owner",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "cascade"
         },
         "publication_run_id_run_id_fk": {
           "name": "publication_run_id_run_id_fk",
           "tableFrom": "publication",
-          "columnsFrom": [
-            "run_id"
-          ],
+          "columnsFrom": ["run_id"],
           "tableTo": "run",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "cascade"
         }
@@ -776,9 +734,7 @@
           "name": "publication_tenant",
           "as": "PERMISSIVE",
           "for": "ALL",
-          "to": [
-            "reprove_runtime"
-          ],
+          "to": ["reprove_runtime"],
           "using": "\"publication\".\"owner_id\" = nullif(current_setting('app.owner_id', true), '')::bigint",
           "withCheck": "\"publication\".\"owner_id\" = nullif(current_setting('app.owner_id', true), '')::bigint"
         }
@@ -843,26 +799,18 @@
         "repository_owner_id_owner_id_fk": {
           "name": "repository_owner_id_owner_id_fk",
           "tableFrom": "repository",
-          "columnsFrom": [
-            "owner_id"
-          ],
+          "columnsFrom": ["owner_id"],
           "tableTo": "owner",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "cascade"
         },
         "repository_installation_id_installation_id_fk": {
           "name": "repository_installation_id_installation_id_fk",
           "tableFrom": "repository",
-          "columnsFrom": [
-            "installation_id"
-          ],
+          "columnsFrom": ["installation_id"],
           "tableTo": "installation",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "cascade"
         }
@@ -874,9 +822,7 @@
           "name": "repository_tenant",
           "as": "PERMISSIVE",
           "for": "ALL",
-          "to": [
-            "reprove_runtime"
-          ],
+          "to": ["reprove_runtime"],
           "using": "\"repository\".\"owner_id\" = nullif(current_setting('app.owner_id', true), '')::bigint",
           "withCheck": "\"repository\".\"owner_id\" = nullif(current_setting('app.owner_id', true), '')::bigint"
         }
@@ -1061,26 +1007,18 @@
         "run_owner_id_owner_id_fk": {
           "name": "run_owner_id_owner_id_fk",
           "tableFrom": "run",
-          "columnsFrom": [
-            "owner_id"
-          ],
+          "columnsFrom": ["owner_id"],
           "tableTo": "owner",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "cascade"
         },
         "run_repository_id_repository_id_fk": {
           "name": "run_repository_id_repository_id_fk",
           "tableFrom": "run",
-          "columnsFrom": [
-            "repository_id"
-          ],
+          "columnsFrom": ["repository_id"],
           "tableTo": "repository",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "cascade"
         }
@@ -1092,9 +1030,7 @@
           "name": "run_tenant",
           "as": "PERMISSIVE",
           "for": "ALL",
-          "to": [
-            "reprove_runtime"
-          ],
+          "to": ["reprove_runtime"],
           "using": "\"run\".\"owner_id\" = nullif(current_setting('app.owner_id', true), '')::bigint",
           "withCheck": "\"run\".\"owner_id\" = nullif(current_setting('app.owner_id', true), '')::bigint"
         }
@@ -1162,13 +1098,9 @@
         "session_user_id_user_id_fk": {
           "name": "session_user_id_user_id_fk",
           "tableFrom": "session",
-          "columnsFrom": [
-            "user_id"
-          ],
+          "columnsFrom": ["user_id"],
           "tableTo": "user",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "cascade"
         }
@@ -1177,9 +1109,7 @@
       "uniqueConstraints": {
         "session_token_unique": {
           "name": "session_token_unique",
-          "columns": [
-            "token"
-          ],
+          "columns": ["token"],
           "nullsNotDistinct": false
         }
       },
@@ -1243,9 +1173,7 @@
       "uniqueConstraints": {
         "user_email_unique": {
           "name": "user_email_unique",
-          "columns": [
-            "email"
-          ],
+          "columns": ["email"],
           "nullsNotDistinct": false
         }
       },
@@ -1361,13 +1289,9 @@
         "worker_owner_id_owner_id_fk": {
           "name": "worker_owner_id_owner_id_fk",
           "tableFrom": "worker",
-          "columnsFrom": [
-            "owner_id"
-          ],
+          "columnsFrom": ["owner_id"],
           "tableTo": "owner",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "cascade"
         }
@@ -1379,9 +1303,7 @@
           "name": "worker_tenant",
           "as": "PERMISSIVE",
           "for": "ALL",
-          "to": [
-            "reprove_runtime"
-          ],
+          "to": ["reprove_runtime"],
           "using": "\"worker\".\"owner_id\" = nullif(current_setting('app.owner_id', true), '')::bigint",
           "withCheck": "\"worker\".\"owner_id\" = nullif(current_setting('app.owner_id', true), '')::bigint"
         }
@@ -1459,26 +1381,18 @@
         "worker_credential_owner_id_owner_id_fk": {
           "name": "worker_credential_owner_id_owner_id_fk",
           "tableFrom": "worker_credential",
-          "columnsFrom": [
-            "owner_id"
-          ],
+          "columnsFrom": ["owner_id"],
           "tableTo": "owner",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "cascade"
         },
         "worker_credential_worker_id_worker_id_fk": {
           "name": "worker_credential_worker_id_worker_id_fk",
           "tableFrom": "worker_credential",
-          "columnsFrom": [
-            "worker_id"
-          ],
+          "columnsFrom": ["worker_id"],
           "tableTo": "worker",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "cascade"
         }
@@ -1490,9 +1404,7 @@
           "name": "worker_credential_tenant",
           "as": "PERMISSIVE",
           "for": "ALL",
-          "to": [
-            "reprove_runtime"
-          ],
+          "to": ["reprove_runtime"],
           "using": "\"worker_credential\".\"owner_id\" = nullif(current_setting('app.owner_id', true), '')::bigint",
           "withCheck": "\"worker_credential\".\"owner_id\" = nullif(current_setting('app.owner_id', true), '')::bigint"
         }

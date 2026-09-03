@@ -9,13 +9,14 @@
  * nobody chose.
  *
  * Every test file creates and drops a database of its own, so the files are
- * independent and can run in parallel. What they share is the cluster: the roles
- * are cluster-wide objects, and `bootstrap()` is written to survive two of them
+ * independent and can run in parallel. What they share is the cluster: roles are
+ * cluster-wide objects, and `bootstrap()` is written to survive two connections
  * provisioning the same role at once.
  */
-import pg from "pg";
+import { Client } from "pg";
 
-import { RUNTIME_ROLE } from "./schema.js";
+import { BootRefusalError } from "./refusal.js";
+import { RUNTIME_ROLE } from "./roles.js";
 
 /** The admin role on the direct endpoint. Owns the tables, applies migrations. */
 export const ADMIN_HOST = "127.0.0.1:55432";
@@ -26,21 +27,16 @@ export const RUNTIME_HOST = "127.0.0.1:56432";
 export const MAINTENANCE_DATABASE = "reprove";
 
 /**
- * The database PgBouncer serves through a pool of exactly one server
- * connection, which is what makes server-connection reuse deterministic.
+ * The database PgBouncer serves through a pool of exactly one server connection,
+ * which is what makes server-connection reuse deterministic.
  */
 export const PINNED_DATABASE = "reprove_pinned";
 
 /** Not a secret: both hops of the local stack authenticate with `trust`. */
 export const RUNTIME_PASSWORD = "local-development-only";
 
-const UNREACHABLE = (host: string, cause: string) =>
-  new Error(
-    `The local database stack is not reachable at ${host} (${cause}).\n` +
-      "These tests measure the tenant boundary against real Postgres behind real PgBouncer,\n" +
-      "so there is nothing to skip to. Start it with:\n\n" +
-      "    pnpm db:up\n"
-  );
+/** `CREATE ROLE` against a name another connection created first. */
+const DUPLICATE_OBJECT = "42710";
 
 export const adminUrl = (database: string): string =>
   `postgres://postgres@${ADMIN_HOST}/${database}`;
@@ -50,31 +46,45 @@ export const runtimeUrl = (
   role: string = RUNTIME_ROLE
 ): string => `postgres://${role}@${RUNTIME_HOST}/${database}`;
 
+const unreachable = (host: string, cause: unknown): Error =>
+  new Error(
+    `The local database stack is not reachable at ${host} (${cause instanceof Error ? cause.message : String(cause)}).\n` +
+      "These tests measure the tenant boundary against real Postgres behind real PgBouncer,\n" +
+      "so there is nothing to skip to. Start it with:\n\n" +
+      "    pnpm db:up\n"
+  );
+
+const reach = async (host: string, url: string): Promise<void> => {
+  const client = new Client(url);
+  try {
+    await client.connect();
+    await client.query("select 1");
+  } catch (error) {
+    throw unreachable(host, error);
+  } finally {
+    try {
+      await client.end();
+    } catch {
+      // Closing a connection that never opened is not a stack failure.
+    }
+  }
+};
+
 /**
  * Fails - never skips - with something the reader can act on when either
  * endpoint is down. Both are checked, because a stack with Postgres up and
  * PgBouncer down would pass every catalog check and prove none of the pooled
  * failures these tests exist for.
  */
-export async function requireLocalStack(): Promise<void> {
-  for (const [host, url] of [
-    [ADMIN_HOST, adminUrl(MAINTENANCE_DATABASE)],
-    [RUNTIME_HOST, `postgres://postgres@${RUNTIME_HOST}/${MAINTENANCE_DATABASE}`],
-  ] as const) {
-    const client = new pg.Client(url);
-    try {
-      await client.connect();
-      await client.query("select 1");
-    } catch (error) {
-      throw UNREACHABLE(
-        host,
-        error instanceof Error ? error.message : String(error)
-      );
-    } finally {
-      await client.end().catch(() => undefined);
-    }
-  }
-}
+export const requireLocalStack = async (): Promise<void> => {
+  await Promise.all([
+    reach(ADMIN_HOST, adminUrl(MAINTENANCE_DATABASE)),
+    reach(
+      RUNTIME_HOST,
+      `postgres://postgres@${RUNTIME_HOST}/${MAINTENANCE_DATABASE}`
+    ),
+  ]);
+};
 
 /** A database of one test file's own, with both connection strings for it. */
 export interface TestDatabase {
@@ -84,22 +94,23 @@ export interface TestDatabase {
   /** Runtime role, through PgBouncer in transaction mode. */
   readonly runtimeUrl: string;
   /** Runs one statement as the admin role, for arranging a scenario. */
-  admin<T = unknown>(statement: string, params?: unknown[]): Promise<T[]>;
+  readonly admin: <T>(statement: string) => Promise<T[]>;
   /** Drops the database, terminating whatever the pooler still holds. */
-  drop(): Promise<void>;
+  readonly drop: () => Promise<void>;
 }
 
-async function onMaintenance<T>(
-  fn: (client: pg.Client) => Promise<T>
-): Promise<T> {
-  const client = new pg.Client(adminUrl(MAINTENANCE_DATABASE));
+const onDatabase = async <T>(
+  database: string,
+  fn: (client: Client) => Promise<T>
+): Promise<T> => {
+  const client = new Client(adminUrl(database));
   await client.connect();
   try {
     return await fn(client);
   } finally {
     await client.end();
   }
-}
+};
 
 /**
  * Drops and recreates a database, so a file starts from a known-clean one
@@ -112,34 +123,32 @@ async function onMaintenance<T>(
  * @param name The database name, which is this test file's own.
  * @returns Handles onto the new database.
  */
-export async function createTestDatabase(name: string): Promise<TestDatabase> {
+export const createTestDatabase = async (
+  name: string
+): Promise<TestDatabase> => {
   await requireLocalStack();
-  await onMaintenance(async (client) => {
+  await onDatabase(MAINTENANCE_DATABASE, async (client) => {
     await client.query(`drop database if exists "${name}" with (force)`);
     await client.query(`create database "${name}"`);
   });
 
-  const database: TestDatabase = {
+  return {
     name,
     adminUrl: adminUrl(name),
     runtimeUrl: runtimeUrl(name),
-    async admin<T>(statement: string, params?: unknown[]): Promise<T[]> {
-      const client = new pg.Client(adminUrl(name));
-      await client.connect();
-      try {
-        const { rows } = await client.query(statement, params);
+    admin: <T>(statement: string): Promise<T[]> =>
+      onDatabase(name, async (client) => {
+        const { rows } = await client.query(statement);
+        // SAFETY: every caller states the shape it selected, and a mismatch
+        // surfaces as the assertion that reads the row failing in the test.
         return rows as T[];
-      } finally {
-        await client.end();
-      }
-    },
+      }),
     drop: () =>
-      onMaintenance(async (client) => {
+      onDatabase(MAINTENANCE_DATABASE, async (client) => {
         await client.query(`drop database if exists "${name}" with (force)`);
       }),
   };
-  return database;
-}
+};
 
 /**
  * Creates a login role that carries `BYPASSRLS`, which is the shape a provider
@@ -151,8 +160,8 @@ export async function createTestDatabase(name: string): Promise<TestDatabase> {
  *
  * @param role The role name to create.
  */
-export async function createBypassRlsRole(role: string): Promise<void> {
-  await onMaintenance(async (client) => {
+export const createBypassRlsRole = async (role: string): Promise<void> => {
+  await onDatabase(MAINTENANCE_DATABASE, async (client) => {
     try {
       await client.query(
         `create role "${role}" login nosuperuser bypassrls noinherit`
@@ -160,9 +169,63 @@ export async function createBypassRlsRole(role: string): Promise<void> {
     } catch (error) {
       // Cluster-wide and shared by every test file, so losing the race is the
       // expected outcome rather than a failure.
-      if ((error as { code?: string }).code !== "42710") {
+      // SAFETY: `code` is what node-postgres puts on a driver error; anything
+      // without one is rethrown below.
+      if ((error as { code?: string }).code !== DUPLICATE_OBJECT) {
         throw error;
       }
     }
   });
+};
+
+/** What a Postgres rejection says, once it has been dug out of its wrapper. */
+export interface DriverFailure {
+  readonly code: string | undefined;
+  readonly message: string;
 }
+
+/**
+ * The driver error a call rejected with. Drizzle wraps the original in a
+ * `Failed query:` error, so the Postgres code lives on the cause rather than on
+ * the message, and reading it here keeps that detail out of every assertion.
+ *
+ * @param work The call expected to reject.
+ * @returns The code and message Postgres raised.
+ */
+export const driverFailure = async (
+  work: Promise<unknown>
+): Promise<DriverFailure> => {
+  try {
+    await work;
+  } catch (error) {
+    const cause = error instanceof Error ? error.cause : undefined;
+    const raised = cause instanceof Error ? cause : error;
+    // SAFETY: `code` is node-postgres's own field on a driver error; a rejection
+    // from anywhere else simply reports it as undefined.
+    return {
+      code: (raised as { code?: string }).code,
+      message: raised instanceof Error ? raised.message : String(raised),
+    };
+  }
+  throw new Error("expected the call to reject, and it resolved");
+};
+
+/**
+ * The refusal a boot rejected with.
+ *
+ * @param work The call expected to refuse.
+ * @returns The refusal, with every check's verdict on it.
+ */
+export const bootRefusal = async (
+  work: Promise<unknown>
+): Promise<BootRefusalError> => {
+  try {
+    await work;
+  } catch (error) {
+    if (error instanceof BootRefusalError) {
+      return error;
+    }
+    throw error;
+  }
+  throw new Error("expected a BootRefusalError, and the call resolved");
+};

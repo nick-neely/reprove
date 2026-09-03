@@ -12,10 +12,10 @@
 import { sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { drizzle } from "drizzle-orm/node-postgres";
-import pg from "pg";
+import { Pool } from "pg";
 
-import type { CheckResult } from "./checks.js";
 import { assertTenantBoundary } from "./checks.js";
+import type { CheckResult } from "./refusal.js";
 import * as schema from "./schema.js";
 
 /** What the runtime connects with. No value here is read from the environment. */
@@ -40,6 +40,9 @@ export type TenantTransaction = Parameters<
   Parameters<Database["transaction"]>[0]
 >[0];
 
+/** Work to run inside a transaction, tenant-scoped or not. */
+type InTransaction<T> = (tx: TenantTransaction) => Promise<T>;
+
 /** A client that has passed all seven of rule 6's checks. */
 export interface RuntimeDb {
   /** Every check's verdict, kept so a deployment can log what it proved. */
@@ -50,14 +53,10 @@ export interface RuntimeDb {
    * one of these is difficult to write by accident rather than merely forbidden
    * by convention.
    *
-   * @param ownerId GitHub's durable numeric Owner id, which is the tenant key.
-   * @param fn The work to run inside the tenant transaction.
-   * @returns Whatever `fn` returns, once the transaction commits.
+   * The first argument is GitHub's durable numeric Owner id, which is the
+   * tenant key itself.
    */
-  withOwner<T>(
-    ownerId: number,
-    fn: (tx: TenantTransaction) => Promise<T>
-  ): Promise<T>;
+  readonly withOwner: <T>(ownerId: number, fn: InTransaction<T>) => Promise<T>;
 
   /**
    * A transaction with **no Owner context**, and therefore no tenant. Every
@@ -68,14 +67,11 @@ export interface RuntimeDb {
    * are non-tenant work (Better Auth's tables) and proving that the boundary
    * denies. Reaching for it to "just read one row" is the mistake `withOwner`
    * exists to make hard.
-   *
-   * @param fn The work to run with no tenant.
-   * @returns Whatever `fn` returns, once the transaction commits.
    */
-  withoutOwner<T>(fn: (tx: TenantTransaction) => Promise<T>): Promise<T>;
+  readonly withoutOwner: <T>(fn: InTransaction<T>) => Promise<T>;
 
   /** Drains the pool. */
-  close(): Promise<void>;
+  readonly close: () => Promise<void>;
 }
 
 const DEFAULT_POOL_SIZE = 8;
@@ -86,13 +82,14 @@ const DEFAULT_POOL_SIZE = 8;
  *
  * @param config The pooled runtime connection and its pool size.
  * @returns A client whose tenant boundary has been measured, not assumed.
- * @throws {import("./checks.js").BootRefusal} Naming every check that failed.
- *   The pool is drained first, so a refused boot leaves no connection behind.
+ * @throws {import("./refusal.js").BootRefusalError} Naming every check that
+ *   failed. The pool is drained first, so a refused boot leaves no connection
+ *   behind.
  */
-export async function createRuntimeDb(
+export const createRuntimeDb = async (
   config: RuntimeDbConfig
-): Promise<RuntimeDb> {
-  const pool = new pg.Pool({
+): Promise<RuntimeDb> => {
+  const pool = new Pool({
     connectionString: config.connectionString,
     max: config.poolSize ?? DEFAULT_POOL_SIZE,
   });
@@ -107,10 +104,7 @@ export async function createRuntimeDb(
 
   const db = drizzle(pool, { schema });
 
-  const withOwner = <T>(
-    ownerId: number,
-    fn: (tx: TenantTransaction) => Promise<T>
-  ): Promise<T> => {
+  const withOwner = <T>(ownerId: number, fn: InTransaction<T>): Promise<T> => {
     if (!Number.isSafeInteger(ownerId)) {
       throw new TypeError(
         `an Owner id must be GitHub's durable numeric id, not ${String(ownerId)}`
@@ -137,4 +131,4 @@ export async function createRuntimeDb(
     withoutOwner: (fn) => db.transaction((tx) => fn(tx)),
     close: () => pool.end(),
   };
-}
+};

@@ -38,9 +38,7 @@ import * as schema from "./schema.js";
  * @param table Any table from the schema module.
  * @returns The unqualified table name as Postgres holds it.
  */
-export function tableName(table: PgTable): string {
-  return getTableConfig(table).name;
-}
+export const tableName = (table: PgTable): string => getTableConfig(table).name;
 
 /**
  * The SQL names of a set of tables, sorted, for a message a reader can scan.
@@ -48,9 +46,8 @@ export function tableName(table: PgTable): string {
  * @param tables Any set of tables.
  * @returns Their SQL names in lexical order.
  */
-export function tableNames(tables: readonly PgTable[]): string[] {
-  return tables.map(tableName).sort();
-}
+export const tableNames = (tables: readonly PgTable[]): string[] =>
+  tables.map(tableName).toSorted();
 
 /** Every Owner-scoped table. Each carries the Owner id denormalized. */
 export const TENANT_TABLES: readonly PgTable[] = [
@@ -87,11 +84,11 @@ export const NON_TENANT_TABLES: readonly PgTable[] = [
  * over its own malformed boundary rather than because a neighbour legitimately
  * placed a table beside it.
  */
-export const MANAGED_TABLES: readonly PgTable[] = Object.values(
-  schema as Record<string, unknown>
-)
+const exported: unknown[] = Object.values(schema);
+
+export const MANAGED_TABLES: readonly PgTable[] = exported
   .filter((entity): entity is PgTable => is(entity, PgTable))
-  .sort((a, b) => (tableName(a) < tableName(b) ? -1 : 1));
+  .toSorted((a, b) => (tableName(a) < tableName(b) ? -1 : 1));
 
 /** The classification the boot assertion reads. */
 export interface Classification {

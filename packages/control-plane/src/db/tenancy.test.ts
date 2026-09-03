@@ -3,35 +3,37 @@
  *
  * The point of [ADR
  * 0008](../../../../docs/adr/0008-persistence-tenancy-and-retention.md)'s first
- * decision is that a forgotten `WHERE owner_id` returns another Owner's
- * Findings under application scoping alone, and returns zero rows under RLS.
- * Every query below is deliberately written without a tenant predicate, so what
- * it returns is the boundary's answer rather than the query's.
+ * decision is that a forgotten `WHERE owner_id` returns another Owner's Findings
+ * under application scoping alone, and returns zero rows under RLS. Every query
+ * below is deliberately written without a tenant predicate, so what it returns
+ * is the boundary's answer rather than the query's.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { bootstrap } from "./bootstrap.js";
+import type { TestDatabase } from "./local-stack.test-support.js";
 import {
   createTestDatabase,
+  driverFailure,
   RUNTIME_PASSWORD,
-  type TestDatabase,
 } from "./local-stack.test-support.js";
 import { migrate } from "./migrate.js";
-import { createRuntimeDb, type RuntimeDb } from "./runtime.js";
+import type { RuntimeDb, TenantTransaction } from "./runtime.js";
+import { createRuntimeDb } from "./runtime.js";
 import * as schema from "./schema.js";
-import type { TenantTransaction } from "./runtime.js";
 
 const DATABASE = "reprove_test_tenancy";
 
 /** GitHub numeric Owner ids, which are the tenant keys themselves. */
-const ACME = 1_001;
-const GLOBEX = 2_002;
+const ACME = 1001;
+const GLOBEX = 2002;
+const SEEDED_RUNS = "2";
 
 let database: TestDatabase;
 let runtime: RuntimeDb;
 
 /** One Owner with one Repository and one queued Run, all through `withOwner`. */
-async function seed(tx: TenantTransaction, ownerId: number): Promise<void> {
+const seed = async (tx: TenantTransaction, ownerId: number): Promise<void> => {
   await tx
     .insert(schema.owner)
     .values({ id: ownerId, login: `owner-${ownerId}`, type: "organization" });
@@ -56,27 +58,27 @@ async function seed(tx: TenantTransaction, ownerId: number): Promise<void> {
     placement: "hosted",
     configDigest: `sha256:${ownerId}`,
   });
-}
-
-beforeAll(async () => {
-  database = await createTestDatabase(DATABASE);
-  await bootstrap({
-    connectionString: database.adminUrl,
-    runtimePassword: RUNTIME_PASSWORD,
-  });
-  await migrate({ connectionString: database.adminUrl });
-  runtime = await createRuntimeDb({ connectionString: database.runtimeUrl });
-
-  await runtime.withOwner(ACME, (tx) => seed(tx, ACME));
-  await runtime.withOwner(GLOBEX, (tx) => seed(tx, GLOBEX));
-});
-
-afterAll(async () => {
-  await runtime?.close();
-  await database?.drop();
-});
+};
 
 describe("two Owners through withOwner", () => {
+  beforeAll(async () => {
+    database = await createTestDatabase(DATABASE);
+    await bootstrap({
+      connectionString: database.adminUrl,
+      runtimePassword: RUNTIME_PASSWORD,
+    });
+    await migrate({ connectionString: database.adminUrl });
+    runtime = await createRuntimeDb({ connectionString: database.runtimeUrl });
+
+    await runtime.withOwner(ACME, (tx) => seed(tx, ACME));
+    await runtime.withOwner(GLOBEX, (tx) => seed(tx, GLOBEX));
+  });
+
+  afterAll(async () => {
+    await runtime?.close();
+    await database?.drop();
+  });
+
   it("shows each Owner only its own rows, with no WHERE clause anywhere", async () => {
     const forAcme = await runtime.withOwner(ACME, (tx) =>
       tx.select().from(schema.run)
@@ -93,30 +95,27 @@ describe("two Owners through withOwner", () => {
     const all = await database.admin<{ n: string }>(
       "select count(*)::text as n from run"
     );
-    expect(all[0]?.n).toBe("2");
+    expect(all[0]?.n).toBe(SEEDED_RUNS);
   });
 
   it("rejects an insert carrying another Owner's id", async () => {
-    const failure = await runtime
-      .withOwner(ACME, (tx) =>
-        tx.insert(schema.finding).values({
-          ownerId: GLOBEX,
-          runId: crypto.randomUUID(),
-          path: "src/index.ts",
-          severity: "high",
-          verification: "static",
-          bucketKey: "smuggled",
-          bucketKeyVersion: 1,
-        })
+    // 42501 again, but raised by `WITH CHECK` rather than by a grant: the write
+    // is refused for being outside the tenant, not for being unprivileged.
+    await expect(
+      driverFailure(
+        runtime.withOwner(ACME, (tx) =>
+          tx.insert(schema.finding).values({
+            ownerId: GLOBEX,
+            runId: crypto.randomUUID(),
+            path: "src/index.ts",
+            severity: "high",
+            verification: "static",
+            bucketKey: "smuggled",
+            bucketKeyVersion: 1,
+          })
+        )
       )
-      .then(
-        () => null,
-        (error: unknown) => error
-      );
-
-    // 42501, but raised by `WITH CHECK` rather than by a grant: the write is
-    // refused for being outside the tenant, not for being unprivileged.
-    expect((failure as { cause?: unknown } | null)?.cause).toMatchObject({
+    ).resolves.toStrictEqual({
       code: "42501",
       message: 'new row violates row-level security policy for table "finding"',
     });

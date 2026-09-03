@@ -14,29 +14,29 @@
  * The database is the one PgBouncer serves through a pool of exactly one server
  * connection, so reuse is deterministic rather than load-dependent.
  */
-import pg from "pg";
+import { Client } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { bootstrap } from "./bootstrap.js";
+import type { TestDatabase } from "./local-stack.test-support.js";
 import {
   adminUrl,
   createTestDatabase,
   PINNED_DATABASE,
   RUNTIME_PASSWORD,
   runtimeUrl,
-  type TestDatabase,
 } from "./local-stack.test-support.js";
 import { migrate } from "./migrate.js";
 import { createRuntimeDb } from "./runtime.js";
 
-const OWNER = 4_242;
+const OWNER = 4242;
 const SMUGGLED_OWNER = "77";
 
 let database: TestDatabase;
 
 /** One client, one look at whatever tenant context the server connection holds. */
-async function readTenantContext(): Promise<string | null> {
-  const client = new pg.Client(runtimeUrl(PINNED_DATABASE));
+const readTenantContext = async (): Promise<string | null> => {
+  const client = new Client(runtimeUrl(PINNED_DATABASE));
   await client.connect();
   try {
     const { rows } = await client.query<{ owner: string | null }>(
@@ -49,26 +49,26 @@ async function readTenantContext(): Promise<string | null> {
   } finally {
     await client.end();
   }
-}
-
-beforeAll(async () => {
-  database = await createTestDatabase(PINNED_DATABASE);
-  await bootstrap({
-    connectionString: adminUrl(PINNED_DATABASE),
-    runtimePassword: RUNTIME_PASSWORD,
-  });
-  await migrate({ connectionString: adminUrl(PINNED_DATABASE) });
-});
-
-afterAll(async () => {
-  await database?.drop();
-});
+};
 
 // Ordered, and the order is load-bearing: the leak leaves the single server
 // connection dirty, so the clean case has to be measured first. A test that
 // scrubbed the connection in between would be scrubbing away the thing under
 // test.
 describe.sequential("one server connection, handed to client after client", () => {
+  beforeAll(async () => {
+    database = await createTestDatabase(PINNED_DATABASE);
+    await bootstrap({
+      connectionString: adminUrl(PINNED_DATABASE),
+      runtimePassword: RUNTIME_PASSWORD,
+    });
+    await migrate({ connectionString: adminUrl(PINNED_DATABASE) });
+  });
+
+  afterAll(async () => {
+    await database?.drop();
+  });
+
   it("leaves no tenant context behind after withOwner", async () => {
     const runtime = await createRuntimeDb({
       connectionString: runtimeUrl(PINNED_DATABASE),
@@ -80,7 +80,7 @@ describe.sequential("one server connection, handed to client after client", () =
           "select nullif(current_setting('app.owner_id', true), '') as owner"
         );
         // Inside the transaction the context is set, so the next assertion is
-        // about it being released rather than about it never having existed.
+        // about it being released rather than about it never existing.
         expect(rows[0]?.owner).toBe(String(OWNER));
       });
     } finally {
@@ -94,7 +94,7 @@ describe.sequential("one server connection, handed to client after client", () =
   });
 
   it("carries a bare SET to whoever gets that connection next", async () => {
-    const leaker = new pg.Client(runtimeUrl(PINNED_DATABASE));
+    const leaker = new Client(runtimeUrl(PINNED_DATABASE));
     await leaker.connect();
     // No transaction, no `LOCAL`: exactly the statement ADR 0008 originally
     // specified, and the one the ADR was corrected away from.

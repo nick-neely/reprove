@@ -19,7 +19,7 @@ import {
   tableName,
   tableNames,
 } from "./classification.js";
-import { RUNTIME_ROLE } from "./schema.js";
+import { RUNTIME_ROLE } from "./roles.js";
 
 const dialect = new PgDialect();
 
@@ -42,10 +42,14 @@ const isIndexed = (table: PgTable, column: string): boolean => {
   const primary = config.columns.some(
     (candidate) => candidate.name === column && candidate.primary
   );
-  const indexed = config.indexes.some(
-    (index) =>
-      (index.config.columns[0] as { name?: string } | undefined)?.name === column
-  );
+  const indexed = config.indexes.some((index) => {
+    const [leading] = index.config.columns;
+    // SAFETY: an index column is either a column, which carries a name, or a
+    // raw SQL expression, which does not. Only the first form can match a
+    // column name, and the second reads as undefined.
+    const named = leading as { name?: string } | undefined;
+    return named?.name === column;
+  });
   return primary || indexed;
 };
 
@@ -56,7 +60,7 @@ describe("the tenancy classification", () => {
     const nonTenant = tableNames(NON_TENANT_TABLES);
 
     expect(managed).toHaveLength(MANAGED_TABLE_COUNT);
-    expect([...tenant, ...nonTenant].sort()).toStrictEqual(managed);
+    expect([...tenant, ...nonTenant].toSorted()).toStrictEqual(managed);
     expect(tenant.filter((name) => nonTenant.includes(name))).toStrictEqual([]);
   });
 
@@ -92,22 +96,26 @@ describe("the tenancy classification", () => {
   it("declares exactly the canonical tenant policy on every tenant table", () => {
     for (const table of TENANT_TABLES) {
       const name = tableName(table);
-      const policies = getTableConfig(table).policies;
+      const { policies } = getTableConfig(table);
 
       // Set equality, not membership. Postgres combines permissive policies by
       // OR, so a second one sitting beside a correct tenant policy is a full
       // tenant bypass that every presence check passes.
       expect(policies).toHaveLength(1);
-      const policy = policies[0];
+      const [policy] = policies;
       const predicate = `"${name}"."${tenantKey(table)}" = nullif(current_setting('app.owner_id', true), '')::bigint`;
 
       expect({
         name: policy?.name,
         as: policy?.as ?? "permissive",
         for: policy?.for,
+        // SAFETY: every policy below is declared with `to: runtimeRole`, so the
+        // value is the role object rather than one of the string forms Drizzle
+        // also accepts. A different spelling reads as undefined and fails.
         to: (policy?.to as { name?: string } | undefined)?.name,
         using: policy?.using && dialect.sqlToQuery(policy.using).sql,
-        withCheck: policy?.withCheck && dialect.sqlToQuery(policy.withCheck).sql,
+        withCheck:
+          policy?.withCheck && dialect.sqlToQuery(policy.withCheck).sql,
       }).toStrictEqual({
         name: `${name}_tenant`,
         as: "permissive",

@@ -7,10 +7,12 @@
  * shell out.
  *
  * The credentials arrive as environment variables rather than as arguments
- * because argv is world-readable on most systems: a password on the command
- * line leaks into every process listing on the host.
+ * because argv is world-readable on most systems: a password on the command line
+ * leaks into every process listing on the host.
  */
-import { bootstrap, migrate, RUNTIME_ROLE } from "./db/index.js";
+import { bootstrap } from "./db/bootstrap.js";
+import { migrate } from "./db/migrate.js";
+import { RUNTIME_ROLE } from "./db/roles.js";
 
 const ADMIN_URL = "REPROVE_DATABASE_ADMIN_URL";
 const RUNTIME_PASSWORD = "REPROVE_DATABASE_RUNTIME_PASSWORD";
@@ -37,26 +39,20 @@ const required = (name: string): string => {
   return value;
 };
 
-const main = async (command: string | undefined): Promise<void> => {
+const run = async (command: string | undefined): Promise<string> => {
   if (command === "bootstrap") {
     await bootstrap({
       connectionString: required(ADMIN_URL),
       runtimePassword: required(RUNTIME_PASSWORD),
     });
-    process.stdout.write(
-      `bootstrap: the runtime role "${RUNTIME_ROLE}" is provisioned. Run \`reprove-control-plane migrate\` next.\n`
-    );
-    return;
+    return `bootstrap: the runtime role "${RUNTIME_ROLE}" is provisioned. Run \`reprove-control-plane migrate\` next.`;
   }
 
   if (command === "migrate") {
     const applied = await migrate({ connectionString: required(ADMIN_URL) });
-    process.stdout.write(
-      applied.length === 0
-        ? "migrate: already up to date.\n"
-        : `migrate: applied ${applied.length} migration(s): ${applied.join(", ")}\n`
-    );
-    return;
+    return applied.length === 0
+      ? "migrate: already up to date."
+      : `migrate: applied ${applied.length} migration(s): ${applied.join(", ")}`;
   }
 
   throw new Error(
@@ -66,9 +62,11 @@ const main = async (command: string | undefined): Promise<void> => {
   );
 };
 
-main(process.argv[2]).catch((error: unknown) => {
+try {
+  process.stdout.write(`${await run(process.argv[2])}\n`);
+} catch (error) {
   process.stderr.write(
     `${error instanceof Error ? error.message : String(error)}\n`
   );
   process.exitCode = 1;
-});
+}

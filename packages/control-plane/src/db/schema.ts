@@ -9,7 +9,8 @@
  * enumerates them independently of how they are classified. A table added here
  * and left out of both classification sets refuses boot.
  */
-import { sql, type SQLWrapper } from "drizzle-orm";
+import { sql } from "drizzle-orm";
+import type { SQLWrapper } from "drizzle-orm";
 import {
   bigint,
   boolean,
@@ -25,17 +26,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-/**
- * The restricted role all application traffic runs as. It is a constant rather
- * than configuration because the policies below name it: a deployment that
- * renamed the role would have migrations granting the boundary to a role that
- * does not exist.
- *
- * `bootstrap()` provisions it as SQL over the admin connection, per ADR 0008 -
- * never a role created in a provider console, because those inherit the
- * privileges this design exists to deny.
- */
-export const RUNTIME_ROLE = "reprove_runtime";
+import { RUNTIME_ROLE } from "./roles.js";
 
 /**
  * Declared `existing()` so drizzle-kit names the role in the policies it emits
@@ -69,14 +60,13 @@ const ownerContext = sql`nullif(current_setting('app.owner_id', true), '')::bigi
  * The column is typed `SQLWrapper` because inside the extra-config callback a
  * column is an `ExtraConfigColumn` rather than the builder it was declared with.
  */
-function tenantPolicy(name: string, column: SQLWrapper) {
-  return pgPolicy(name, {
+const tenantPolicy = (name: string, column: SQLWrapper) =>
+  pgPolicy(name, {
     for: "all",
     to: runtimeRole,
     using: sql`${column} = ${ownerContext}`,
     withCheck: sql`${column} = ${ownerContext}`,
   });
-}
 
 // --- Owner-scoped tables -----------------------------------------------------
 //

@@ -50,9 +50,12 @@ interface Journal {
  * @param folder The migration folder to read. Defaults to this package's own.
  * @returns One entry per journal entry, in journal order.
  */
-export function readCommittedMigrations(
+export const readCommittedMigrations = (
   folder: string = MIGRATIONS_FOLDER
-): CommittedMigration[] {
+): CommittedMigration[] => {
+  // SAFETY: the journal is `drizzle-kit`'s own output, committed to this
+  // repository and shipped inside the package. `readMigrationFiles` below reads
+  // the same file and throws first if it is missing or malformed.
   const journal = JSON.parse(
     readFileSync(path.join(folder, "meta", "_journal.json"), "utf-8")
   ) as Journal;
@@ -64,4 +67,4 @@ export function readCommittedMigrations(
       hash: file.hash,
     })
   );
-}
+};

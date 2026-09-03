@@ -13,67 +13,32 @@
  * can be correct while the predicate is wrong; that is exactly what the bare
  * `::bigint` cast was, and the behavioural check is what caught it.
  */
+import { is } from "drizzle-orm";
 import type { PgPolicyToOption, PgTable } from "drizzle-orm/pg-core";
-import { getTableConfig, PgDialect } from "drizzle-orm/pg-core";
+import { getTableConfig, PgDialect, PgRole } from "drizzle-orm/pg-core";
 import type { Pool } from "pg";
 
 import type { Classification } from "./classification.js";
 import { CLASSIFICATION, tableName, tableNames } from "./classification.js";
 import { readCommittedMigrations } from "./migrations.js";
-import { RUNTIME_ROLE } from "./schema.js";
-
-/** The stable name of each of rule 6's seven checks. */
-export type CheckName =
-  | "runtime-role-is-not-privileged"
-  | "runtime-role-owns-no-table"
-  | "every-managed-table-is-classified"
-  | "tenant-tables-are-forced"
-  | "tenant-policies-are-exactly-canonical"
-  | "migrations-match-the-committed-files"
-  | "no-owner-context-reads-empty";
-
-/** One check's verdict. `detail` is what a refusal prints. */
-export interface CheckResult {
-  readonly name: CheckName;
-  readonly ok: boolean;
-  readonly detail: string;
-}
-
-/**
- * What `createRuntimeDb()` throws instead of returning a client. There is no
- * flag that downgrades this to a warning and no path to a client that skipped
- * it: the assertion lives in the connection factory precisely so that it is
- * unskippable by construction (ADR 0010).
- */
-export class BootRefusal extends Error {
-  readonly checks: readonly CheckResult[];
-
-  constructor(checks: readonly CheckResult[]) {
-    const failed = checks.filter((check) => !check.ok);
-    super(
-      [
-        `refusing to serve: ${failed.length} of ${checks.length} tenancy assertions failed`,
-        ...failed.map((check) => `  x ${check.name}: ${check.detail}`),
-      ].join("\n")
-    );
-    this.name = "BootRefusal";
-    this.checks = checks;
-  }
-}
+import type { CheckName, CheckResult } from "./refusal.js";
+import { BootRefusalError } from "./refusal.js";
+import { RUNTIME_ROLE } from "./roles.js";
 
 const DIALECT = new PgDialect();
 
 // Postgres re-prints a stored expression through its own deparser, so the text
 // in `pg_policies` never matches the text Drizzle rendered even when the two
-// mean the same thing: it lowercases nothing, adds `::text` to every string
-// literal, drops identifier quotes and re-parenthesises freely. These four
-// reductions are what the comparison strips from *both* sides before comparing,
-// so the shape being compared is the token sequence rather than the formatting.
+// mean the same thing: it adds `::text` to every string literal, drops
+// identifier quotes and re-parenthesises freely. These reductions are what the
+// comparison strips from *both* sides, so what is compared is the token
+// sequence rather than either deparser's formatting.
 const TEXT_CAST = /::text\b/gu;
 const IDENTIFIER_QUOTE = /"/gu;
 const WHITESPACE = /\s+/gu;
 const PARENTHESIS = /[()]/gu;
 
+/** `select` against a relation that does not exist. */
 const UNDEFINED_TABLE = "42P01";
 
 /**
@@ -88,18 +53,17 @@ const UNDEFINED_TABLE = "42P01";
  * @param table The SQL name of the table the policy is attached to.
  * @returns The predicate as a token sequence, comparable across deparsers.
  */
-function normalizePredicate(expression: string, table: string): string {
-  return expression
+const normalizePredicate = (expression: string, table: string): string =>
+  expression
     .toLowerCase()
     .replaceAll(TEXT_CAST, "")
     .replaceAll(IDENTIFIER_QUOTE, "")
     .replaceAll(new RegExp(`\\b${table}\\.`, "gu"), "")
     .replaceAll(WHITESPACE, "")
     .replaceAll(PARENTHESIS, "");
-}
 
 /** A policy as either the schema module declares it or the catalog holds it. */
-interface PolicyShape {
+interface Policy {
   readonly name: string;
   readonly permissive: boolean;
   readonly command: string;
@@ -108,26 +72,26 @@ interface PolicyShape {
   readonly withCheck: string;
 }
 
-const describePolicy = (policy: PolicyShape): string =>
-  `${policy.name} ${policy.permissive ? "permissive" : "restrictive"} for ${policy.command} to ${[...policy.roles].sort().join(",")} using ${policy.using} with check ${policy.withCheck}`;
+const describePolicy = (policy: Policy): string =>
+  `${policy.name} ${policy.permissive ? "permissive" : "restrictive"} for ${policy.command} to ${[...policy.roles].toSorted().join(",")} using ${policy.using} with check ${policy.withCheck}`;
 
-const samePolicy = (a: PolicyShape, b: PolicyShape): boolean =>
+const samePolicy = (a: Policy, b: Policy): boolean =>
   describePolicy(a) === describePolicy(b);
 
 /**
- * The role names a declared policy applies to. Drizzle accepts a role, a role
- * name, or a list of either, so all four spellings are flattened here rather
- * than at each call site.
+ * The role names a declared policy applies to. Drizzle accepts a role object, a
+ * role name, or a nested list of either, so all of them are flattened here
+ * rather than at the one call site that cares.
  */
-function declaredRoles(to: PgPolicyToOption | undefined): string[] {
+const declaredRoles = (to: PgPolicyToOption | undefined): string[] => {
   if (to === undefined) {
     return [];
   }
   if (Array.isArray(to)) {
     return to.flatMap((entry) => declaredRoles(entry));
   }
-  return [typeof to === "string" ? to : to.name];
-}
+  return [is(to, PgRole) ? to.name : to];
+};
 
 /**
  * The canonical policy a tenant table declares, rendered by the pinned dialect
@@ -142,36 +106,50 @@ function declaredRoles(to: PgPolicyToOption | undefined): string[] {
  * @param table A tenant table.
  * @returns The single declared policy, or the reason there is not exactly one.
  */
-function declaredPolicy(table: PgTable): PolicyShape | string {
+const declaredPolicy = (
+  table: PgTable
+): { canonical: Policy } | { problem: string } => {
   const name = tableName(table);
-  const declared = getTableConfig(table).policies;
-  if (declared.length !== 1) {
-    return `${name} declares ${declared.length} policies; a tenant table declares exactly the canonical one`;
+  const [policy, ...extra] = getTableConfig(table).policies;
+  if (policy === undefined || extra.length > 0) {
+    return {
+      problem: `${name} declares ${extra.length + (policy ? 1 : 0)} policies; a tenant table declares exactly the canonical one`,
+    };
   }
-  const policy = declared[0];
-  if (!(policy?.using && policy.withCheck)) {
-    return `${name}'s policy declares no using or with-check expression`;
+  if (!(policy.using && policy.withCheck)) {
+    return {
+      problem: `${name}'s policy declares no using or with-check expression`,
+    };
   }
   const roles = declaredRoles(policy.to);
-  if (!(roles.length === 1 && roles[0] === RUNTIME_ROLE)) {
-    return `${name}'s policy applies to ${roles.join(", ") || "no role"} rather than to ${RUNTIME_ROLE} alone`;
+  const [role, ...otherRoles] = roles;
+  if (role !== RUNTIME_ROLE || otherRoles.length > 0) {
+    return {
+      problem: `${name}'s policy applies to ${roles.join(", ") || "no role"} rather than to ${RUNTIME_ROLE} alone`,
+    };
   }
   return {
-    name: policy.name,
-    permissive: (policy.as ?? "permissive") === "permissive",
-    command: (policy.for ?? "all").toLowerCase(),
-    roles,
-    using: normalizePredicate(DIALECT.sqlToQuery(policy.using).sql, name),
-    withCheck: normalizePredicate(
-      DIALECT.sqlToQuery(policy.withCheck).sql,
-      name
-    ),
+    canonical: {
+      name: policy.name,
+      permissive: (policy.as ?? "permissive") === "permissive",
+      command: (policy.for ?? "all").toLowerCase(),
+      roles,
+      using: normalizePredicate(DIALECT.sqlToQuery(policy.using).sql, name),
+      withCheck: normalizePredicate(
+        DIALECT.sqlToQuery(policy.withCheck).sql,
+        name
+      ),
+    },
   };
-}
+};
 
 /** A Postgres identifier, quoted for the few places a bind parameter cannot go. */
 const quoteIdentifier = (name: string): string =>
   `"${name.replaceAll('"', '""')}"`;
+
+/** The same, for a string literal. */
+const quoteLiteral = (value: string): string =>
+  `'${value.replaceAll("'", "''")}'`;
 
 interface CatalogPolicyRow {
   tablename: string;
@@ -192,10 +170,10 @@ interface CatalogPolicyRow {
  * just as much and has no representation in the schema module. Only the catalog
  * can see either.
  */
-async function applicablePolicies(
+const applicablePolicies = async (
   pool: Pool,
   tables: string[]
-): Promise<CatalogPolicyRow[]> {
+): Promise<CatalogPolicyRow[]> => {
   const { rows } = await pool.query<CatalogPolicyRow>(
     `select p.tablename, p.policyname, p.permissive, p.cmd,
             p.roles::text[] as roles, p.qual, p.with_check
@@ -209,9 +187,9 @@ async function applicablePolicies(
     [tables]
   );
   return rows;
-}
+};
 
-const fromCatalog = (row: CatalogPolicyRow): PolicyShape => ({
+const fromCatalog = (row: CatalogPolicyRow): Policy => ({
   name: row.policyname,
   permissive: row.permissive.toLowerCase() === "permissive",
   command: row.cmd.toLowerCase(),
@@ -228,7 +206,7 @@ const fromCatalog = (row: CatalogPolicyRow): PolicyShape => ({
  * through a provider console: connect as one of those and every policy is
  * ignored with no error, warning or notice raised anywhere.
  */
-async function checkRolePrivileges(pool: Pool): Promise<string | null> {
+const checkRolePrivileges = async (pool: Pool): Promise<string | null> => {
   const { rows } = await pool.query<{
     rolname: string;
     rolsuper: boolean;
@@ -236,7 +214,7 @@ async function checkRolePrivileges(pool: Pool): Promise<string | null> {
   }>(
     "select rolname, rolsuper, rolbypassrls from pg_roles where rolname = current_user"
   );
-  const role = rows[0];
+  const [role] = rows;
   if (!role) {
     return "current_user has no pg_roles row";
   }
@@ -247,14 +225,14 @@ async function checkRolePrivileges(pool: Pool): Promise<string | null> {
   return flags.length > 0
     ? `${role.rolname} carries ${flags.join(" + ")}, so every policy would be ignored with no error`
     : null;
-}
+};
 
 /**
  * A table's owner is exempt from its own RLS unless `FORCE` is set, so the role
  * must not own tables **and** the tables must be forced. Bootstrap closes the
  * route by revoking `CREATE` on the schema; this measures the result.
  */
-async function checkOwnsNoTable(pool: Pool): Promise<string | null> {
+const checkOwnsNoTable = async (pool: Pool): Promise<string | null> => {
   const { rows } = await pool.query<{ relname: string }>(
     `select c.relname from pg_class c
        join pg_namespace n on n.oid = c.relnamespace
@@ -264,7 +242,7 @@ async function checkOwnsNoTable(pool: Pool): Promise<string | null> {
   return rows.length > 0
     ? `owns ${rows.map((row) => row.relname).join(", ")} in public`
     : null;
-}
+};
 
 /**
  * The check that keeps the Better Auth exemption from becoming the allowlist ADR
@@ -276,10 +254,10 @@ async function checkOwnsNoTable(pool: Pool): Promise<string | null> {
  * Workflow to share the same Postgres server; refusing over a neighbour's table
  * would be a production refusal caused by a correctly-behaving neighbour.
  */
-async function checkClassification(
+const checkClassification = async (
   pool: Pool,
   classification: Classification
-): Promise<string | null> {
+): Promise<string | null> => {
   const managed = tableNames(classification.managed);
   const tenant = new Set(tableNames(classification.tenant));
   const nonTenant = new Set(tableNames(classification.nonTenant));
@@ -317,7 +295,7 @@ async function checkClassification(
   ].filter((problem) => problem !== null);
 
   return problems.length > 0 ? problems.join("; ") : null;
-}
+};
 
 /**
  * `FORCE` is defense in depth beside the restricted role, not a replacement for
@@ -325,11 +303,10 @@ async function checkClassification(
  * why ADR 0017 generates the `FORCE` migration from the classification and why
  * this check exists to catch a database that never received it.
  */
-async function checkForced(
+const checkForced = async (
   pool: Pool,
   classification: Classification
-): Promise<string | null> {
-  const tenant = tableNames(classification.tenant);
+): Promise<string | null> => {
   const { rows } = await pool.query<{
     relname: string;
     relrowsecurity: boolean;
@@ -338,7 +315,7 @@ async function checkForced(
     `select c.relname, c.relrowsecurity, c.relforcerowsecurity
        from pg_class c join pg_namespace n on n.oid = c.relnamespace
       where n.nspname = 'public' and c.relkind = 'r' and c.relname = any($1::text[])`,
-    [tenant]
+    [tableNames(classification.tenant)]
   );
 
   const bad = rows
@@ -354,44 +331,43 @@ async function checkForced(
     );
 
   return bad.length > 0 ? bad.join("; ") : null;
-}
+};
 
 /**
  * Set equality, not membership. Postgres combines permissive policies by OR, so
  * a `USING (true)` sitting *beside* a correct tenant policy is a full tenant
  * bypass that every presence check passes (ADR 0017).
  */
-async function checkPolicies(
+const checkPolicies = async (
   pool: Pool,
   classification: Classification
-): Promise<string | null> {
+): Promise<string | null> => {
   const problems: string[] = [];
-  const tenantNames = tableNames(classification.tenant);
   const nonTenantNames = tableNames(classification.nonTenant);
   const live = await applicablePolicies(pool, [
-    ...tenantNames,
+    ...tableNames(classification.tenant),
     ...nonTenantNames,
   ]);
 
   for (const table of classification.tenant) {
     const name = tableName(table);
-    const expected = declaredPolicy(table);
-    if (typeof expected === "string") {
-      problems.push(expected);
+    const declared = declaredPolicy(table);
+    if ("problem" in declared) {
+      problems.push(declared.problem);
       continue;
     }
-    const found = live
+    const expected = declared.canonical;
+    const [only, ...extra] = live
       .filter((row) => row.tablename === name)
       .map((row) => fromCatalog(row));
 
-    if (found.length !== 1) {
+    if (only === undefined || extra.length > 0) {
       problems.push(
-        `${name} has ${found.length} policies applying to this role, not exactly one: ${found.map((policy) => policy.name).join(", ") || "none"}`
+        `${name} has ${extra.length + (only ? 1 : 0)} policies applying to this role, not exactly one: ${[only, ...extra].map((policy) => policy?.name).join(", ") || "none"}`
       );
       continue;
     }
-    const only = found[0];
-    if (only && !samePolicy(only, expected)) {
+    if (!samePolicy(only, expected)) {
       problems.push(
         `${name} carries ${describePolicy(only)} where the schema declares ${describePolicy(expected)}`
       );
@@ -408,7 +384,7 @@ async function checkPolicies(
   }
 
   return problems.length > 0 ? problems.join("; ") : null;
-}
+};
 
 /**
  * `PgDialect.migrate` writes a hash it never reads, so an edited applied
@@ -417,8 +393,9 @@ async function checkPolicies(
  * into a drift signal, and it uses Drizzle's own primitives rather than
  * recomputing either side (ADR 0017).
  */
-async function checkMigrations(pool: Pool): Promise<string | null> {
+const checkMigrations = async (pool: Pool): Promise<string | null> => {
   const committed = readCommittedMigrations();
+  const tags = committed.map((migration) => migration.tag);
 
   let applied: { hash: string; created_at: string }[];
   try {
@@ -427,13 +404,12 @@ async function checkMigrations(pool: Pool): Promise<string | null> {
     );
     applied = result.rows;
   } catch (error) {
-    if (
-      error instanceof Error &&
-      (error as Error & { code?: string }).code === UNDEFINED_TABLE
-    ) {
-      return `no migration ledger: ${committed.length} pending (${committed.map((migration) => migration.tag).join(", ")}). Run \`reprove-control-plane migrate\``;
+    // SAFETY: `code` is node-postgres's own field on a driver error. Anything
+    // without one is not the missing-ledger case and is rethrown.
+    if ((error as { code?: string }).code !== UNDEFINED_TABLE) {
+      throw error;
     }
-    throw error;
+    return `no migration ledger: ${tags.length} pending (${tags.join(", ")}). Run \`reprove-control-plane migrate\``;
   }
 
   const byMillis = new Map(
@@ -467,46 +443,60 @@ async function checkMigrations(pool: Pool): Promise<string | null> {
   ].filter((problem) => problem !== null);
 
   return problems.length > 0 ? problems.join("; ") : null;
-}
+};
 
 /**
- * The behavioural one. It reads a tenant table with no Owner context set, using
- * the **same expression the policies use** - if the assertion and the policy
- * disagreed about what "no context" means, the assertion would be measuring
- * something the boundary does not depend on.
+ * The behavioural one. It reads every tenant table with no Owner context set,
+ * using the **same expression the policies use** - if the assertion and the
+ * policy disagreed about what "no context" means, the assertion would be
+ * measuring something the boundary does not depend on.
+ *
+ * One statement rather than one per table, because it has to observe a single
+ * transaction: a context that leaked from a pooled connection would be released
+ * by a second one.
  */
-async function checkNoContextReadsEmpty(
+const checkNoContextReadsEmpty = async (
   pool: Pool,
   classification: Classification
-): Promise<string | null> {
+): Promise<string | null> => {
+  const tenant = tableNames(classification.tenant);
+  const probes = tenant
+    .map(
+      (name) =>
+        `select ${quoteLiteral(name)} as tenant_table, exists(select 1 from ${quoteIdentifier(name)}) as visible`
+    )
+    .join(" union all ");
+
   const client = await pool.connect();
   try {
     await client.query("begin");
     const context = await client.query<{ owner: string | null }>(
       "select nullif(current_setting('app.owner_id', true), '') as owner"
     );
-    if (context.rows[0]?.owner != null) {
-      return `a tenant context leaked onto a fresh connection: ${context.rows[0].owner}`;
+    const leaked = context.rows[0]?.owner;
+    if (leaked !== null && leaked !== undefined) {
+      return `a tenant context leaked onto a fresh connection: ${leaked}`;
     }
 
-    const visible: string[] = [];
-    for (const table of classification.tenant) {
-      const name = tableName(table);
-      const result = await client.query<{ visible: boolean }>(
-        `select exists(select 1 from ${quoteIdentifier(name)}) as visible`
-      );
-      if (result.rows[0]?.visible) {
-        visible.push(name);
-      }
-    }
+    const seen = await client.query<{ tenant_table: string; visible: boolean }>(
+      probes
+    );
+    const visible = seen.rows
+      .filter((row) => row.visible)
+      .map((row) => row.tenant_table);
     return visible.length > 0
       ? `rows are visible with no tenant context in ${visible.join(", ")}`
       : null;
   } finally {
-    await client.query("rollback").catch(() => undefined);
+    try {
+      await client.query("rollback");
+    } catch {
+      // A rollback that cannot be issued means the connection is already gone,
+      // which the check above has already reported on.
+    }
     client.release();
   }
-}
+};
 
 // --- the assertion -----------------------------------------------------------
 
@@ -521,13 +511,13 @@ async function checkNoContextReadsEmpty(
  *   uses.
  * @param classification The classification to measure against. The parameter
  *   exists so a test can present a deliberately malformed one; production code
- *   never passes it.
+ *   never passes it, and `createRuntimeDb()` does not expose it.
  * @returns One result per check, in the order ADR 0008 lists them.
  */
-export async function runBootChecks(
+export const runBootChecks = async (
   pool: Pool,
   classification: Classification = CLASSIFICATION
-): Promise<CheckResult[]> {
+): Promise<CheckResult[]> => {
   const checks: [CheckName, () => Promise<string | null>][] = [
     ["runtime-role-is-not-privileged", () => checkRolePrivileges(pool)],
     ["runtime-role-owns-no-table", () => checkOwnsNoTable(pool)],
@@ -547,21 +537,21 @@ export async function runBootChecks(
     ],
   ];
 
-  const results: CheckResult[] = [];
-  for (const [name, check] of checks) {
-    try {
-      const failure = await check();
-      results.push({ name, ok: failure === null, detail: failure ?? "ok" });
-    } catch (error) {
-      results.push({
-        name,
-        ok: false,
-        detail: `the check itself failed: ${error instanceof Error ? error.message : String(error)}`,
-      });
-    }
-  }
-  return results;
-}
+  return await Promise.all(
+    checks.map(async ([name, check]) => {
+      try {
+        const failure = await check();
+        return { name, ok: failure === null, detail: failure ?? "ok" };
+      } catch (error) {
+        return {
+          name,
+          ok: false,
+          detail: `the check itself failed: ${error instanceof Error ? error.message : String(error)}`,
+        };
+      }
+    })
+  );
+};
 
 /**
  * Rule 6 as an assertion: either every check passed, or nothing is returned.
@@ -569,15 +559,15 @@ export async function runBootChecks(
  * @param pool A pool on the runtime connection.
  * @param classification See {@link runBootChecks}.
  * @returns Every check's verdict, once they have all passed.
- * @throws {BootRefusal} Naming every check that failed and why.
+ * @throws {BootRefusalError} Naming every check that failed and why.
  */
-export async function assertTenantBoundary(
+export const assertTenantBoundary = async (
   pool: Pool,
   classification: Classification = CLASSIFICATION
-): Promise<CheckResult[]> {
+): Promise<CheckResult[]> => {
   const checks = await runBootChecks(pool, classification);
   if (checks.some((check) => !check.ok)) {
-    throw new BootRefusal(checks);
+    throw new BootRefusalError(checks);
   }
   return checks;
-}
+};
