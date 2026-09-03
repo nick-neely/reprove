@@ -1,4 +1,7 @@
 {
   "extends": "./tsconfig.json",
-  "exclude": ["src/**/*.test.ts"]
+  // Tests and the fixtures they share are type-checked by `tsconfig.json` and
+  // never packed: a published package ships neither its tests nor a module that
+  // knows the address of a local Docker stack.
+  "exclude": ["src/**/*.test.ts", "src/**/*.test-support.ts"]
 }

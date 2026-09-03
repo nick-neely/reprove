@@ -1,0 +1,5 @@
+; Local development and CI only. `auth_type = trust` on both hops means neither
+; password is ever checked, so nothing here is a credential.
+"postgres" ""
+"reprove_runtime" ""
+"reprove_bypassrls" ""

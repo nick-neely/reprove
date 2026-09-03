@@ -1,0 +1,53 @@
+# The local database stack, and the two endpoints ADR 0008's connection table
+# names:
+#
+#   postgres:5432   direct   -> the admin / migration role
+#   pgbouncer:6432  pooled   -> the restricted runtime role, transaction pooling
+#
+# PgBouncer is not convenience. Three of ADR 0008's failures exist only on a
+# pooled connection - a bare `SET` outliving the client that issued it, an empty
+# string left behind by a reset, and a policy predicate that is correct until
+# either happens - so a stack without it would prove the tenant boundary against
+# an arrangement production does not run.
+#
+# `docker compose -f tools/db/compose.yaml up -d --wait`, or `pnpm db:up`.
+# Docker is the only prerequisite; nothing here needs a local Postgres.
+
+# Named, so the project is not the enclosing directory. `tools/db` would give
+# every machine a Compose project called `db`.
+name: reprove-db
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: reprove
+      # Trust auth, because nothing in this stack is a secret: it is a local
+      # development database and CI service, and the credentials the tests use
+      # are checked into this repository beside it.
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d reprove"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+
+  pgbouncer:
+    # Pinned rather than `latest`, so the pooler this repository proves the
+    # tenant boundary against is the same one on every machine and in CI.
+    image: edoburu/pgbouncer:v1.25.2-p0
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
+    ports:
+      - "56432:6432"
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 6432"]
+      interval: 1s
+      timeout: 3s
+      retries: 30

@@ -2,6 +2,8 @@ import { protocolVersion } from "@reprove/protocol/v1";
 
 export { protocolSchemas as workerProtocolSchemas } from "@reprove/protocol/v1";
 
+export * from "./db/index.js";
+
 export const packageName = "@reprove/control-plane" as const;
 
 /**
