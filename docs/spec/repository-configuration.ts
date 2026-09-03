@@ -2,8 +2,8 @@
  * Normative schema for `.reprove.yml`, the repository configuration contract.
  *
  * Decided by ADR 0011 (docs/adr/0011-repository-configuration-contract.md).
- * This is a specification artifact, not shipped code: no package exists yet.
- * When `@reprove/protocol` is created per ADR 0010, this is what it copies.
+ * This remains a specification artifact rather than shipped configuration
+ * parsing code. `@reprove/protocol/v1` copies its `resolvedConfig` wire shape.
  *
  * Verified against zod 4.5.4 under `tsc --strict`: it compiles, unknown keys are
  * rejected at every level (including `review.mode` and `security.allowedRoutes`,

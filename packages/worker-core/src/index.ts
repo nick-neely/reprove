@@ -2,6 +2,8 @@ import { packageName as adapters } from "@reprove/adapters";
 import { protocolVersion } from "@reprove/protocol/v1";
 import { packageName as sandboxContainer } from "@reprove/sandbox-container";
 
+export { protocolSchemas as workerProtocolSchemas } from "@reprove/protocol/v1";
+
 export const packageName = "@reprove/worker-core" as const;
 
 /**

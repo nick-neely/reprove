@@ -1,0 +1,8 @@
+{
+  "runId": "run_03",
+  "reason": "isolation_insufficient",
+  "required": "container-rootless",
+  "actual": "container",
+  "protocolVersion": 1,
+  "workerBuildVersion": "0.1.0"
+}

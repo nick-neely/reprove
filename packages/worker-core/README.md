@@ -6,4 +6,6 @@ The Worker core shared by both execution lifecycles: Adapters, Sandbox provision
 
 **Published by necessity** ([ADR 0010](../../docs/adr/0010-package-graph-and-open-core-boundary.md)). It is on npm because `@reprove/worker` depends on it and npm resolution requires it - a dependency-graph fact, not a product decision. Public source, gated by every CI check, carrying **no stability promise**.
 
-At Phase 0 this is a shell and carries no product behaviour.
+`workerProtocolSchemas` is the Worker-side reference to the authoritative
+schemas from `@reprove/protocol/v1`; Result construction and Refusal handling do
+not define a second wire shape.
