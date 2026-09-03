@@ -279,6 +279,15 @@ finding            belongs to run; bucket_key, bucketKeyVersion, dispositions
 publication        belongs to run; the Review record and its reconciliation
 ```
 
+> **Extended by [ADR 0013](0013-github-ingress-and-run-creation-idempotency.md).** The ingress
+> ledger, `ingress_delivery`, is a **tenth Owner-scoped table** and is not listed above because it
+> was decided after this list was written. It carries a bounded normalized envelope and its
+> processing state, takes the canonical tenant policy like every other Owner-scoped table, and
+> gains no `CONTEXT.md` noun. That it arrived late is the argument for
+> [ADR 0017](0017-authoring-time-tenancy-boundary.md)'s managed universe: the coverage assertion
+> enumerates the schema module's own `pgTable` set rather than trusting any one ADR's entity list,
+> so a table added after a decision was recorded still has to be classified.
+
 **`run` is one table, not three.** ADR 0007's `spec` / `resolution` / `state` split is a
 type-level guarantee about mutability; projecting it to three tables buys nothing, because it
 is always a 1:1 join, and costs three writes per state change. Immutability is enforced in zod
