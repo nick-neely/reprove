@@ -100,10 +100,11 @@ Two things catch people out:
   rather than executing.
 
 Continuous integration runs the same command. Two checks are required on every
-pull request: `verify`, which is the five steps above on Ubuntu and Node 22, and
-`dependency-review`, which blocks newly introduced high or critical
-vulnerabilities in runtime and development dependencies alike. A new layer is
-sequenced inside `pnpm verify` rather than added as a third required check.
+pull request: `verify`, which is the five layers above on Ubuntu and Node 22 with
+the database stack up, and `dependency-review`, which blocks newly introduced
+high or critical vulnerabilities in runtime and development dependencies alike.
+A new layer is sequenced inside `pnpm verify` rather than added as a third
+required check.
 
 ## Where the project is right now
 
