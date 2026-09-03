@@ -39,7 +39,13 @@ const required = (name: string): string => {
   return value;
 };
 
-const run = async (command: string | undefined): Promise<string> => {
+/**
+ * Named `dispatch` rather than `run`, because **Run** is a `CONTEXT.md` noun -
+ * the unit of review work this control plane exists to schedule - and a local
+ * binding wearing it in the operator entry point is the drift the glossary
+ * exists to stop.
+ */
+const dispatch = async (command: string | undefined): Promise<string> => {
   if (command === "bootstrap") {
     await bootstrap({
       connectionString: required(ADMIN_URL),
@@ -63,7 +69,7 @@ const run = async (command: string | undefined): Promise<string> => {
 };
 
 try {
-  process.stdout.write(`${await run(process.argv[2])}\n`);
+  process.stdout.write(`${await dispatch(process.argv[2])}\n`);
 } catch (error) {
   process.stderr.write(
     `${error instanceof Error ? error.message : String(error)}\n`

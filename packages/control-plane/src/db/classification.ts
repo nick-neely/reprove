@@ -84,9 +84,9 @@ export const NON_TENANT_TABLES: readonly PgTable[] = [
  * over its own malformed boundary rather than because a neighbour legitimately
  * placed a table beside it.
  */
-const exported: unknown[] = Object.values(schema);
+const schemaExports: unknown[] = Object.values(schema);
 
-export const MANAGED_TABLES: readonly PgTable[] = exported
+export const MANAGED_TABLES: readonly PgTable[] = schemaExports
   .filter((entity): entity is PgTable => is(entity, PgTable))
   .toSorted((a, b) => (tableName(a) < tableName(b) ? -1 : 1));
 

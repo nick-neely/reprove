@@ -241,7 +241,7 @@ export const driverFailure = async (
  * The refusal a boot rejected with.
  *
  * @param work The call expected to refuse.
- * @returns The refusal, with every check's verdict on it.
+ * @returns The refusal, with every check's outcome on it.
  */
 export const bootRefusal = async (
   work: Promise<unknown>

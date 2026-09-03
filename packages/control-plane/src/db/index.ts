@@ -40,7 +40,7 @@ export type { MigrateConfig } from "./migrate.js";
 export { migrate } from "./migrate.js";
 export type { CommittedMigration } from "./migrations.js";
 export { MIGRATIONS_FOLDER, readCommittedMigrations } from "./migrations.js";
-export type { CheckName, CheckResult } from "./refusal.js";
+export type { CheckName, CheckOutcome } from "./refusal.js";
 export { BootRefusalError } from "./refusal.js";
 export { RUNTIME_ROLE } from "./roles.js";
 export type {

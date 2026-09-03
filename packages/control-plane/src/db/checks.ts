@@ -30,7 +30,7 @@ import {
   REACHING_TABLE_PRIVILEGES,
   WITHHELD_TABLE_PRIVILEGES,
 } from "./privileges.js";
-import type { CheckName, CheckResult } from "./refusal.js";
+import type { CheckName, CheckOutcome } from "./refusal.js";
 import { BootRefusalError } from "./refusal.js";
 import { RUNTIME_ROLE } from "./roles.js";
 import { ownerContext } from "./schema.js";
@@ -646,7 +646,7 @@ const checkNoContextReadsEmpty = async (
 // --- the assertion -----------------------------------------------------------
 
 /**
- * Runs all seven checks and reports every verdict, failures included.
+ * Runs all seven checks and reports every outcome, failures included.
  *
  * A check that throws is a failed check rather than a thrown error, so one
  * unreachable catalog view cannot hide the six answers beside it.
@@ -657,12 +657,12 @@ const checkNoContextReadsEmpty = async (
  * @param classification The classification to measure against. The parameter
  *   exists so a test can present a deliberately malformed one; production code
  *   never passes it, and `createRuntimeDb()` does not expose it.
- * @returns One result per check, in the order ADR 0008 lists them.
+ * @returns One outcome per check, in the order ADR 0008 lists them.
  */
 export const runBootChecks = async (
   pool: Pool,
   classification: Classification = CLASSIFICATION
-): Promise<CheckResult[]> => {
+): Promise<CheckOutcome[]> => {
   const checks: [CheckName, () => Promise<string | null>][] = [
     ["runtime-role-is-not-privileged", () => checkRolePrivileges(pool)],
     [
@@ -706,13 +706,13 @@ export const runBootChecks = async (
  *
  * @param pool A pool on the runtime connection.
  * @param classification See {@link runBootChecks}.
- * @returns Every check's verdict, once they have all passed.
+ * @returns Every check's outcome, once they have all passed.
  * @throws {BootRefusalError} Naming every check that failed and why.
  */
 export const assertTenantBoundary = async (
   pool: Pool,
   classification: Classification = CLASSIFICATION
-): Promise<CheckResult[]> => {
+): Promise<CheckOutcome[]> => {
   const checks = await runBootChecks(pool, classification);
   if (checks.some((check) => !check.ok)) {
     throw new BootRefusalError(checks);

@@ -17,8 +17,15 @@ export type CheckName =
   | "migrations-match-the-committed-files"
   | "no-owner-context-reads-empty";
 
-/** One check's verdict. `detail` is what a refusal prints. */
-export interface CheckResult {
+/**
+ * One check's outcome. `detail` is what a refusal prints.
+ *
+ * Not `CheckResult`: `CONTEXT.md` gives **Result** to what a Worker submits for
+ * a Run, and a second unrelated meaning for the same noun is exactly the drift
+ * the glossary exists to stop. `verdict` is on its avoid list for the same
+ * reason.
+ */
+export interface CheckOutcome {
   readonly name: CheckName;
   readonly ok: boolean;
   readonly detail: string;
@@ -34,9 +41,9 @@ export interface CheckResult {
  * convention for a throwable and is not a second domain word.
  */
 export class BootRefusalError extends Error {
-  readonly checks: readonly CheckResult[];
+  readonly checks: readonly CheckOutcome[];
 
-  constructor(checks: readonly CheckResult[]) {
+  constructor(checks: readonly CheckOutcome[]) {
     const failed = checks.filter((check) => !check.ok);
     super(
       [

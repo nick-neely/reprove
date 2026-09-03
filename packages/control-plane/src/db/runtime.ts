@@ -15,7 +15,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
 import { assertTenantBoundary } from "./checks.js";
-import type { CheckResult } from "./refusal.js";
+import type { CheckOutcome } from "./refusal.js";
 import * as schema from "./schema.js";
 
 /** What the runtime connects with. No value here is read from the environment. */
@@ -55,8 +55,8 @@ type InTransaction<T> = (tx: TenantTransaction) => Promise<T>;
 
 /** A client that has passed all seven of rule 6's checks. */
 export interface RuntimeDb {
-  /** Every check's verdict, kept so a deployment can log what it proved. */
-  readonly checks: readonly CheckResult[];
+  /** Every check's outcome, kept so a deployment can log what it proved. */
+  readonly checks: readonly CheckOutcome[];
 
   /**
    * The single entry point, and there is deliberately no second one. ADR 0008
@@ -95,7 +95,7 @@ export const createRuntimeDb = async (
   });
   pool.on("error", (error) => config.onConnectionError?.(error));
 
-  let checks: CheckResult[];
+  let checks: CheckOutcome[];
   try {
     checks = await assertTenantBoundary(pool);
   } catch (error) {

@@ -24,7 +24,7 @@ export type { MigrateConfig } from "./db/migrate.js";
 export { migrate } from "./db/migrate.js";
 export type { CommittedMigration } from "./db/migrations.js";
 export { MIGRATIONS_FOLDER, readCommittedMigrations } from "./db/migrations.js";
-export type { CheckName, CheckResult } from "./db/refusal.js";
+export type { CheckName, CheckOutcome } from "./db/refusal.js";
 export { BootRefusalError } from "./db/refusal.js";
 export { RUNTIME_ROLE } from "./db/roles.js";
 
