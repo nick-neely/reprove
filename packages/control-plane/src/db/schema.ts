@@ -224,6 +224,14 @@ export const ingressDelivery = pgTable(
     action: text("action"),
     installationId: bigint("installation_id", { mode: "number" }),
     repositoryId: bigint("repository_id", { mode: "number" }),
+    /**
+     * ADR 0013's repository locator: the `owner/name` full name **as the
+     * delivery carried it**, not as it reads now. A repository can be renamed
+     * or transferred between the delivery and anything that reads the ledger,
+     * and the id beside it is what survives that; the locator is what makes the
+     * envelope legible to a person reconstructing what arrived.
+     */
+    repositoryNameWithOwner: text("repository_name_with_owner").notNull(),
     pullRequestNumber: integer("pull_request_number"),
     /** received | done | discarded */
     state: text("state").notNull().default("received"),

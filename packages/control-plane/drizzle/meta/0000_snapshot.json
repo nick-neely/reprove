@@ -1,5 +1,5 @@
 {
-  "id": "e2b0b99a-52ed-48bb-a794-9d48ae707c44",
+  "id": "c83ffefe-dea6-45cb-8584-d13e0da9e066",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -401,6 +401,12 @@
           "type": "bigint",
           "primaryKey": false,
           "notNull": false
+        },
+        "repository_name_with_owner": {
+          "name": "repository_name_with_owner",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
         },
         "pull_request_number": {
           "name": "pull_request_number",
