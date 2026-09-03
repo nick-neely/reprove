@@ -16,6 +16,8 @@ import {
   consumerIdentifier,
   exportSubpaths,
   forbiddenUpstreamTypes,
+  patternExportKeys,
+  pinExternals,
 } from "./verify-packages.mjs";
 import { publishableWorkspaces } from "./workspaces.mjs";
 
@@ -81,6 +83,13 @@ const editManifest = (
 
 const names = (root: string): string[] =>
   publishableWorkspaces({ rootDir: root }).map((found) => found.workspace);
+
+/** One package's report, so two declarations can be compared as reports. */
+const reportOf = (text: string): string =>
+  apiReport({
+    name: "@reprove/worker",
+    files: [{ path: "dist/index.d.ts", text }],
+  });
 
 describe(publishableWorkspaces, () => {
   afterEach(() => {
@@ -161,6 +170,87 @@ describe(exportSubpaths, () => {
   });
 });
 
+describe(patternExportKeys, () => {
+  it("reports a pattern export rather than leaving it silently unproved", () => {
+    expect(
+      patternExportKeys({
+        exports: {
+          ".": { types: "./dist/index.d.ts" },
+          "./internal/*": { default: "./dist/internal/*.js" },
+        },
+      })
+    ).toStrictEqual(["./internal/*"]);
+  });
+
+  it("reports nothing for the export surfaces these packages ship", () => {
+    expect(
+      patternExportKeys({
+        exports: { "./v1": { types: "./dist/v1/index.d.ts" } },
+      })
+    ).toStrictEqual([]);
+  });
+});
+
+describe(pinExternals, () => {
+  const edge = {
+    workspace: "packages/protocol",
+    name: "@reprove/protocol",
+    dependency: "zod",
+    range: "^4.5.4",
+    installed: "4.5.4",
+  };
+
+  it("pins a dependency the installed version satisfies", () => {
+    expect(pinExternals([edge])).toStrictEqual({
+      externals: { zod: "4.5.4" },
+      problems: [],
+    });
+  });
+
+  it("rejects a pin the packed manifest's own range would not accept", () => {
+    // Without this the fixture would install 4.5.4, prove the package against
+    // it, and never notice the manifest asks for something else entirely.
+    const { externals, problems } = pinExternals([
+      { ...edge, range: "^99.0.0" },
+    ]);
+
+    expect(externals).toStrictEqual({});
+    expect(problems).toHaveLength(1);
+    expect(problems[0]?.workspace).toBe("packages/protocol");
+    expect(problems[0]?.message).toContain('"zod": "^99.0.0"');
+    expect(problems[0]?.message).toContain("4.5.4");
+  });
+
+  it("rejects two workspaces resolving one dependency differently", () => {
+    const { problems } = pinExternals([
+      edge,
+      {
+        ...edge,
+        workspace: "packages/worker",
+        name: "@reprove/worker",
+        installed: "4.6.0",
+      },
+    ]);
+
+    expect(problems).toHaveLength(1);
+    expect(problems[0]?.message).toContain("4.6.0");
+    expect(problems[0]?.message).toContain("4.5.4");
+  });
+
+  it("accepts two workspaces that resolve one dependency the same way", () => {
+    expect(
+      pinExternals([edge, { ...edge, workspace: "packages/worker" }]).problems
+    ).toStrictEqual([]);
+  });
+
+  it("reports a dependency the workspace never installed", () => {
+    const { problems } = pinExternals([{ ...edge, installed: null }]);
+
+    expect(problems).toHaveLength(1);
+    expect(problems[0]?.message).toContain("pnpm install");
+  });
+});
+
 describe(consumerIdentifier, () => {
   it("camel-cases a hyphenated package name without its scope", () => {
     expect(consumerIdentifier("@reprove/control-plane-workflow")).toBe(
@@ -193,7 +283,6 @@ describe(consumerIdentifier, () => {
 describe(consumerFixture, () => {
   const packages = [
     {
-      name: "@reprove/protocol",
       tarball: "/tmp/pack/reprove-protocol-0.0.0.tgz",
       manifest: {
         name: "@reprove/protocol",
@@ -202,7 +291,6 @@ describe(consumerFixture, () => {
       },
     },
     {
-      name: "@reprove/worker-core",
       tarball: "/tmp/pack/reprove-worker-core-0.0.0.tgz",
       manifest: {
         name: "@reprove/worker-core",
@@ -324,6 +412,14 @@ export declare const a = 1;
         ],
       })
     ).toContain("```ts\nexport {};\n```");
+  });
+
+  it("reports a one-byte change to a declaration as a different report", () => {
+    // This difference is exactly what the checked-in api-report.md is compared
+    // against, so a public API change cannot land without a reviewable diff.
+    expect(reportOf("export declare const a: 1;\n")).not.toBe(
+      reportOf("export declare const a: 2;\n")
+    );
   });
 
   it("keeps doc comments, which are part of the published surface", () => {

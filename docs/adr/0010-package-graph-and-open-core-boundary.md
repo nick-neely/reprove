@@ -401,6 +401,14 @@ user-facing npm product.
 > root instead. No private tooling workspace exists, so the workspace set stays exactly the eight
 > packages and two apps.
 
+> **Amended by [issue #43](https://github.com/nick-neely/reprove/issues/43), 2026-09-03:**
+> `tools/verify-packages.mjs` implements this section's packed-package obligations as one step
+> inside `pnpm verify`, and it runs the forbidden-type gate over **every** publishable package's
+> packed declarations rather than only `adapters` and `sandbox-container`. That is a strict superset:
+> scanning all eight needs no list to maintain, and ADR 0005's ban on upstream types in Reprove's own
+> types holds everywhere, not only where a leak is likeliest. The API report per published package
+> lives at `packages/<dir>/api-report.md` and holds the emitted declarations verbatim.
+
 ## Consequences
 
 - **ADR 0005's type boundary is now mechanically enforced** rather than reviewed, by the two-package

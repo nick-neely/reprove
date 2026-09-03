@@ -59,6 +59,9 @@ importers:
       publint:
         specifier: ^0.3.24
         version: 0.3.24
+      semver:
+        specifier: ^7.8.5
+        version: 7.8.5
       turbo:
         specifier: ^2.10.12
         version: 2.10.12
