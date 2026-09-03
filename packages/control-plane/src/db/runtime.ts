@@ -50,7 +50,7 @@ export type TenantTransaction = Parameters<
   Parameters<Database["transaction"]>[0]
 >[0];
 
-/** Work to run inside a transaction, tenant-scoped or not. */
+/** Work to run inside a tenant transaction. */
 type InTransaction<T> = (tx: TenantTransaction) => Promise<T>;
 
 /** A client that has passed all seven of rule 6's checks. */
@@ -59,26 +59,16 @@ export interface RuntimeDb {
   readonly checks: readonly CheckResult[];
 
   /**
-   * The single Owner-scoped entry point. A tenant-scoped query written outside
-   * one of these is difficult to write by accident rather than merely forbidden
-   * by convention.
+   * The single entry point, and there is deliberately no second one. ADR 0008
+   * puts *all* access through a call of this shape, so that a tenant-scoped
+   * query written outside a tenant transaction is difficult to write by accident
+   * rather than merely forbidden by convention. A `withoutOwner` beside this
+   * would be the accident, pre-named and ready to reach for.
    *
    * The first argument is GitHub's durable numeric Owner id, which is the
    * tenant key itself.
    */
   readonly withOwner: <T>(ownerId: number, fn: InTransaction<T>) => Promise<T>;
-
-  /**
-   * A transaction with **no Owner context**, and therefore no tenant. Every
-   * policy denies, so an Owner-scoped table reads zero rows here rather than
-   * erroring.
-   *
-   * It exists to be the deliberately named exception: the only legitimate uses
-   * are non-tenant work (Better Auth's tables) and proving that the boundary
-   * denies. Reaching for it to "just read one row" is the mistake `withOwner`
-   * exists to make hard.
-   */
-  readonly withoutOwner: <T>(fn: InTransaction<T>) => Promise<T>;
 
   /** Drains the pool. */
   readonly close: () => Promise<void>;
@@ -119,11 +109,18 @@ export const createRuntimeDb = async (
     ownerId: number,
     fn: InTransaction<T>
   ): Promise<T> => {
+    // GitHub's numeric ids are positive, and every one of them is inside the
+    // safe-integer range. Both halves matter: a non-integer or a value past
+    // 2^53 would be interpolated into the GUC as something Postgres either
+    // rejects or silently reads as a different tenant, and zero or a negative
+    // would be a well-formed bigint naming no Owner - which is a query that
+    // returns nothing instead of a call that fails.
+    //
     // `async`, so a caller that only ever writes `.catch()` sees this the same
     // way it sees a failed transaction rather than as a synchronous throw.
-    if (!Number.isSafeInteger(ownerId)) {
+    if (!(Number.isSafeInteger(ownerId) && ownerId > 0)) {
       throw new TypeError(
-        `an Owner id must be GitHub's durable numeric id, not ${String(ownerId)}`
+        `an Owner id must be GitHub's durable numeric id, which is a positive integer, not ${String(ownerId)}`
       );
     }
     return await db.transaction(async (tx) => {
@@ -144,7 +141,6 @@ export const createRuntimeDb = async (
   return {
     checks,
     withOwner,
-    withoutOwner: (fn) => db.transaction((tx) => fn(tx)),
     close: () => pool.end(),
   };
 };

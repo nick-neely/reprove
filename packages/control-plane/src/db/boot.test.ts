@@ -2,7 +2,6 @@
  * Bootstrap, migrate, boot - the path a clean deployment takes, end to end,
  * against real Postgres behind real PgBouncer in transaction mode.
  */
-import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { bootstrap } from "./bootstrap.js";
@@ -11,6 +10,7 @@ import type { TestDatabase } from "./local-stack.test-support.js";
 import {
   createTestDatabase,
   driverFailure,
+  onRuntimeConnection,
   RUNTIME_PASSWORD,
 } from "./local-stack.test-support.js";
 import { migrate } from "./migrate.js";
@@ -144,10 +144,13 @@ describe("a database bootstrapped and migrated from clean", () => {
     // exempt from its own RLS unless FORCE is set. Bootstrap revokes CREATE on
     // the schema - from the role and from PUBLIC - so the route is closed rather
     // than merely unused.
+    //
+    // Attempted on a plain connection rather than through the client: the client
+    // has one entry point, and it is `withOwner`.
     await expect(
       driverFailure(
-        runtime.withoutOwner((tx) =>
-          tx.execute(sql`create table smuggled (owner_id bigint)`)
+        onRuntimeConnection(database.name, (client) =>
+          client.query("create table smuggled (owner_id bigint)")
         )
       )
       // 42501 is insufficient_privilege.
@@ -155,5 +158,19 @@ describe("a database bootstrapped and migrated from clean", () => {
       code: "42501",
       message: "permission denied for schema public",
     });
+  });
+
+  it("refuses the runtime role a temporary table, which would shadow one", async () => {
+    // `pg_temp` resolves before `public`, so a temporary `run` would shadow the
+    // managed one with a relation the role owns and is therefore exempt from the
+    // policies on. The check that the role owns no relation looks in `public`
+    // and would never see it, so the privilege is revoked instead.
+    const failure = await driverFailure(
+      onRuntimeConnection(database.name, (client) =>
+        client.query("create temporary table run (owner_id bigint)")
+      )
+    );
+
+    expect(failure.code).toBe("42501");
   });
 });

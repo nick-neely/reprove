@@ -15,6 +15,7 @@ import type { TestDatabase } from "./local-stack.test-support.js";
 import {
   createTestDatabase,
   driverFailure,
+  onRuntimeConnection,
   RUNTIME_PASSWORD,
 } from "./local-stack.test-support.js";
 import { migrate } from "./migrate.js";
@@ -127,15 +128,41 @@ describe("two Owners through withOwner", () => {
     // raised `invalid input syntax for type bigint: ""` from inside the policy
     // once a pooler's reset had left an empty string behind, which turns a
     // deniable table into an unqueryable one.
-    const rows = await runtime.withoutOwner((tx) =>
-      tx.select().from(schema.run)
-    );
+    //
+    // On a plain connection, because the client has no no-context transaction to
+    // offer: ADR 0008 puts all access through `withOwner`, so what proves the
+    // boundary denies is a measurement apparatus rather than an application
+    // path. The rows exist - the admin count below says so.
+    const rows = await onRuntimeConnection(DATABASE, async (client) => {
+      await client.query("begin");
+      try {
+        const { rows: seen } = await client.query("select * from run");
+        return seen;
+      } finally {
+        await client.query("rollback");
+      }
+    });
+
     expect(rows).toStrictEqual([]);
+    const all = await database.admin<{ n: string }>(
+      "select count(*)::text as n from run"
+    );
+    expect(all[0]?.n).toBe(SEEDED_RUNS);
   });
 
-  it("refuses an Owner id that is not one of GitHub's", async () => {
+  it.each([
+    ["not a number", Number.NaN],
+    ["past the safe integer range", Number.MAX_SAFE_INTEGER + 2],
+    ["fractional", 1.5],
+    ["zero", 0],
+    ["negative", -1001],
+  ])("refuses an Owner id that is %s", async (_label, ownerId) => {
+    // Every GitHub numeric id is a positive integer inside the safe range. A
+    // value outside it either reaches the GUC as something Postgres reads as a
+    // different tenant, or is a well-formed bigint naming no Owner - which would
+    // be a query that quietly returns nothing rather than a call that fails.
     await expect(
-      runtime.withOwner(Number.NaN, () => Promise.resolve(null))
+      runtime.withOwner(ownerId, () => Promise.resolve(null))
     ).rejects.toThrow(TypeError);
   });
 });
