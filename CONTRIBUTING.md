@@ -78,9 +78,9 @@ failures exist only on a pooled connection, so a run that quietly skipped them
 would prove the boundary against an arrangement production does not use.
 
 The stack serves the two connections ADR 0008 keeps separate and never crosses:
-an **admin** role on the direct endpoint at `127.0.0.1:55432`, which owns the
+an **admin** role on the direct endpoint at `127.0.0.1:55532`, which owns the
 tables and applies migrations, and the restricted **`reprove_runtime`** role
-through **PgBouncer in transaction mode** at `127.0.0.1:56432`, which is what
+through **PgBouncer in transaction mode** at `127.0.0.1:56532`, which is what
 all application traffic uses.
 
 Setting a database up is two ordered commands, not two interchangeable ones:

@@ -19,9 +19,9 @@ import { BootRefusalError } from "./refusal.js";
 import { RUNTIME_ROLE } from "./roles.js";
 
 /** The admin role on the direct endpoint. Owns the tables, applies migrations. */
-export const ADMIN_HOST = "127.0.0.1:55432";
+export const ADMIN_HOST = "127.0.0.1:55532";
 /** The runtime role's endpoint: PgBouncer, in transaction mode. */
-export const RUNTIME_HOST = "127.0.0.1:56432";
+export const RUNTIME_HOST = "127.0.0.1:56532";
 
 /** The database `docker compose up` creates, used only to create the others. */
 export const MAINTENANCE_DATABASE = "reprove";

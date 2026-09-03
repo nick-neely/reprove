@@ -4,6 +4,11 @@
 #   postgres:5432   direct   -> the admin / migration role
 #   pgbouncer:6432  pooled   -> the restricted runtime role, transaction pooling
 #
+# Published on 55532 and 56532, deliberately away from the obvious 55432/56432:
+# a developer machine commonly already has a Postgres on those, and a stack that
+# silently collided with one would either refuse to start or, worse, point these
+# tests at somebody else's database.
+#
 # PgBouncer is not convenience. Three of ADR 0008's failures exist only on a
 # pooled connection - a bare `SET` outliving the client that issued it, an empty
 # string left behind by a reset, and a policy predicate that is correct until
@@ -27,7 +32,7 @@ services:
       # are checked into this repository beside it.
       POSTGRES_HOST_AUTH_METHOD: trust
     ports:
-      - "55432:5432"
+      - "55532:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d reprove"]
       interval: 1s
@@ -45,7 +50,7 @@ services:
       - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
       - ./pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
     ports:
-      - "56432:6432"
+      - "56532:6432"
     healthcheck:
       test: ["CMD-SHELL", "nc -z 127.0.0.1 6432"]
       interval: 1s
