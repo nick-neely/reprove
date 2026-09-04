@@ -88,7 +88,7 @@ describe("a database bootstrapped and migrated from clean", () => {
     expect(ledger[0]?.n).toBe(String(readCommittedMigrations().length));
   });
 
-  it("grants the runtime role exactly four verbs on the managed tables", async () => {
+  it("grants the runtime role exactly four verbs on every managed table", async () => {
     const rows = await database.admin<{
       relname: string;
       privilege: string;
@@ -104,20 +104,24 @@ describe("a database bootstrapped and migrated from clean", () => {
         order by c.relname, p.privilege`
     );
 
-    const held = new Set(
-      rows.filter((row) => row.held).map((row) => row.privilege)
+    // Pairs, not the union of the privileges over all the tables. The union is
+    // the same set whether every table holds all four or one table holds SELECT
+    // alone while another supplies the rest, so it passes a grant that reached
+    // only some of them. Naming `(relname, privilege)` is what makes the
+    // assertion say "each of the fourteen, exactly these four, and nothing
+    // else".
+    const held = rows
+      .filter((row) => row.held)
+      .map((row) => `${row.relname} ${row.privilege}`);
+
+    // Sorted, because the query is: the four the runtime role holds in the
+    // alphabetical order Postgres returned them beside the three it never does.
+    const granted = ["DELETE", "INSERT", "SELECT", "UPDATE"];
+    expect(held).toStrictEqual(
+      tableNames(CLASSIFICATION.managed).flatMap((table) =>
+        granted.map((privilege) => `${table} ${privilege}`)
+      )
     );
-    // Set equality across every managed table at once: four verbs held on all
-    // fourteen, and the three that are never held on any.
-    expect([...held].toSorted()).toStrictEqual([
-      "DELETE",
-      "INSERT",
-      "SELECT",
-      "UPDATE",
-    ]);
-    expect(
-      rows.filter((row) => row.privilege === "SELECT" && row.held)
-    ).toHaveLength(tableNames(CLASSIFICATION.managed).length);
   });
 
   it("re-applies those grants on a migrate that applies nothing", async () => {
