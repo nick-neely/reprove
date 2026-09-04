@@ -28,6 +28,7 @@ interface Manifest {
   version?: string;
   private?: boolean;
   bin?: Record<string, string>;
+  files?: string[];
   exports?: Record<string, Record<string, string>>;
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
@@ -427,6 +428,96 @@ describe(verifyWorkspace, () => {
         "import-boundary",
         "packages/protocol",
         "typescript"
+      )
+    ).toBeTruthy();
+  });
+
+  it("rejects a published package importing the test runner outside a test", () => {
+    const root = copyRepository();
+    writeSource(
+      root,
+      "packages/control-plane/src/shipped.ts",
+      'import { expect } from "vitest";\nexport const shipped = expect;\n'
+    );
+
+    expect(
+      broke(
+        verifyWorkspace({ rootDir: root }),
+        "import-boundary",
+        "packages/control-plane",
+        "vitest"
+      )
+    ).toBeTruthy();
+  });
+
+  it("permits a test file importing the declared test runner", () => {
+    const root = copyRepository();
+    writeSource(
+      root,
+      "packages/control-plane/src/shipped.test.ts",
+      'import { expect } from "vitest";\nexport const shipped = expect;\n'
+    );
+
+    expect(
+      broke(
+        verifyWorkspace({ rootDir: root }),
+        "import-boundary",
+        "packages/control-plane",
+        "vitest"
+      )
+    ).toBeFalsy();
+  });
+
+  it("permits a test-support file importing it too, since that is not shipped either", () => {
+    // The exemption and every `tsconfig.build.json`'s `exclude` encode one
+    // decision from two directions, so they name the same files. They did not:
+    // a `*.test-support.ts` was kept out of `dist` and still counted as shipped
+    // source here.
+    const root = copyRepository();
+    writeSource(
+      root,
+      "packages/control-plane/src/shipped.test-support.ts",
+      'import { expect } from "vitest";\nexport const shipped = expect;\n'
+    );
+
+    expect(
+      broke(
+        verifyWorkspace({ rootDir: root }),
+        "import-boundary",
+        "packages/control-plane",
+        "vitest"
+      )
+    ).toBeFalsy();
+  });
+
+  it("rejects a package shipping a runtime asset the matrix does not name", () => {
+    const root = copyRepository();
+    editManifest(root, "packages/worker", (manifest) => {
+      manifest.files = ["dist", "drizzle"];
+    });
+
+    expect(
+      broke(
+        verifyWorkspace({ rootDir: root }),
+        "publishability",
+        "packages/worker",
+        "files"
+      )
+    ).toBeTruthy();
+  });
+
+  it("rejects the control plane dropping its migration folder", () => {
+    const root = copyRepository();
+    editManifest(root, "packages/control-plane", (manifest) => {
+      manifest.files = ["dist"];
+    });
+
+    expect(
+      broke(
+        verifyWorkspace({ rootDir: root }),
+        "publishability",
+        "packages/control-plane",
+        "drizzle"
       )
     ).toBeTruthy();
   });

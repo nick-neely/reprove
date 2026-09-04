@@ -11,6 +11,8 @@
     "verify:packages": "node tools/verify-packages.mjs",
     "verify:test": "vitest run",
     "verify:lint": "ultracite check .",
+    "db:up": "docker compose -f tools/db/compose.yaml up -d --wait",
+    "db:down": "docker compose -f tools/db/compose.yaml down -v",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "devDependencies": {
@@ -31,7 +33,7 @@
     "turbo": "^2.10.12",
     "typescript": "catalog:",
     "ultracite": "^7.10.7",
-    "vitest": "^4.1.11"
+    "vitest": "catalog:"
   },
   "engines": {
     "node": ">=22"

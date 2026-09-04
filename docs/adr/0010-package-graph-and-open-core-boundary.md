@@ -109,6 +109,14 @@ passes it explicitly to `createControlPlane(config)`; no Reprove Cloud credentia
 anywhere in the public package, and GitHub App id, private key and webhook secret are required
 configuration with no fallback. A self-hoster registers their own GitHub App.
 
+> **Corrected by [#44](https://github.com/nick-neely/reprove/issues/44).** The *library* reads
+> none, and that is what the rule is about: every exported function takes its configuration as an
+> argument. The `reprove-control-plane` **bin** does read exactly two,
+> `REPROVE_DATABASE_ADMIN_URL` and `REPROVE_DATABASE_RUNTIME_PASSWORD`, because it is the operator
+> entry point rather than library code and the alternative is worse: argv is world-readable on most
+> systems, so a password passed as an argument leaks into every process listing on the host. The
+> app remains the only caller that parses deployment configuration for the library.
+
 **Two database paths, deliberately different**, preserving ADR 0008's admin/runtime role separation:
 
 ```

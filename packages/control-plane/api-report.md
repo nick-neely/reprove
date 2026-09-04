@@ -10,10 +10,2922 @@
 export {};
 ```
 
+## dist/db/bootstrap.d.ts
+
+```ts
+/** What `bootstrap()` connects with. No value here is read from the environment. */
+export interface BootstrapConfig {
+    /**
+     * The **admin** connection on the direct endpoint: the role that owns the
+     * tables and applies the migrations.
+     */
+    readonly connectionString: string;
+    /** The password the runtime role will authenticate with. */
+    readonly runtimePassword: string;
+}
+/**
+ * Provisions the restricted runtime role and the reach it has *before* any table
+ * exists, idempotently.
+ *
+ * The role name is not configurable. The committed policies name it, so a
+ * deployment that renamed it would migrate a boundary granted to a role that
+ * does not exist. It is exported as {@link RUNTIME_ROLE} instead.
+ *
+ * **Run this before `migrate()`.** `CREATE POLICY ... TO "reprove_runtime"`
+ * fails outright if the role does not exist yet, so the two commands are
+ * ordered rather than interchangeable.
+ *
+ * What it takes **away** is as much of the point as what it grants: the negative
+ * flags in {@link ROLE_FLAGS}, `CREATE` on `public`, `TEMPORARY` on the
+ * database, and every membership the role holds - see
+ * {@link revokeMemberships}. Each of those is something the boot assertion
+ * refuses, and re-running this is how an operator repairs one.
+ *
+ * What it does **not** do is grant anything on Reprove's tables. Those grants
+ * name the managed tables one by one and are issued by `migrate()`, which is the
+ * only moment those tables are known to exist; see
+ * {@link import("./privileges.js").applyRuntimeGrants} for why naming them
+ * matters. Re-running `migrate()` is therefore how a table grant is repaired,
+ * and re-running `bootstrap` remains safe at any point.
+ *
+ * **Run it as the same role that runs `migrate()`.** A default privilege is
+ * recorded against the role that granted it, so the `drizzle` ledger grant below
+ * reaches a migration ledger only when the same admin creates it. That fails
+ * closed - the boot assertion refuses on `permission denied` - and re-running
+ * `bootstrap` as the migrating role is the repair.
+ *
+ * **Two of these started together survive each other.** Everything it provisions
+ * runs in one transaction that takes {@link BOOTSTRAP_LOCK} first, so bootstraps
+ * against one database queue; the runtime role is cluster-wide, so bootstraps
+ * against *different* databases in one cluster can still meet on it, and a
+ * bootstrap that loses that race re-runs its own transaction - see
+ * {@link CONTENDED_ATTEMPTS}. A deployment scaling out and a test suite running
+ * a database per file are the same case.
+ *
+ * @param config The admin connection and the runtime role's password.
+ * @throws {TypeError} If either field is not a non-empty string. A JavaScript
+ *   caller can omit one, and neither omission fails loudly on its own.
+ */
+export declare const bootstrap: (config: BootstrapConfig) => Promise<void>;
+```
+
+## dist/db/checks.d.ts
+
+```ts
+import type { Pool } from "pg";
+import type { Classification } from "./classification.js";
+import type { CheckOutcome } from "./refusal.js";
+/**
+ * Runs all seven checks and reports every outcome, failures included.
+ *
+ * A check that throws is a failed check rather than a thrown error, so one
+ * unreachable catalog view cannot hide the six answers beside it.
+ *
+ * @param pool A pool on the **runtime** connection. Reading these facts through
+ *   the admin connection would measure a privilege set the application never
+ *   uses.
+ * @param classification The classification to measure against. The parameter
+ *   exists so a test can present a deliberately malformed one; production code
+ *   never passes it, and `createRuntimeDb()` does not expose it.
+ * @returns One outcome per check, in the order ADR 0008 lists them.
+ */
+export declare const runBootChecks: (pool: Pool, classification?: Classification) => Promise<CheckOutcome[]>;
+/**
+ * Rule 6 as an assertion: either every check passed, or nothing is returned.
+ *
+ * @param pool A pool on the runtime connection.
+ * @param classification See {@link runBootChecks}.
+ * @returns Every check's outcome, once they have all passed.
+ * @throws {BootRefusalError} Naming every check that failed and why.
+ */
+export declare const assertTenantBoundary: (pool: Pool, classification?: Classification) => Promise<CheckOutcome[]>;
+```
+
+## dist/db/classification.d.ts
+
+```ts
+import { PgTable } from "drizzle-orm/pg-core";
+/**
+ * A table's SQL name, which is the only form the catalog and `pg_policies`
+ * speak.
+ *
+ * @param table Any table from the schema module.
+ * @returns The unqualified table name as Postgres holds it.
+ */
+export declare const tableName: (table: PgTable) => string;
+/**
+ * The SQL names of a set of tables, sorted, for a message a reader can scan.
+ *
+ * @param tables Any set of tables.
+ * @returns Their SQL names in lexical order.
+ */
+export declare const tableNames: (tables: readonly PgTable[]) => string[];
+/** Every Owner-scoped table. Each carries the Owner id denormalized. */
+export declare const TENANT_TABLES: readonly PgTable[];
+/**
+ * Better Auth's four, adopted into Reprove's migration history and deliberately
+ * outside Owner RLS: a User can legitimately reach several Owners.
+ */
+export declare const NON_TENANT_TABLES: readonly PgTable[];
+export declare const MANAGED_TABLES: readonly PgTable[];
+/** The classification the boot assertion reads. */
+export interface Classification {
+    readonly managed: readonly PgTable[];
+    readonly tenant: readonly PgTable[];
+    readonly nonTenant: readonly PgTable[];
+}
+/** The real classification, and the default every check is measured against. */
+export declare const CLASSIFICATION: Classification;
+```
+
+## dist/db/config.d.ts
+
+```ts
+/**
+ * What the three exported entry points check about their own configuration
+ * before they open anything.
+ *
+ * TypeScript states these preconditions; it cannot enforce them. The package
+ * ships as JavaScript, so a consumer is free to hand `bootstrap()` an object
+ * whose `connectionString` is missing, and every type in this folder says that
+ * cannot happen. What follows is worse than a crash, twice over:
+ *
+ * - `pg` resolves an absent connection string from the ambient `PGHOST`,
+ *   `PGUSER` and `PGDATABASE` variables, so the command reaches whatever
+ *   database the shell happened to name rather than failing.
+ * - `format('%L', NULL)` renders the bare token `NULL`, so an absent
+ *   `runtimePassword` provisions the restricted role with **no password at
+ *   all** - the one role in this design whose credential is the boundary.
+ *
+ * Both are the class ADR 0004 bans outright: a failure that succeeds quietly.
+ * So the field is named and the call is refused before a pool exists.
+ */
+/**
+ * A configuration field as it actually arrives.
+ *
+ * The three absent forms are named because they are the ones a caller produces
+ * without meaning to: a property nobody set, an environment variable that was
+ * never exported, and a `null` from parsed JSON. A field holding some other type
+ * entirely is a different mistake, and not one this guard pretends to catch.
+ */
+export type SuppliedField = string | null | undefined;
+/**
+ * The value, or a refusal naming the field it arrived on.
+ *
+ * @param value The field as it arrived.
+ * @param field The field's qualified name, which is what the reader has to go
+ *   and fix.
+ * @returns The value, narrowed to a non-empty string.
+ * @throws {TypeError} Naming the field and showing what it held.
+ */
+export declare const requireNonEmpty: (value: SuppliedField, field: string) => string;
+```
+
+## dist/db/index.d.ts
+
+```ts
+/**
+ * Persistence: the schema, the two database paths, and the boot assertion
+ * between them.
+ *
+ * ```text
+ * bootstrap()        -> admin connection, explicit operator command, SQL only
+ * migrate()          -> admin connection, explicit operator command
+ * createRuntimeDb()  -> restricted runtime connection
+ *                    -> rule 6's seven checks must pass
+ *                    -> otherwise refuse to return a client
+ * ```
+ *
+ * `bootstrap` and `migrate` are **ordered**, not interchangeable: a policy names
+ * the role it applies to, so the role has to exist before the first migration
+ * runs.
+ *
+ * This is the **package-internal** barrel and reaches everything, Drizzle types
+ * included. `src/index.ts` publishes a strict subset: ADR 0010 forbids
+ * `apps/control-plane` from depending on `drizzle-orm` or a Postgres driver, so
+ * a published signature naming either would hand the only consumer a type it is
+ * not allowed to import.
+ *
+ * The tables are deliberately absent: `./schema.js` is imported directly by the
+ * code that queries them, because re-exporting the namespace from here would
+ * pull Drizzle's whole module graph through one barrel.
+ */
+export type { BootstrapConfig } from "./bootstrap.js";
+export { bootstrap } from "./bootstrap.js";
+export { assertTenantBoundary, runBootChecks } from "./checks.js";
+export type { Classification } from "./classification.js";
+export { CLASSIFICATION, MANAGED_TABLES, NON_TENANT_TABLES, tableName, tableNames, TENANT_TABLES, } from "./classification.js";
+export type { MigrateConfig } from "./migrate.js";
+export { migrate } from "./migrate.js";
+export type { CommittedMigration } from "./migrations.js";
+export { MIGRATIONS_FOLDER, readCommittedMigrations } from "./migrations.js";
+export type { CheckName, CheckOutcome } from "./refusal.js";
+export { BootRefusalError } from "./refusal.js";
+export { RUNTIME_ROLE } from "./roles.js";
+export type { RuntimeDb, RuntimeDbConfig, TenantTransaction, } from "./runtime.js";
+export { createRuntimeDb } from "./runtime.js";
+```
+
+## dist/db/migrate.d.ts
+
+```ts
+/** What `migrate()` connects with. No value here is read from the environment. */
+export interface MigrateConfig {
+    /** The **admin** connection on the direct endpoint. Never the runtime role. */
+    readonly connectionString: string;
+}
+/**
+ * Applies every committed migration that has not been applied yet, then brings
+ * the runtime role's privileges on the managed tables to exactly what
+ * `privileges.ts` declares.
+ *
+ * The grants live here rather than in `bootstrap()` because they name the
+ * managed tables one by one, and the only moment those tables are known to exist
+ * is after the migrations have run. That has a consequence worth stating: a
+ * `migrate()` that applied nothing still re-applies the grants, so re-running it
+ * is how an operator repairs a privilege that drifted.
+ *
+ * It refuses if the runtime role is missing, rather than failing halfway
+ * through: the generated migrations carry `CREATE POLICY ... TO
+ * "reprove_runtime"`, which errors outright when the role does not exist, and
+ * "run bootstrap first" is a better thing to read than a Postgres role error
+ * raised from inside migration `0000`.
+ *
+ * Drizzle applies only migrations whose `folderMillis` exceeds the newest
+ * `created_at` in the ledger, so a journal entry appended with an *older*
+ * timestamp than one already applied is skipped here and reported as pending by
+ * the boot assertion forever. ADR 0017's authoring-time append-only verifier is
+ * what keeps the journal from reaching that state; there is no recovery from
+ * this side.
+ *
+ * @param config The admin connection.
+ * @returns The journal tags this call applied, in order. An empty array means
+ *   the database was already up to date, not that nothing happened: the grants
+ *   were re-applied either way.
+ * @throws {TypeError} If the connection string is not a non-empty string; `pg`
+ *   would otherwise resolve an absent one from the ambient `PG*` variables and
+ *   migrate whatever database the shell happened to name.
+ * @throws {Error} If `bootstrap()` has not run against this cluster.
+ */
+export declare const migrate: (config: MigrateConfig) => Promise<string[]>;
+```
+
+## dist/db/migrations.d.ts
+
+```ts
+/**
+ * The folder `drizzle-kit generate` writes to, resolved from this module's own
+ * location. `src/db/` and `dist/db/` sit the same distance below the package
+ * root, so one expression serves the source tree and the packed artifact.
+ */
+export declare const MIGRATIONS_FOLDER: string;
+/** One committed migration, joined to the journal entry that names it. */
+export interface CommittedMigration {
+    /** The journal tag, which is what a refusal names. */
+    readonly tag: string;
+    /** `journal.when`, written verbatim as `created_at` when the migration applies. */
+    readonly folderMillis: number;
+    /** `sha256` of the entire raw `.sql` file, as Drizzle computes and stores it. */
+    readonly hash: string;
+}
+/**
+ * Every committed migration in journal order.
+ *
+ * The hash and `folderMillis` come from Drizzle's own `readMigrationFiles`, so
+ * they are the exact values `migrate()` writes into
+ * `drizzle.__drizzle_migrations`; the tag comes from the journal beside them.
+ * Computing either independently would be a reimplementation that could drift
+ * from the thing it is supposed to be comparing against.
+ *
+ * @param folder The migration folder to read. Defaults to this package's own.
+ * @returns One entry per journal entry, in journal order.
+ */
+export declare const readCommittedMigrations: (folder?: string) => CommittedMigration[];
+```
+
+## dist/db/predicate.d.ts
+
+```ts
+/**
+ * One policy predicate, reduced to the form two deparsers agree on.
+ *
+ * Postgres re-prints a stored expression through its own deparser, so the text
+ * in `pg_policies` never matches the text Drizzle rendered even when the two
+ * mean the same thing: it uppercases function names, adds `::text` to every
+ * string literal, unquotes what it can and re-parenthesises freely. Comparing
+ * the two therefore needs a normal form, and this module is the whole of it.
+ *
+ * It is separated from `checks.ts` because it is pure: no database, no Drizzle,
+ * no catalog. That is what lets `predicate.test.ts` measure the three
+ * distinctions the tenant boundary actually rests on - identifier folding,
+ * literal opacity, and the refusal below - without a Postgres to run against.
+ */
+/** A predicate reduced to comparable form, or the reason it cannot be. */
+export type NormalizedPredicate = {
+    readonly normalized: string;
+} | {
+    readonly connective: string;
+};
+/**
+ * One predicate reduced to the form both deparsers agree on.
+ *
+ * Two reductions run over the token stream. `::text` goes because Postgres adds
+ * one to every string literal and Drizzle does not. The table qualifier goes
+ * because Drizzle renders `"run"."owner_id"` where Postgres, which already
+ * knows the relation, renders `owner_id`.
+ *
+ * @param expression A policy predicate from either side.
+ * @param table The SQL name of the table the policy is attached to.
+ * @returns The predicate as a token sequence, or the connective that refused it.
+ */
+export declare const normalizePredicate: (expression: string, table: string) => NormalizedPredicate;
+```
+
+## dist/db/privileges.d.ts
+
+```ts
+/**
+ * What the runtime role may do, spelled once and read by all three places that
+ * care: `bootstrap()` and `migrate()`, which grant it, and the boot assertion,
+ * which refuses when the live grants say something else.
+ *
+ * The reach is **manifest-scoped**, not schema-wide. A `grant ... on all tables
+ * in schema public` and an `alter default privileges ... on tables` both say
+ * "whatever is in this schema", and a schema is a place a neighbour may
+ * legitimately put a table ([ADR
+ * 0010](../../../../docs/adr/0010-package-graph-and-open-core-boundary.md)
+ * permits Vercel Workflow to share the server). Naming the managed tables one by
+ * one is what keeps a grant from arriving at a relation nobody classified - and
+ * a relation nobody classified is one the boot assertion never measured for a
+ * tenant policy.
+ *
+ * A **view** is the sharpest form of that. A view runs as its owner unless it
+ * carries `security_invoker`, so an admin-owned view over a tenant table reads
+ * every Owner's rows, and a schema-wide grant hands it over.
+ *
+ * What the role may **be** is here for the same reason. A membership is a
+ * privilege path as surely as a grant is, and the one no privilege query
+ * answers, so the rule against it has the same two ends: `bootstrap()` revokes
+ * one and the boot assertion refuses one - see {@link revokeMemberships}.
+ */
+import type { PoolClient } from "pg";
+/**
+ * What the runtime role holds on a managed table. Exactly the four the
+ * application needs, and the list is a SQL fragment because `GRANT` takes no
+ * bind parameter for a privilege name.
+ */
+export declare const RUNTIME_TABLE_PRIVILEGES = "select, insert, update, delete";
+/**
+ * The privileges on a managed table the runtime role must **not** hold, revoked
+ * on every `migrate()` and refused by the boot assertion.
+ *
+ * `TRUNCATE` is the one that matters most and the one a schema-wide grant never
+ * mentioned: it ignores row-level security entirely, so a role holding it can
+ * empty another Owner's table through a boundary that denies it every single
+ * row. `REFERENCES` and `TRIGGER` are DDL rights on someone else's table, which
+ * an application role has no use for.
+ */
+export declare const WITHHELD_TABLE_PRIVILEGES: string[];
+/**
+ * The privileges whose presence means the role can reach a relation at all.
+ *
+ * Used against relations **outside** the managed set, where holding any one of
+ * them is the failure. `has_table_privilege` answers for a view and a foreign
+ * table as readily as for a table, which is the point: `relkind = 'r'` was the
+ * hole a view walked through.
+ */
+export declare const REACHING_TABLE_PRIVILEGES: string[];
+/**
+ * Runs one DDL statement whose variable parts Postgres itself quotes.
+ *
+ * `format('%I', ...)` and `format('%L', ...)` are why a role name, a password or
+ * a table name travels as a bind parameter rather than as interpolated text: DDL
+ * takes no parameters, so something has to do the quoting, and Postgres's own
+ * quoting is the one thing guaranteed to agree with Postgres's own parser.
+ *
+ * @param client A connected admin client.
+ * @param template A `format()` template, with the fixed SQL written out.
+ * @param args One value per placeholder, in order.
+ */
+export declare const ddl: (client: PoolClient, template: string, ...args: string[]) => Promise<void>;
+/**
+ * Brings the runtime role's privileges on the managed tables to exactly what
+ * this module declares, and touches nothing else.
+ *
+ * Run by `migrate()` on the admin connection after the migrations have applied,
+ * which is the only moment at which the managed tables are known to exist. It is
+ * idempotent, so re-running `migrate()` on an up-to-date database is how an
+ * operator repairs a grant that drifted.
+ *
+ * Both halves matter and neither implies the other. The grant is what lets the
+ * application work; the revoke is what stops a privilege granted out of band -
+ * or by an older version of this code, which granted schema-wide - from
+ * outliving the decision that it should not exist.
+ *
+ * @param client A connected admin client, inside a transaction.
+ * @param tables The SQL names of the managed tables.
+ */
+export declare const applyRuntimeGrants: (client: PoolClient, tables: readonly string[]) => Promise<void>;
+/**
+ * Revokes every membership the given role holds, and reports what it revoked.
+ *
+ * The negative counterpart of {@link applyRuntimeGrants}, and it lives here for
+ * the same reason: the boot assertion refuses a runtime role that is a member of
+ * anything at all, so the rule has two ends - the refusal in `checks.ts` and the
+ * repair `bootstrap()` runs - and one place to be stated.
+ *
+ * Why every membership rather than the dangerous ones: a membership is a
+ * `SET ROLE` path the checks cannot see through, because every privilege they
+ * read is `current_user`'s own. Whatever a granted role holds is invisible to
+ * all seven of them, so the membership itself is the misconfiguration, and
+ * nothing in this design needs one.
+ *
+ * A `REVOKE` needs `ADMIN OPTION` on the granted role. The role that owns the
+ * tables and applies the migrations has it over anything it granted; where it
+ * does not, this fails the way every other statement in the bootstrap
+ * transaction fails - loudly, having applied nothing.
+ *
+ * @param client A connected admin client, inside a transaction.
+ * @param member The role to strip. Production passes {@link RUNTIME_ROLE} and
+ *   nothing else; the parameter is what lets the repair be measured on a role of
+ *   a test's own, because granting a membership to the cluster-wide runtime role
+ *   would refuse every boot running beside it.
+ * @returns The roles whose membership was revoked, as the catalog listed them.
+ */
+export declare const revokeMemberships: (client: PoolClient, member: string) => Promise<string[]>;
+```
+
+## dist/db/refusal.d.ts
+
+```ts
+/**
+ * What a failed boot assertion is, as data.
+ *
+ * Separated from `checks.ts` so that a caller can name the refusal without
+ * reaching the Drizzle and `pg` types the checks are implemented with: ADR 0010
+ * forbids `apps/control-plane` from depending on either, so neither may appear
+ * on this package's published surface.
+ */
+/** The stable name of each of rule 6's seven checks. */
+export type CheckName = "runtime-role-is-not-privileged" | "runtime-role-reaches-only-the-managed-tables" | "every-managed-table-is-classified" | "tenant-tables-are-forced" | "tenant-policies-are-exactly-canonical" | "migrations-match-the-committed-files" | "no-owner-context-reads-empty";
+/**
+ * One check's outcome. `detail` is what a refusal prints.
+ *
+ * Not `CheckResult`: `CONTEXT.md` gives **Result** to what a Worker submits for
+ * a Run, and a second unrelated meaning for the same noun is exactly the drift
+ * the glossary exists to stop. `verdict` is on its avoid list for the same
+ * reason.
+ */
+export interface CheckOutcome {
+    readonly name: CheckName;
+    readonly ok: boolean;
+    readonly detail: string;
+}
+/**
+ * What `createRuntimeDb()` throws instead of returning a client. There is no
+ * flag that downgrades this to a warning and no path to a client that skipped
+ * it: the assertion lives in the connection factory precisely so that it is
+ * unskippable by construction (ADR 0010).
+ *
+ * `CONTEXT.md`'s noun is **Refusal**; the `Error` suffix is the JavaScript
+ * convention for a throwable and is not a second domain word.
+ */
+export declare class BootRefusalError extends Error {
+    readonly checks: readonly CheckOutcome[];
+    constructor(checks: readonly CheckOutcome[]);
+}
+```
+
+## dist/db/roles.d.ts
+
+```ts
+/**
+ * The database roles by name, and nothing else.
+ *
+ * Its own module because it is the one persistence fact that reaches the
+ * **published** surface: `bootstrap` provisions this role and the bin names it
+ * in its usage text, while `schema.ts` and everything else that touches Drizzle
+ * stays behind the package boundary (see the README).
+ */
+/**
+ * The restricted role all application traffic runs as.
+ *
+ * It is a constant rather than configuration because the committed policies name
+ * it: a deployment that renamed the role would migrate a tenant boundary granted
+ * to a role that does not exist, and every one of rule 6's policy checks would
+ * then refuse.
+ *
+ * `bootstrap()` provisions it as SQL over the admin connection, per ADR 0008 -
+ * never a role created in a provider console, because those inherit the
+ * privileges this design exists to deny.
+ */
+export declare const RUNTIME_ROLE = "reprove_runtime";
+```
+
+## dist/db/runtime.d.ts
+
+```ts
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { CheckOutcome } from "./refusal.js";
+import * as schema from "./schema.js";
+/** What the runtime connects with. No value here is read from the environment. */
+export interface RuntimeDbConfig {
+    /**
+     * The **pooled** endpoint, as the restricted runtime role. Never the admin
+     * credential and never the direct endpoint: ADR 0008 keeps migrations and
+     * application traffic on two connections that are never crossed.
+     */
+    readonly connectionString: string;
+    /** Client connections the pool may hold open. Defaults to 8. */
+    readonly poolSize?: number;
+    /**
+     * Called when the pool's own connection to Postgres fails while idle - a
+     * restart, a pooler recycling a server connection, a reset network.
+     *
+     * A handler is attached whether or not one is supplied, because `pg.Pool` is
+     * an `EventEmitter` and an unhandled `error` event **takes the process down**.
+     * The pool discards the failed client itself, so there is nothing to do but
+     * observe; this package holds no logger, so observing is the caller's.
+     */
+    readonly onConnectionError?: (error: Error) => void;
+}
+type Database = NodePgDatabase<typeof schema>;
+/**
+ * A Drizzle transaction with an Owner context already set on it. Every
+ * Owner-scoped query belongs inside one.
+ */
+export type TenantTransaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
+/** Work to run inside a tenant transaction. */
+type InTransaction<T> = (tx: TenantTransaction) => Promise<T>;
+/** A client that has passed all seven of rule 6's checks. */
+export interface RuntimeDb {
+    /** Every check's outcome, kept so a deployment can log what it proved. */
+    readonly checks: readonly CheckOutcome[];
+    /**
+     * The single entry point, and there is deliberately no second one. ADR 0008
+     * puts *all* access through a call of this shape, so that a tenant-scoped
+     * query written outside a tenant transaction is difficult to write by accident
+     * rather than merely forbidden by convention. A `withoutOwner` beside this
+     * would be the accident, pre-named and ready to reach for.
+     *
+     * The first argument is GitHub's durable numeric Owner id, which is the
+     * tenant key itself.
+     */
+    readonly withOwner: <T>(ownerId: number, fn: InTransaction<T>) => Promise<T>;
+    /** Drains the pool. */
+    readonly close: () => Promise<void>;
+}
+/**
+ * Opens the runtime connection, proves the tenant boundary, and returns a client
+ * only if every check passed.
+ *
+ * @param config The pooled runtime connection and its pool size.
+ * @returns A client whose tenant boundary has been measured, not assumed.
+ * @throws {TypeError} If the connection string is not a non-empty string; `pg`
+ *   would otherwise resolve an absent one from the ambient `PG*` variables and
+ *   serve from whatever database the shell happened to name.
+ * @throws {import("./refusal.js").BootRefusalError} Naming every check that
+ *   failed. The pool is drained first, so a refused boot leaves no connection
+ *   behind.
+ */
+export declare const createRuntimeDb: (config: RuntimeDbConfig) => Promise<RuntimeDb>;
+export {};
+```
+
+## dist/db/schema.d.ts
+
+```ts
+import type { SQLWrapper } from "drizzle-orm";
+/**
+ * Declared `existing()` so drizzle-kit names the role in the policies it emits
+ * without taking over its privilege flags, which `bootstrap()` spells out.
+ */
+export declare const runtimeRole: import("drizzle-orm/pg-core").PgRole;
+/**
+ * The one tenant predicate, and the reason it is not the bare cast.
+ *
+ * `RESET ALL`, and PgBouncer's `DISCARD ALL` where it is enabled, do not remove
+ * a custom GUC - they set it to the **empty string**. `''::bigint` then raises
+ * `invalid input syntax for type bigint: ""` from inside the policy, so the
+ * table stops being deniable and becomes unqueryable. The bare cast is correct
+ * on every direct connection and fails only behind a pooler after a reset,
+ * which is the worst possible distribution for a defect (ADR 0008).
+ *
+ * `current_setting(..., true)` returns NULL when the GUC was never set, so a
+ * missing tenant context reads as zero rows rather than as an error - the same
+ * shape as the wrong tenant.
+ *
+ * The empty string is not only a pooler's doing, which is measured rather than
+ * inferred: a transaction-local `set_config('app.owner_id', ..., true)` also
+ * leaves `''` behind on the session once its transaction ends, on the direct
+ * endpoint as much as the pooled one. So `withOwner` itself creates the value
+ * that would break the bare cast, and the guard is load-bearing on every
+ * connection this package hands out rather than only after a reset.
+ */
+export declare const ownerContext: import("drizzle-orm").SQL<unknown>;
+/**
+ * The canonical tenant policy, applied identically to every Owner-scoped table.
+ * There is exactly one of these and no second spelling, because ADR 0017 makes
+ * the boot assertion set equality against what this helper renders: a
+ * hand-rolled policy carrying the bare cast fails, and a second permissive
+ * policy beside a correct one fails too.
+ *
+ * The column is typed `SQLWrapper` because inside the extra-config callback a
+ * column is an `ExtraConfigColumn` rather than the builder it was declared with.
+ */
+export declare const tenantPolicy: (name: string, column: SQLWrapper) => import("drizzle-orm/pg-core").PgPolicy;
+/**
+ * The tenant. `id` is GitHub's durable numeric Owner id and there is no internal
+ * uuid beside it: a Reprove-minted key would reintroduce the circularity on the
+ * webhook path, where the payload carries GitHub's id and mapping it would
+ * itself be an unscoped lookup.
+ */
+export declare const owner: import("drizzle-orm/pg-core").PgTableWithColumns<{
+    name: "owner";
+    schema: undefined;
+    columns: {
+        id: import("drizzle-orm/pg-core").PgColumn<{
+            name: "id";
+            tableName: "owner";
+            dataType: "number";
+            columnType: "PgBigInt53";
+            data: number;
+            driverParam: string | number;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: true;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        login: import("drizzle-orm/pg-core").PgColumn<{
+            name: "login";
+            tableName: "owner";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        type: import("drizzle-orm/pg-core").PgColumn<{
+            name: "type";
+            tableName: "owner";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+    };
+    dialect: 'pg';
+}>;
+/** A live grant of the Reprove GitHub App. Revocation destroys nothing. */
+export declare const installation: import("drizzle-orm/pg-core").PgTableWithColumns<{
+    name: "installation";
+    schema: undefined;
+    columns: {
+        id: import("drizzle-orm/pg-core").PgColumn<{
+            name: "id";
+            tableName: "installation";
+            dataType: "number";
+            columnType: "PgBigInt53";
+            data: number;
+            driverParam: string | number;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: true;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        ownerId: import("drizzle-orm/pg-core").PgColumn<{
+            name: "owner_id";
+            tableName: "installation";
+            dataType: "number";
+            columnType: "PgBigInt53";
+            data: number;
+            driverParam: string | number;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        revokedAt: import("drizzle-orm/pg-core").PgColumn<{
+            name: "revoked_at";
+            tableName: "installation";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+    };
+    dialect: 'pg';
+}>;
+/**
+ * Operational persistence only. Review configuration is file-derived from the
+ * base ref, so no configuration column lives here (ADR 0008, deferring to #21).
+ */
+export declare const repository: import("drizzle-orm/pg-core").PgTableWithColumns<{
+    name: "repository";
+    schema: undefined;
+    columns: {
+        id: import("drizzle-orm/pg-core").PgColumn<{
+            name: "id";
+            tableName: "repository";
+            dataType: "number";
+            columnType: "PgBigInt53";
+            data: number;
+            driverParam: string | number;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: true;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        ownerId: import("drizzle-orm/pg-core").PgColumn<{
+            name: "owner_id";
+            tableName: "repository";
+            dataType: "number";
+            columnType: "PgBigInt53";
+            data: number;
+            driverParam: string | number;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        installationId: import("drizzle-orm/pg-core").PgColumn<{
+            name: "installation_id";
+            tableName: "repository";
+            dataType: "number";
+            columnType: "PgBigInt53";
+            data: number;
+            driverParam: string | number;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        nameWithOwner: import("drizzle-orm/pg-core").PgColumn<{
+            name: "name_with_owner";
+            tableName: "repository";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        inScope: import("drizzle-orm/pg-core").PgColumn<{
+            name: "in_scope";
+            tableName: "repository";
+            dataType: "boolean";
+            columnType: "PgBoolean";
+            data: boolean;
+            driverParam: boolean;
+            notNull: true;
+            hasDefault: true;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+    };
+    dialect: 'pg';
+}>;
+/** A self-hosted Worker's durable identity, established once by Enrollment. */
+export declare const worker: import("drizzle-orm/pg-core").PgTableWithColumns<{
+    name: "worker";
+    schema: undefined;
+    columns: {
+        id: import("drizzle-orm/pg-core").PgColumn<{
+            name: "id";
+            tableName: "worker";
+            dataType: "string";
+            columnType: "PgUUID";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: true;
+            isPrimaryKey: true;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        ownerId: import("drizzle-orm/pg-core").PgColumn<{
+            name: "owner_id";
+            tableName: "worker";
+            dataType: "number";
+            columnType: "PgBigInt53";
+            data: number;
+            driverParam: string | number;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        protocolVersion: import("drizzle-orm/pg-core").PgColumn<{
+            name: "protocol_version";
+            tableName: "worker";
+            dataType: "number";
+            columnType: "PgInteger";
+            data: number;
+            driverParam: string | number;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        workerBuildVersion: import("drizzle-orm/pg-core").PgColumn<{
+            name: "worker_build_version";
+            tableName: "worker";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        lastSeenAt: import("drizzle-orm/pg-core").PgColumn<{
+            name: "last_seen_at";
+            tableName: "worker";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+    };
+    dialect: 'pg';
+}>;
+/**
+ * Rows, not current-and-previous columns, so ADR 0006's rotation grace window is
+ * an ordinary row lifetime rather than a fact encoded in a column name. During
+ * rotation the predecessor takes `expiresAt = graceEnd`.
+ */
+export declare const workerCredential: import("drizzle-orm/pg-core").PgTableWithColumns<{
+    name: "worker_credential";
+    schema: undefined;
+    columns: {
+        id: import("drizzle-orm/pg-core").PgColumn<{
+            name: "id";
+            tableName: "worker_credential";
+            dataType: "string";
+            columnType: "PgUUID";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: true;
+            isPrimaryKey: true;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        ownerId: import("drizzle-orm/pg-core").PgColumn<{
+            name: "owner_id";
+            tableName: "worker_credential";
+            dataType: "number";
+            columnType: "PgBigInt53";
+            data: number;
+            driverParam: string | number;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        workerId: import("drizzle-orm/pg-core").PgColumn<{
+            name: "worker_id";
+            tableName: "worker_credential";
+            dataType: "string";
+            columnType: "PgUUID";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        secretHash: import("drizzle-orm/pg-core").PgColumn<{
+            name: "secret_hash";
+            tableName: "worker_credential";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        createdAt: import("drizzle-orm/pg-core").PgColumn<{
+            name: "created_at";
+            tableName: "worker_credential";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: true;
+            hasDefault: true;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        expiresAt: import("drizzle-orm/pg-core").PgColumn<{
+            name: "expires_at";
+            tableName: "worker_credential";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        revokedAt: import("drizzle-orm/pg-core").PgColumn<{
+            name: "revoked_at";
+            tableName: "worker_credential";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+    };
+    dialect: 'pg';
+}>;
+/** Hash-only, never the plaintext, with atomic single-use consumption. */
+export declare const enrollmentCode: import("drizzle-orm/pg-core").PgTableWithColumns<{
+    name: "enrollment_code";
+    schema: undefined;
+    columns: {
+        id: import("drizzle-orm/pg-core").PgColumn<{
+            name: "id";
+            tableName: "enrollment_code";
+            dataType: "string";
+            columnType: "PgUUID";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: true;
+            isPrimaryKey: true;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        ownerId: import("drizzle-orm/pg-core").PgColumn<{
+            name: "owner_id";
+            tableName: "enrollment_code";
+            dataType: "number";
+            columnType: "PgBigInt53";
+            data: number;
+            driverParam: string | number;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        codeHash: import("drizzle-orm/pg-core").PgColumn<{
+            name: "code_hash";
+            tableName: "enrollment_code";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        expiresAt: import("drizzle-orm/pg-core").PgColumn<{
+            name: "expires_at";
+            tableName: "enrollment_code";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        consumedAt: import("drizzle-orm/pg-core").PgColumn<{
+            name: "consumed_at";
+            tableName: "enrollment_code";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+    };
+    dialect: 'pg';
+}>;
+/**
+ * ADR 0013's durable ingress ledger: a bounded normalized envelope and its
+ * processing state. The raw webhook body is deliberately not persisted, the
+ * table gets no `CONTEXT.md` noun, and nothing here ever enters a Run's spec.
+ *
+ * It arrived after ADR 0008's entity list, which is exactly why the coverage
+ * assertion enumerates the schema module rather than trusting one ADR's list.
+ */
+export declare const ingressDelivery: import("drizzle-orm/pg-core").PgTableWithColumns<{
+    name: "ingress_delivery";
+    schema: undefined;
+    columns: {
+        id: import("drizzle-orm/pg-core").PgColumn<{
+            name: "id";
+            tableName: "ingress_delivery";
+            dataType: "string";
+            columnType: "PgUUID";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: true;
+            isPrimaryKey: true;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        ownerId: import("drizzle-orm/pg-core").PgColumn<{
+            name: "owner_id";
+            tableName: "ingress_delivery";
+            dataType: "number";
+            columnType: "PgBigInt53";
+            data: number;
+            driverParam: string | number;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        deliveryGuid: import("drizzle-orm/pg-core").PgColumn<{
+            name: "delivery_guid";
+            tableName: "ingress_delivery";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        event: import("drizzle-orm/pg-core").PgColumn<{
+            name: "event";
+            tableName: "ingress_delivery";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        action: import("drizzle-orm/pg-core").PgColumn<{
+            name: "action";
+            tableName: "ingress_delivery";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        installationId: import("drizzle-orm/pg-core").PgColumn<{
+            name: "installation_id";
+            tableName: "ingress_delivery";
+            dataType: "number";
+            columnType: "PgBigInt53";
+            data: number;
+            driverParam: string | number;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        repositoryId: import("drizzle-orm/pg-core").PgColumn<{
+            name: "repository_id";
+            tableName: "ingress_delivery";
+            dataType: "number";
+            columnType: "PgBigInt53";
+            data: number;
+            driverParam: string | number;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        repositoryNameWithOwner: import("drizzle-orm/pg-core").PgColumn<{
+            name: "repository_name_with_owner";
+            tableName: "ingress_delivery";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        pullRequestNumber: import("drizzle-orm/pg-core").PgColumn<{
+            name: "pull_request_number";
+            tableName: "ingress_delivery";
+            dataType: "number";
+            columnType: "PgInteger";
+            data: number;
+            driverParam: string | number;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        state: import("drizzle-orm/pg-core").PgColumn<{
+            name: "state";
+            tableName: "ingress_delivery";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: true;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        disposition: import("drizzle-orm/pg-core").PgColumn<{
+            name: "disposition";
+            tableName: "ingress_delivery";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        retryClass: import("drizzle-orm/pg-core").PgColumn<{
+            name: "retry_class";
+            tableName: "ingress_delivery";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        attemptCount: import("drizzle-orm/pg-core").PgColumn<{
+            name: "attempt_count";
+            tableName: "ingress_delivery";
+            dataType: "number";
+            columnType: "PgInteger";
+            data: number;
+            driverParam: string | number;
+            notNull: true;
+            hasDefault: true;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        lastAttemptAt: import("drizzle-orm/pg-core").PgColumn<{
+            name: "last_attempt_at";
+            tableName: "ingress_delivery";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        nextAttemptAt: import("drizzle-orm/pg-core").PgColumn<{
+            name: "next_attempt_at";
+            tableName: "ingress_delivery";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        receivedAt: import("drizzle-orm/pg-core").PgColumn<{
+            name: "received_at";
+            tableName: "ingress_delivery";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: true;
+            hasDefault: true;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+    };
+    dialect: 'pg';
+}>;
+/**
+ * One table, not three. ADR 0007's spec / resolution / state split is a
+ * type-level guarantee about mutability, enforced in zod and the data-access
+ * layer; projecting it to three tables would always be a 1:1 join and would cost
+ * three writes per state change.
+ */
+export declare const run: import("drizzle-orm/pg-core").PgTableWithColumns<{
+    name: "run";
+    schema: undefined;
+    columns: {
+        id: import("drizzle-orm/pg-core").PgColumn<{
+            name: "id";
+            tableName: "run";
+            dataType: "string";
+            columnType: "PgUUID";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: true;
+            isPrimaryKey: true;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        ownerId: import("drizzle-orm/pg-core").PgColumn<{
+            name: "owner_id";
+            tableName: "run";
+            dataType: "number";
+            columnType: "PgBigInt53";
+            data: number;
+            driverParam: string | number;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        repositoryId: import("drizzle-orm/pg-core").PgColumn<{
+            name: "repository_id";
+            tableName: "run";
+            dataType: "number";
+            columnType: "PgBigInt53";
+            data: number;
+            driverParam: string | number;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        pullRequestNumber: import("drizzle-orm/pg-core").PgColumn<{
+            name: "pull_request_number";
+            tableName: "run";
+            dataType: "number";
+            columnType: "PgInteger";
+            data: number;
+            driverParam: string | number;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        baseSha: import("drizzle-orm/pg-core").PgColumn<{
+            name: "base_sha";
+            tableName: "run";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        headSha: import("drizzle-orm/pg-core").PgColumn<{
+            name: "head_sha";
+            tableName: "run";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        provenance: import("drizzle-orm/pg-core").PgColumn<{
+            name: "provenance";
+            tableName: "run";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        provenanceBasis: import("drizzle-orm/pg-core").PgColumn<{
+            name: "provenance_basis";
+            tableName: "run";
+            dataType: "json";
+            columnType: "PgJsonb";
+            data: unknown;
+            driverParam: unknown;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        trigger: import("drizzle-orm/pg-core").PgColumn<{
+            name: "trigger";
+            tableName: "run";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        harness: import("drizzle-orm/pg-core").PgColumn<{
+            name: "harness";
+            tableName: "run";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        model: import("drizzle-orm/pg-core").PgColumn<{
+            name: "model";
+            tableName: "run";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        strategy: import("drizzle-orm/pg-core").PgColumn<{
+            name: "strategy";
+            tableName: "run";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        autonomy: import("drizzle-orm/pg-core").PgColumn<{
+            name: "autonomy";
+            tableName: "run";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        placement: import("drizzle-orm/pg-core").PgColumn<{
+            name: "placement";
+            tableName: "run";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        configDigest: import("drizzle-orm/pg-core").PgColumn<{
+            name: "config_digest";
+            tableName: "run";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        status: import("drizzle-orm/pg-core").PgColumn<{
+            name: "status";
+            tableName: "run";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: true;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        cancellationReason: import("drizzle-orm/pg-core").PgColumn<{
+            name: "cancellation_reason";
+            tableName: "run";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        claimableUntil: import("drizzle-orm/pg-core").PgColumn<{
+            name: "claimable_until";
+            tableName: "run";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        createdAt: import("drizzle-orm/pg-core").PgColumn<{
+            name: "created_at";
+            tableName: "run";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: true;
+            hasDefault: true;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        passes: import("drizzle-orm/pg-core").PgColumn<{
+            name: "passes";
+            tableName: "run";
+            dataType: "json";
+            columnType: "PgJsonb";
+            data: unknown;
+            driverParam: unknown;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        refusals: import("drizzle-orm/pg-core").PgColumn<{
+            name: "refusals";
+            tableName: "run";
+            dataType: "json";
+            columnType: "PgJsonb";
+            data: unknown;
+            driverParam: unknown;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+    };
+    dialect: 'pg';
+}>;
+/**
+ * Rows, because Findings are queried across Runs by bucket key for
+ * Reconciliation. `evidence` and `patch` are JSONB: bounded, always read with
+ * their parent, never queried independently.
+ */
+export declare const finding: import("drizzle-orm/pg-core").PgTableWithColumns<{
+    name: "finding";
+    schema: undefined;
+    columns: {
+        id: import("drizzle-orm/pg-core").PgColumn<{
+            name: "id";
+            tableName: "finding";
+            dataType: "string";
+            columnType: "PgUUID";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: true;
+            isPrimaryKey: true;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        ownerId: import("drizzle-orm/pg-core").PgColumn<{
+            name: "owner_id";
+            tableName: "finding";
+            dataType: "number";
+            columnType: "PgBigInt53";
+            data: number;
+            driverParam: string | number;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        runId: import("drizzle-orm/pg-core").PgColumn<{
+            name: "run_id";
+            tableName: "finding";
+            dataType: "string";
+            columnType: "PgUUID";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        path: import("drizzle-orm/pg-core").PgColumn<{
+            name: "path";
+            tableName: "finding";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        line: import("drizzle-orm/pg-core").PgColumn<{
+            name: "line";
+            tableName: "finding";
+            dataType: "number";
+            columnType: "PgInteger";
+            data: number;
+            driverParam: string | number;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        severity: import("drizzle-orm/pg-core").PgColumn<{
+            name: "severity";
+            tableName: "finding";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        verification: import("drizzle-orm/pg-core").PgColumn<{
+            name: "verification";
+            tableName: "finding";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        title: import("drizzle-orm/pg-core").PgColumn<{
+            name: "title";
+            tableName: "finding";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        body: import("drizzle-orm/pg-core").PgColumn<{
+            name: "body";
+            tableName: "finding";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        anchoredText: import("drizzle-orm/pg-core").PgColumn<{
+            name: "anchored_text";
+            tableName: "finding";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        evidence: import("drizzle-orm/pg-core").PgColumn<{
+            name: "evidence";
+            tableName: "finding";
+            dataType: "json";
+            columnType: "PgJsonb";
+            data: unknown;
+            driverParam: unknown;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        patch: import("drizzle-orm/pg-core").PgColumn<{
+            name: "patch";
+            tableName: "finding";
+            dataType: "json";
+            columnType: "PgJsonb";
+            data: unknown;
+            driverParam: unknown;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        contentPurgedAt: import("drizzle-orm/pg-core").PgColumn<{
+            name: "content_purged_at";
+            tableName: "finding";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        bucketKey: import("drizzle-orm/pg-core").PgColumn<{
+            name: "bucket_key";
+            tableName: "finding";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        bucketKeyVersion: import("drizzle-orm/pg-core").PgColumn<{
+            name: "bucket_key_version";
+            tableName: "finding";
+            dataType: "number";
+            columnType: "PgInteger";
+            data: number;
+            driverParam: string | number;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        publicationDisposition: import("drizzle-orm/pg-core").PgColumn<{
+            name: "publication_disposition";
+            tableName: "finding";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        reconciliation: import("drizzle-orm/pg-core").PgColumn<{
+            name: "reconciliation";
+            tableName: "finding";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+    };
+    dialect: 'pg';
+}>;
+/** One row per Run, since at most one logical Review is published. */
+export declare const publication: import("drizzle-orm/pg-core").PgTableWithColumns<{
+    name: "publication";
+    schema: undefined;
+    columns: {
+        id: import("drizzle-orm/pg-core").PgColumn<{
+            name: "id";
+            tableName: "publication";
+            dataType: "string";
+            columnType: "PgUUID";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: true;
+            isPrimaryKey: true;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        ownerId: import("drizzle-orm/pg-core").PgColumn<{
+            name: "owner_id";
+            tableName: "publication";
+            dataType: "number";
+            columnType: "PgBigInt53";
+            data: number;
+            driverParam: string | number;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        runId: import("drizzle-orm/pg-core").PgColumn<{
+            name: "run_id";
+            tableName: "publication";
+            dataType: "string";
+            columnType: "PgUUID";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        state: import("drizzle-orm/pg-core").PgColumn<{
+            name: "state";
+            tableName: "publication";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        githubReviewId: import("drizzle-orm/pg-core").PgColumn<{
+            name: "github_review_id";
+            tableName: "publication";
+            dataType: "number";
+            columnType: "PgBigInt53";
+            data: number;
+            driverParam: string | number;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        event: import("drizzle-orm/pg-core").PgColumn<{
+            name: "event";
+            tableName: "publication";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        appliedThreshold: import("drizzle-orm/pg-core").PgColumn<{
+            name: "applied_threshold";
+            tableName: "publication";
+            dataType: "json";
+            columnType: "PgJsonb";
+            data: unknown;
+            driverParam: unknown;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        reconciledAgainstRunId: import("drizzle-orm/pg-core").PgColumn<{
+            name: "reconciled_against_run_id";
+            tableName: "publication";
+            dataType: "string";
+            columnType: "PgUUID";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        priorReconciliation: import("drizzle-orm/pg-core").PgColumn<{
+            name: "prior_reconciliation";
+            tableName: "publication";
+            dataType: "json";
+            columnType: "PgJsonb";
+            data: unknown;
+            driverParam: unknown;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        attempts: import("drizzle-orm/pg-core").PgColumn<{
+            name: "attempts";
+            tableName: "publication";
+            dataType: "json";
+            columnType: "PgJsonb";
+            data: unknown;
+            driverParam: unknown;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        submittedAt: import("drizzle-orm/pg-core").PgColumn<{
+            name: "submitted_at";
+            tableName: "publication";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+    };
+    dialect: 'pg';
+}>;
+export declare const user: import("drizzle-orm/pg-core").PgTableWithColumns<{
+    name: "user";
+    schema: undefined;
+    columns: {
+        id: import("drizzle-orm/pg-core").PgColumn<{
+            name: "id";
+            tableName: "user";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: true;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        name: import("drizzle-orm/pg-core").PgColumn<{
+            name: "name";
+            tableName: "user";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        email: import("drizzle-orm/pg-core").PgColumn<{
+            name: "email";
+            tableName: "user";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        emailVerified: import("drizzle-orm/pg-core").PgColumn<{
+            name: "email_verified";
+            tableName: "user";
+            dataType: "boolean";
+            columnType: "PgBoolean";
+            data: boolean;
+            driverParam: boolean;
+            notNull: true;
+            hasDefault: true;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        image: import("drizzle-orm/pg-core").PgColumn<{
+            name: "image";
+            tableName: "user";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        createdAt: import("drizzle-orm/pg-core").PgColumn<{
+            name: "created_at";
+            tableName: "user";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: true;
+            hasDefault: true;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        updatedAt: import("drizzle-orm/pg-core").PgColumn<{
+            name: "updated_at";
+            tableName: "user";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: true;
+            hasDefault: true;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+    };
+    dialect: 'pg';
+}>;
+export declare const session: import("drizzle-orm/pg-core").PgTableWithColumns<{
+    name: "session";
+    schema: undefined;
+    columns: {
+        id: import("drizzle-orm/pg-core").PgColumn<{
+            name: "id";
+            tableName: "session";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: true;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        userId: import("drizzle-orm/pg-core").PgColumn<{
+            name: "user_id";
+            tableName: "session";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        token: import("drizzle-orm/pg-core").PgColumn<{
+            name: "token";
+            tableName: "session";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        expiresAt: import("drizzle-orm/pg-core").PgColumn<{
+            name: "expires_at";
+            tableName: "session";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        ipAddress: import("drizzle-orm/pg-core").PgColumn<{
+            name: "ip_address";
+            tableName: "session";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        userAgent: import("drizzle-orm/pg-core").PgColumn<{
+            name: "user_agent";
+            tableName: "session";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        createdAt: import("drizzle-orm/pg-core").PgColumn<{
+            name: "created_at";
+            tableName: "session";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: true;
+            hasDefault: true;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        updatedAt: import("drizzle-orm/pg-core").PgColumn<{
+            name: "updated_at";
+            tableName: "session";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: true;
+            hasDefault: true;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+    };
+    dialect: 'pg';
+}>;
+export declare const account: import("drizzle-orm/pg-core").PgTableWithColumns<{
+    name: "account";
+    schema: undefined;
+    columns: {
+        id: import("drizzle-orm/pg-core").PgColumn<{
+            name: "id";
+            tableName: "account";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: true;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        userId: import("drizzle-orm/pg-core").PgColumn<{
+            name: "user_id";
+            tableName: "account";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        providerId: import("drizzle-orm/pg-core").PgColumn<{
+            name: "provider_id";
+            tableName: "account";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        accountId: import("drizzle-orm/pg-core").PgColumn<{
+            name: "account_id";
+            tableName: "account";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        accessToken: import("drizzle-orm/pg-core").PgColumn<{
+            name: "access_token";
+            tableName: "account";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        refreshToken: import("drizzle-orm/pg-core").PgColumn<{
+            name: "refresh_token";
+            tableName: "account";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        accessTokenExpiresAt: import("drizzle-orm/pg-core").PgColumn<{
+            name: "access_token_expires_at";
+            tableName: "account";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        refreshTokenExpiresAt: import("drizzle-orm/pg-core").PgColumn<{
+            name: "refresh_token_expires_at";
+            tableName: "account";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        scope: import("drizzle-orm/pg-core").PgColumn<{
+            name: "scope";
+            tableName: "account";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        createdAt: import("drizzle-orm/pg-core").PgColumn<{
+            name: "created_at";
+            tableName: "account";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: true;
+            hasDefault: true;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        updatedAt: import("drizzle-orm/pg-core").PgColumn<{
+            name: "updated_at";
+            tableName: "account";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: true;
+            hasDefault: true;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+    };
+    dialect: 'pg';
+}>;
+export declare const verification: import("drizzle-orm/pg-core").PgTableWithColumns<{
+    name: "verification";
+    schema: undefined;
+    columns: {
+        id: import("drizzle-orm/pg-core").PgColumn<{
+            name: "id";
+            tableName: "verification";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: true;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        identifier: import("drizzle-orm/pg-core").PgColumn<{
+            name: "identifier";
+            tableName: "verification";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        value: import("drizzle-orm/pg-core").PgColumn<{
+            name: "value";
+            tableName: "verification";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        expiresAt: import("drizzle-orm/pg-core").PgColumn<{
+            name: "expires_at";
+            tableName: "verification";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        createdAt: import("drizzle-orm/pg-core").PgColumn<{
+            name: "created_at";
+            tableName: "verification";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: true;
+            hasDefault: true;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        updatedAt: import("drizzle-orm/pg-core").PgColumn<{
+            name: "updated_at";
+            tableName: "verification";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: true;
+            hasDefault: true;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+    };
+    dialect: 'pg';
+}>;
+```
+
 ## dist/index.d.ts
 
 ```ts
 export { protocolSchemas as workerProtocolSchemas } from "@reprove/protocol/v1";
+/**
+ * The persistence surface a consumer may hold, and deliberately no more.
+ *
+ * ADR 0010's matrix forbids `apps/control-plane` - the only consumer - from
+ * depending on `drizzle-orm`, `pg` or any other Postgres driver, so nothing
+ * exported here names a type from one. That is the same boundary ADR 0005 draws
+ * against `@ai-sdk/*`, applied to the database: an upstream type leaks through
+ * an exported signature even when the importer never names the package.
+ *
+ * The schema, the classification, `createRuntimeDb()` and its tenant transaction
+ * therefore stay inside the package, reachable from `./db/index.js` by the
+ * control-plane code that owns them. Composition reaches the app as
+ * `createControlPlane(config)`, which is where the runtime client is built from
+ * configuration the app parsed - not as a Drizzle handle the app assembles for
+ * itself.
+ */
+export type { BootstrapConfig } from "./db/bootstrap.js";
+export { bootstrap } from "./db/bootstrap.js";
+export type { MigrateConfig } from "./db/migrate.js";
+export { migrate } from "./db/migrate.js";
+export type { CommittedMigration } from "./db/migrations.js";
+export { MIGRATIONS_FOLDER, readCommittedMigrations } from "./db/migrations.js";
+export type { CheckName, CheckOutcome } from "./db/refusal.js";
+export { BootRefusalError } from "./db/refusal.js";
+export { RUNTIME_ROLE } from "./db/roles.js";
 export declare const packageName: "@reprove/control-plane";
 /**
  * Shell. The control plane validates every Worker submission against the same

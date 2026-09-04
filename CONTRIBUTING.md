@@ -11,12 +11,13 @@ Security problems do **not** go in a public issue - see [SECURITY.md](SECURITY.m
 The stack is TypeScript on Node 22 (ESM), pnpm workspaces with Turborepo,
 Vitest for tests (Playwright later), and Oxlint/Oxfmt through Ultracite.
 
-A clean clone installs and proves itself in four steps:
+A clean clone installs and proves itself in five steps:
 
 ```text
 install Node 22
 corepack enable
 pnpm install --frozen-lockfile
+pnpm db:up                          Docker; see "Database" below
 pnpm verify
 ```
 
@@ -27,7 +28,7 @@ layers, and the first to fail names the workspace and the rule it broke:
 node tools/verify-workspace.mjs    the ADR 0010 workspace and dependency matrix
 turbo run build typecheck          every workspace builds and type-checks
 node tools/verify-packages.mjs     the packed package contract
-vitest run                         the tests
+vitest run                         the tests, against the local database stack
 ultracite check .                  lint and format
 ```
 
@@ -61,6 +62,36 @@ It also owns the two checks that guard the published TypeScript surface:
 `pnpm verify:packages --keep` leaves the consumer fixture on disk and prints its
 path, which is the fastest way to see what a consumer actually received.
 
+### Database
+
+`vitest run` includes tests that measure the tenant boundary against a real
+database, so they need one running. Docker is the only prerequisite:
+
+```text
+pnpm db:up      # Postgres 17 and PgBouncer, from tools/db/compose.yaml
+pnpm db:down    # and away again, volumes included
+```
+
+If it is not up, those tests **fail with instructions rather than skipping**.
+The failures [ADR 0008](docs/adr/0008-persistence-tenancy-and-retention.md)'s
+rules 2 and 3 exist for are only observable on a pooled connection - session
+state outliving the client that set it, and reaching a client that set nothing -
+so a run that quietly skipped them would prove the boundary against an
+arrangement production does not use.
+
+The stack serves the two connections ADR 0008 keeps separate and never crosses:
+an **admin** role on the direct endpoint at `127.0.0.1:55532`, which owns the
+tables and applies migrations, and the restricted **`reprove_runtime`** role
+through **PgBouncer in transaction mode** at `127.0.0.1:56532`, which is what
+all application traffic uses.
+
+Setting a database up is two ordered commands, not two interchangeable ones:
+`reprove-control-plane bootstrap` provisions the runtime role, then
+`reprove-control-plane migrate` applies the schema and grants the runtime role
+its reach over exactly the tables that schema manages. Every migration grants the
+tenant boundary to that role, so the role has to exist first. See
+[`packages/control-plane`](packages/control-plane/README.md#the-database).
+
 Two things catch people out:
 
 - **A dependency change is deliberate.** Adding, removing or bumping a
@@ -72,10 +103,11 @@ Two things catch people out:
   rather than executing.
 
 Continuous integration runs the same command. Two checks are required on every
-pull request: `verify`, which is the five steps above on Ubuntu and Node 22, and
-`dependency-review`, which blocks newly introduced high or critical
-vulnerabilities in runtime and development dependencies alike. A new layer is
-sequenced inside `pnpm verify` rather than added as a third required check.
+pull request: `verify`, which is the five layers above on Ubuntu and Node 22 with
+the database stack up, and `dependency-review`, which blocks newly introduced
+high or critical vulnerabilities in runtime and development dependencies alike.
+A new layer is sequenced inside `pnpm verify` rather than added as a third
+required check.
 
 ## Where the project is right now
 
