@@ -1,5 +1,5 @@
 {
-  "id": "1cbfad5b-6daf-4ea8-9a06-a74d0b6ef103",
+  "id": "514b0c41-fa7a-4840-9f74-d6dc5aa8852f",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -330,12 +330,12 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "finding_run_id_run_id_fk": {
-          "name": "finding_run_id_run_id_fk",
+        "finding_run_owner_scoped_fk": {
+          "name": "finding_run_owner_scoped_fk",
           "tableFrom": "finding",
           "tableTo": "run",
-          "columnsFrom": ["run_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": ["owner_id", "run_id"],
+          "columnsTo": ["owner_id", "id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -570,7 +570,13 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "installation_owner_scoped_id": {
+          "name": "installation_owner_scoped_id",
+          "nullsNotDistinct": false,
+          "columns": ["owner_id", "id"]
+        }
+      },
       "policies": {
         "installation_tenant": {
           "name": "installation_tenant",
@@ -723,12 +729,12 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "publication_run_id_run_id_fk": {
-          "name": "publication_run_id_run_id_fk",
+        "publication_run_owner_scoped_fk": {
+          "name": "publication_run_owner_scoped_fk",
           "tableFrom": "publication",
           "tableTo": "run",
-          "columnsFrom": ["run_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": ["owner_id", "run_id"],
+          "columnsTo": ["owner_id", "id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -811,18 +817,24 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "repository_installation_id_installation_id_fk": {
-          "name": "repository_installation_id_installation_id_fk",
+        "repository_installation_owner_scoped_fk": {
+          "name": "repository_installation_owner_scoped_fk",
           "tableFrom": "repository",
           "tableTo": "installation",
-          "columnsFrom": ["installation_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": ["owner_id", "installation_id"],
+          "columnsTo": ["owner_id", "id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "repository_owner_scoped_id": {
+          "name": "repository_owner_scoped_id",
+          "nullsNotDistinct": false,
+          "columns": ["owner_id", "id"]
+        }
+      },
       "policies": {
         "repository_tenant": {
           "name": "repository_tenant",
@@ -1019,18 +1031,24 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "run_repository_id_repository_id_fk": {
-          "name": "run_repository_id_repository_id_fk",
+        "run_repository_owner_scoped_fk": {
+          "name": "run_repository_owner_scoped_fk",
           "tableFrom": "run",
           "tableTo": "repository",
-          "columnsFrom": ["repository_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": ["owner_id", "repository_id"],
+          "columnsTo": ["owner_id", "id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "run_owner_scoped_id": {
+          "name": "run_owner_scoped_id",
+          "nullsNotDistinct": false,
+          "columns": ["owner_id", "id"]
+        }
+      },
       "policies": {
         "run_tenant": {
           "name": "run_tenant",
@@ -1303,7 +1321,13 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "worker_owner_scoped_id": {
+          "name": "worker_owner_scoped_id",
+          "nullsNotDistinct": false,
+          "columns": ["owner_id", "id"]
+        }
+      },
       "policies": {
         "worker_tenant": {
           "name": "worker_tenant",
@@ -1393,12 +1417,12 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "worker_credential_worker_id_worker_id_fk": {
-          "name": "worker_credential_worker_id_worker_id_fk",
+        "worker_credential_worker_owner_scoped_fk": {
+          "name": "worker_credential_worker_owner_scoped_fk",
           "tableFrom": "worker_credential",
           "tableTo": "worker",
-          "columnsFrom": ["worker_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": ["owner_id", "worker_id"],
+          "columnsTo": ["owner_id", "id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }

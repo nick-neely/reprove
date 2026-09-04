@@ -122,6 +122,40 @@ describe("two Owners through withOwner", () => {
     });
   });
 
+  it("refuses a Finding bound to another Owner's Run, which exists", async () => {
+    // The row is impeccable from the tenant policy's side: it carries ACME's
+    // `owner_id`, so `WITH CHECK` passes. What it points at is GLOBEX's Run, and
+    // a single-column `run_id` reference would have accepted it - a foreign key
+    // is checked as the *referenced* table's owner with row security off, so the
+    // check sees a Run this Owner can never select and is satisfied. It is the
+    // composite `(owner_id, run_id)` reference that makes the two facts one.
+    //
+    // The consequence is not only a stale row. Deleting GLOBEX's Run would then
+    // cascade into ACME's Finding, across a boundary neither Owner can observe.
+    const [foreign] = await database.admin<{ id: string }>(
+      `select id from run where owner_id = ${GLOBEX}`
+    );
+    expect(foreign?.id).toBeDefined();
+
+    const failure = await driverFailure(
+      runtime.withOwner(ACME, (tx) =>
+        tx.insert(schema.finding).values({
+          ownerId: ACME,
+          runId: foreign?.id ?? "",
+          path: "src/index.ts",
+          severity: "high",
+          verification: "static",
+          bucketKey: "cross-tenant",
+          bucketKeyVersion: 1,
+        })
+      )
+    );
+
+    // 23503 is foreign_key_violation.
+    expect(failure.code).toBe("23503");
+    expect(failure.message).toContain("finding_run_owner_scoped_fk");
+  });
+
   it("returns zero rows with no tenant context, rather than erroring", async () => {
     // The predicate is `nullif(current_setting(...), '')::bigint`, so an unset
     // GUC compares as NULL and the policy denies. The bare cast this replaced

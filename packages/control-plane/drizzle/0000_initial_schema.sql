@@ -65,7 +65,8 @@ ALTER TABLE "ingress_delivery" ENABLE ROW LEVEL SECURITY;--> statement-breakpoin
 CREATE TABLE "installation" (
 	"id" bigint PRIMARY KEY NOT NULL,
 	"owner_id" bigint NOT NULL,
-	"revoked_at" timestamp with time zone
+	"revoked_at" timestamp with time zone,
+	CONSTRAINT "installation_owner_scoped_id" UNIQUE("owner_id","id")
 );
 --> statement-breakpoint
 ALTER TABLE "installation" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
@@ -96,7 +97,8 @@ CREATE TABLE "repository" (
 	"owner_id" bigint NOT NULL,
 	"installation_id" bigint,
 	"name_with_owner" text NOT NULL,
-	"in_scope" boolean DEFAULT true NOT NULL
+	"in_scope" boolean DEFAULT true NOT NULL,
+	CONSTRAINT "repository_owner_scoped_id" UNIQUE("owner_id","id")
 );
 --> statement-breakpoint
 ALTER TABLE "repository" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
@@ -121,7 +123,8 @@ CREATE TABLE "run" (
 	"claimable_until" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"passes" jsonb,
-	"refusals" jsonb
+	"refusals" jsonb,
+	CONSTRAINT "run_owner_scoped_id" UNIQUE("owner_id","id")
 );
 --> statement-breakpoint
 ALTER TABLE "run" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
@@ -162,7 +165,8 @@ CREATE TABLE "worker" (
 	"owner_id" bigint NOT NULL,
 	"protocol_version" integer NOT NULL,
 	"worker_build_version" text NOT NULL,
-	"last_seen_at" timestamp with time zone
+	"last_seen_at" timestamp with time zone,
+	CONSTRAINT "worker_owner_scoped_id" UNIQUE("owner_id","id")
 );
 --> statement-breakpoint
 ALTER TABLE "worker" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
@@ -180,19 +184,19 @@ ALTER TABLE "worker_credential" ENABLE ROW LEVEL SECURITY;--> statement-breakpoi
 ALTER TABLE "account" ADD CONSTRAINT "account_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "enrollment_code" ADD CONSTRAINT "enrollment_code_owner_id_owner_id_fk" FOREIGN KEY ("owner_id") REFERENCES "public"."owner"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "finding" ADD CONSTRAINT "finding_owner_id_owner_id_fk" FOREIGN KEY ("owner_id") REFERENCES "public"."owner"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "finding" ADD CONSTRAINT "finding_run_id_run_id_fk" FOREIGN KEY ("run_id") REFERENCES "public"."run"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "finding" ADD CONSTRAINT "finding_run_owner_scoped_fk" FOREIGN KEY ("owner_id","run_id") REFERENCES "public"."run"("owner_id","id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "ingress_delivery" ADD CONSTRAINT "ingress_delivery_owner_id_owner_id_fk" FOREIGN KEY ("owner_id") REFERENCES "public"."owner"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "installation" ADD CONSTRAINT "installation_owner_id_owner_id_fk" FOREIGN KEY ("owner_id") REFERENCES "public"."owner"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "publication" ADD CONSTRAINT "publication_owner_id_owner_id_fk" FOREIGN KEY ("owner_id") REFERENCES "public"."owner"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "publication" ADD CONSTRAINT "publication_run_id_run_id_fk" FOREIGN KEY ("run_id") REFERENCES "public"."run"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "publication" ADD CONSTRAINT "publication_run_owner_scoped_fk" FOREIGN KEY ("owner_id","run_id") REFERENCES "public"."run"("owner_id","id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "repository" ADD CONSTRAINT "repository_owner_id_owner_id_fk" FOREIGN KEY ("owner_id") REFERENCES "public"."owner"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "repository" ADD CONSTRAINT "repository_installation_id_installation_id_fk" FOREIGN KEY ("installation_id") REFERENCES "public"."installation"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "repository" ADD CONSTRAINT "repository_installation_owner_scoped_fk" FOREIGN KEY ("owner_id","installation_id") REFERENCES "public"."installation"("owner_id","id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "run" ADD CONSTRAINT "run_owner_id_owner_id_fk" FOREIGN KEY ("owner_id") REFERENCES "public"."owner"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "run" ADD CONSTRAINT "run_repository_id_repository_id_fk" FOREIGN KEY ("repository_id") REFERENCES "public"."repository"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "run" ADD CONSTRAINT "run_repository_owner_scoped_fk" FOREIGN KEY ("owner_id","repository_id") REFERENCES "public"."repository"("owner_id","id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "session" ADD CONSTRAINT "session_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "worker" ADD CONSTRAINT "worker_owner_id_owner_id_fk" FOREIGN KEY ("owner_id") REFERENCES "public"."owner"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "worker_credential" ADD CONSTRAINT "worker_credential_owner_id_owner_id_fk" FOREIGN KEY ("owner_id") REFERENCES "public"."owner"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "worker_credential" ADD CONSTRAINT "worker_credential_worker_id_worker_id_fk" FOREIGN KEY ("worker_id") REFERENCES "public"."worker"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worker_credential" ADD CONSTRAINT "worker_credential_worker_owner_scoped_fk" FOREIGN KEY ("owner_id","worker_id") REFERENCES "public"."worker"("owner_id","id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "enrollment_code_owner_idx" ON "enrollment_code" USING btree ("owner_id");--> statement-breakpoint
 CREATE INDEX "finding_owner_idx" ON "finding" USING btree ("owner_id");--> statement-breakpoint
 CREATE INDEX "finding_bucket_idx" ON "finding" USING btree ("owner_id","bucket_key");--> statement-breakpoint

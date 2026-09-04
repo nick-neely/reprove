@@ -14,6 +14,7 @@ import type { SQLWrapper } from "drizzle-orm";
 import {
   bigint,
   boolean,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -22,6 +23,7 @@ import {
   pgTable,
   text,
   timestamp,
+  unique,
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
@@ -81,6 +83,26 @@ export const tenantPolicy = (name: string, column: SQLWrapper) =>
 // that reach the Owner only transitively, so each policy is a comparison rather
 // than a subquery join. `owner` is the exception that proves it: its own
 // primary key *is* the Owner id.
+//
+// That denormalization is also why every reference between two of these tables
+// is **composite**. ADR 0008 stores each child's `owner_id` rather than deriving
+// it, so a child carrying Owner A's `owner_id` and pointing at Owner B's parent
+// is a row the schema would otherwise accept: the tenant policy compares
+// `owner_id` and is satisfied, and the foreign key compares the parent id and is
+// satisfied too. Nothing joins the two facts.
+//
+// A policy cannot close it either, because a foreign key is not checked as the
+// writer. Postgres runs the referential-integrity trigger as the *referenced*
+// table's owner and with row security off, which is what lets a child reference
+// a parent it could never select - so the check sees B's row and passes. The
+// consequence runs the other way too: deleting B's parent cascades into A's
+// child, across a boundary neither Owner can observe.
+//
+// So every parent carries `unique (owner_id, id)`, and every child references
+// that pair instead of the id alone. The tenant binding becomes structural, and
+// a cross-tenant write is a foreign-key violation rather than a row nobody
+// notices. Nullable child columns keep Postgres's default `MATCH SIMPLE`, under
+// which a row naming no parent at all still satisfies the constraint.
 
 /**
  * The tenant. `id` is GitHub's durable numeric Owner id and there is no internal
@@ -112,6 +134,7 @@ export const installation = pgTable(
   (t) => [
     tenantPolicy("installation_tenant", t.ownerId),
     index("installation_owner_idx").on(t.ownerId),
+    unique("installation_owner_scoped_id").on(t.ownerId, t.id),
   ]
 );
 
@@ -127,16 +150,21 @@ export const repository = pgTable(
     ownerId: bigint("owner_id", { mode: "number" })
       .notNull()
       .references(() => owner.id, { onDelete: "cascade" }),
-    installationId: bigint("installation_id", { mode: "number" }).references(
-      () => installation.id,
-      { onDelete: "cascade" }
-    ),
+    installationId: bigint("installation_id", { mode: "number" }),
     nameWithOwner: text("name_with_owner").notNull(),
     inScope: boolean("in_scope").notNull().default(true),
   },
   (t) => [
     tenantPolicy("repository_tenant", t.ownerId),
     index("repository_owner_idx").on(t.ownerId),
+    unique("repository_owner_scoped_id").on(t.ownerId, t.id),
+    // Nullable, and `MATCH SIMPLE` is what makes that work: a Repository whose
+    // grant has not been recorded names no Installation and is accepted.
+    foreignKey({
+      name: "repository_installation_owner_scoped_fk",
+      columns: [t.ownerId, t.installationId],
+      foreignColumns: [installation.ownerId, installation.id],
+    }).onDelete("cascade"),
   ]
 );
 
@@ -155,6 +183,7 @@ export const worker = pgTable(
   (t) => [
     tenantPolicy("worker_tenant", t.ownerId),
     index("worker_owner_idx").on(t.ownerId),
+    unique("worker_owner_scoped_id").on(t.ownerId, t.id),
   ]
 );
 
@@ -170,9 +199,7 @@ export const workerCredential = pgTable(
     ownerId: bigint("owner_id", { mode: "number" })
       .notNull()
       .references(() => owner.id, { onDelete: "cascade" }),
-    workerId: uuid("worker_id")
-      .notNull()
-      .references(() => worker.id, { onDelete: "cascade" }),
+    workerId: uuid("worker_id").notNull(),
     secretHash: text("secret_hash").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -183,6 +210,11 @@ export const workerCredential = pgTable(
   (t) => [
     tenantPolicy("worker_credential_tenant", t.ownerId),
     index("worker_credential_owner_idx").on(t.ownerId),
+    foreignKey({
+      name: "worker_credential_worker_owner_scoped_fk",
+      columns: [t.ownerId, t.workerId],
+      foreignColumns: [worker.ownerId, worker.id],
+    }).onDelete("cascade"),
   ]
 );
 
@@ -275,9 +307,7 @@ export const run = pgTable(
     ownerId: bigint("owner_id", { mode: "number" })
       .notNull()
       .references(() => owner.id, { onDelete: "cascade" }),
-    repositoryId: bigint("repository_id", { mode: "number" })
-      .notNull()
-      .references(() => repository.id, { onDelete: "cascade" }),
+    repositoryId: bigint("repository_id", { mode: "number" }).notNull(),
     pullRequestNumber: integer("pull_request_number").notNull(),
 
     // spec - immutable, complete at creation
@@ -319,6 +349,12 @@ export const run = pgTable(
     uniqueIndex("run_one_live_per_pull_request")
       .on(t.repositoryId, t.pullRequestNumber)
       .where(sql`${t.status} in ('queued', 'claimed', 'executing')`),
+    unique("run_owner_scoped_id").on(t.ownerId, t.id),
+    foreignKey({
+      name: "run_repository_owner_scoped_fk",
+      columns: [t.ownerId, t.repositoryId],
+      foreignColumns: [repository.ownerId, repository.id],
+    }).onDelete("cascade"),
   ]
 );
 
@@ -334,9 +370,7 @@ export const finding = pgTable(
     ownerId: bigint("owner_id", { mode: "number" })
       .notNull()
       .references(() => owner.id, { onDelete: "cascade" }),
-    runId: uuid("run_id")
-      .notNull()
-      .references(() => run.id, { onDelete: "cascade" }),
+    runId: uuid("run_id").notNull(),
     path: text("path").notNull(),
     line: integer("line"),
     severity: text("severity").notNull(),
@@ -362,6 +396,11 @@ export const finding = pgTable(
     tenantPolicy("finding_tenant", t.ownerId),
     index("finding_owner_idx").on(t.ownerId),
     index("finding_bucket_idx").on(t.ownerId, t.bucketKey),
+    foreignKey({
+      name: "finding_run_owner_scoped_fk",
+      columns: [t.ownerId, t.runId],
+      foreignColumns: [run.ownerId, run.id],
+    }).onDelete("cascade"),
   ]
 );
 
@@ -373,9 +412,7 @@ export const publication = pgTable(
     ownerId: bigint("owner_id", { mode: "number" })
       .notNull()
       .references(() => owner.id, { onDelete: "cascade" }),
-    runId: uuid("run_id")
-      .notNull()
-      .references(() => run.id, { onDelete: "cascade" }),
+    runId: uuid("run_id").notNull(),
     /** pending | published | failed */
     state: text("state").notNull(),
     githubReviewId: bigint("github_review_id", { mode: "number" }),
@@ -390,6 +427,11 @@ export const publication = pgTable(
   (t) => [
     tenantPolicy("publication_tenant", t.ownerId),
     index("publication_owner_idx").on(t.ownerId),
+    foreignKey({
+      name: "publication_run_owner_scoped_fk",
+      columns: [t.ownerId, t.runId],
+      foreignColumns: [run.ownerId, run.id],
+    }).onDelete("cascade"),
   ]
 );
 
