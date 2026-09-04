@@ -3,3 +3,5 @@
 "postgres" ""
 "reprove_runtime" ""
 "reprove_bypassrls" ""
+"reprove_replication" ""
+"reprove_setrole_member" ""

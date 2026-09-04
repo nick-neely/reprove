@@ -180,6 +180,32 @@ export const onRuntimeConnection = async <T>(
 };
 
 /**
+ * Creates a login role with exactly the attributes given, or leaves the one
+ * another file created alone.
+ *
+ * A role is cluster-wide and shared by every test file, so losing the race is
+ * the expected outcome rather than a failure. Every role built on this is listed
+ * in `tools/db/pgbouncer/userlist.txt`, because the pooler will not forward a
+ * name it has never heard of even under `auth_type = trust`.
+ *
+ * @param role The role name to create.
+ * @param attributes The `CREATE ROLE` attribute list, spelled out in full.
+ */
+const defineRole = async (role: string, attributes: string): Promise<void> => {
+  await onDatabase(MAINTENANCE_DATABASE, async (client) => {
+    try {
+      await client.query(`create role "${role}" ${attributes}`);
+    } catch (error) {
+      // SAFETY: `code` is what node-postgres puts on a driver error; anything
+      // without one is rethrown below.
+      if ((error as { code?: string }).code !== DUPLICATE_OBJECT) {
+        throw error;
+      }
+    }
+  });
+};
+
+/**
  * Creates a login role that carries `BYPASSRLS`, which is the shape a provider
  * console hands out: `neon_superuser` carries the flag and is granted to every
  * role created through the console, and connecting as one of those makes every
@@ -189,21 +215,52 @@ export const onRuntimeConnection = async <T>(
  *
  * @param role The role name to create.
  */
-export const createBypassRlsRole = async (role: string): Promise<void> => {
+export const createBypassRlsRole = (role: string): Promise<void> =>
+  defineRole(role, "login nosuperuser bypassrls noinherit");
+
+/**
+ * Creates a login role that carries `REPLICATION` and nothing else.
+ *
+ * It is the flag that never meets a policy at all: the role opens a replication
+ * connection and streams the write-ahead log, or takes a base backup, and either
+ * one hands it every Owner's rows as bytes. Row-level security is a planner
+ * rewrite, so it does not run on that path - nothing is ignored, because nothing
+ * is consulted.
+ *
+ * It exists only so a test can prove the boot assertion refuses it.
+ *
+ * @param role The role name to create.
+ */
+export const createReplicationRole = (role: string): Promise<void> =>
+  defineRole(role, "login nosuperuser nobypassrls replication noinherit");
+
+/**
+ * Creates a login role that carries no privileged attribute of its own and is a
+ * member of one that does.
+ *
+ * `NOINHERIT` is the subject rather than an incidental flag: the role gains
+ * nothing implicitly and still reaches everything the granted role holds, by
+ * asking for it with `SET ROLE`.
+ *
+ * The membership is granted **to a role of the test's own**, never to
+ * `reprove_runtime`: a role grant is cluster-wide, and the files in this folder
+ * boot against that role in parallel.
+ *
+ * @param role The role name to create.
+ * @param of The privileged role to grant it membership in.
+ */
+export const createMemberRole = async (
+  role: string,
+  of: string
+): Promise<void> => {
+  await defineRole(
+    role,
+    "login nosuperuser nobypassrls noreplication noinherit"
+  );
+  // Re-granting an existing membership is a no-op, so this needs no collision
+  // handling of its own.
   await onDatabase(MAINTENANCE_DATABASE, async (client) => {
-    try {
-      await client.query(
-        `create role "${role}" login nosuperuser bypassrls noinherit`
-      );
-    } catch (error) {
-      // Cluster-wide and shared by every test file, so losing the race is the
-      // expected outcome rather than a failure.
-      // SAFETY: `code` is what node-postgres puts on a driver error; anything
-      // without one is rethrown below.
-      if ((error as { code?: string }).code !== DUPLICATE_OBJECT) {
-        throw error;
-      }
-    }
+    await client.query(`grant "${of}" to "${role}"`);
   });
 };
 

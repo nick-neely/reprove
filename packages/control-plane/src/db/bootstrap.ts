@@ -103,9 +103,19 @@ const CONTENDED_BACKOFF_MILLIS = 50;
  * to catch. `NOINHERIT` matters as much as `NOBYPASSRLS`, because a role that
  * inherits could pick the flag up through a membership it was never granted
  * directly.
+ *
+ * `NOREPLICATION` is on the list for the same reason `NOBYPASSRLS` is, and it is
+ * the wider hole of the two: a role carrying `REPLICATION` opens a replication
+ * connection and streams the write-ahead log, or takes a base backup, and both
+ * hand it every Owner's rows as bytes. Row-level security is a planner rewrite
+ * and never runs on that path, so no policy is wrong and none is consulted.
+ *
+ * Every flag here is applied on both paths - the `CREATE ROLE` and the
+ * `ALTER ROLE` that repairs an existing one - because the two spell the same
+ * constant.
  */
 const ROLE_FLAGS =
-  "login nosuperuser nobypassrls nocreatedb nocreaterole noinherit password %L";
+  "login nosuperuser nobypassrls noreplication nocreatedb nocreaterole noinherit password %L";
 
 /** What `bootstrap()` connects with. No value here is read from the environment. */
 export interface BootstrapConfig {

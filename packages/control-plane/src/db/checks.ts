@@ -11,7 +11,8 @@
  *
  * Seven is the count ADR 0008 fixed and ADR 0017 kept. A gap the checks did not
  * cover is closed by strengthening one of them rather than by adding an eighth;
- * {@link checkPrivilegeReach} is the second one so widened.
+ * {@link checkPrivilegeReach} and {@link checkRolePrivileges} have both been so
+ * widened.
  *
  * The behavioural check is not redundant with the other six. Every catalog flag
  * can be correct while the predicate is wrong; that is exactly what the bare
@@ -236,31 +237,127 @@ const fromCatalog = (
 
 // --- the seven checks --------------------------------------------------------
 
+/** The attributes a role carries that make the tenant boundary decorative. */
+interface RoleFlags {
+  readonly rolname: string;
+  readonly rolsuper: boolean;
+  readonly rolbypassrls: boolean;
+  readonly rolreplication: boolean;
+}
+
+/** A role reachable by `SET ROLE`, and what reaching it would be worth. */
+interface ReachableRole extends RoleFlags {
+  /** Whether it owns a table the schema module manages. */
+  readonly owns: boolean;
+}
+
+/**
+ * Which of the three attributes a role holds, spelled as Postgres spells them.
+ *
+ * `REPLICATION` is the widest of them and the least obvious. A role carrying it
+ * opens a replication connection and streams the write-ahead log, or takes a
+ * base backup, and either hands over every Owner's rows as bytes. Row-level
+ * security is a planner rewrite, so it never runs on that path: no policy is
+ * wrong, and none is consulted.
+ */
+const elevation = (role: RoleFlags): string[] =>
+  [
+    role.rolsuper ? "SUPERUSER" : null,
+    role.rolbypassrls ? "BYPASSRLS" : null,
+    role.rolreplication ? "REPLICATION" : null,
+  ].filter((flag) => flag !== null);
+
+/**
+ * Every role the runtime role could become, with what it would gain by becoming
+ * it. `current_user` itself is excluded, because `pg_has_role` reports every
+ * role as a member of itself and the flags it carries directly are the other
+ * half of the same check.
+ *
+ * `'member'` rather than Postgres 16's narrower `'set'`, deliberately. This
+ * cluster is 17, where `pg_has_role(..., 'set')` reports exactly what `SET ROLE`
+ * permits - but a `GRANT ... WITH SET FALSE` membership still carries the
+ * granted role's *privileges* to a member that inherits, and nothing in this
+ * check asserts that this role does not. `'member'` is the question that covers
+ * both routes, and the only one an older cluster answers at all.
+ */
+const reachableRoles = async (
+  pool: Pool,
+  managed: string[]
+): Promise<ReachableRole[]> => {
+  const { rows } = await pool.query<ReachableRole>(
+    `select r.rolname, r.rolsuper, r.rolbypassrls, r.rolreplication,
+            exists (
+              select 1 from pg_class c
+                join pg_namespace n on n.oid = c.relnamespace
+               where n.nspname = 'public'
+                 and c.relname = any($1::text[])
+                 and c.relowner = r.oid
+            ) as owns
+       from pg_roles r
+      where r.rolname <> current_user
+        and pg_has_role(current_user, r.oid, 'member')
+      order by r.rolname`,
+    [managed]
+  );
+  return rows;
+};
+
+/** What reaching a role would be worth, as the refusal states it. */
+const worth = (role: ReachableRole): string =>
+  [...elevation(role), role.owns ? "owns a managed table" : null]
+    .filter((gain) => gain !== null)
+    .join(" + ");
+
 /**
  * Rule 4, and the one that fails **silently**, which is why it is checked at
  * all. `neon_superuser` carries `BYPASSRLS` and is granted to every role created
  * through a provider console: connect as one of those and every policy is
  * ignored with no error, warning or notice raised anywhere.
+ *
+ * Two questions, because the flags on the role are only half of the answer.
+ *
+ * 1. **What the role carries.** {@link elevation}, on `current_user`.
+ * 2. **What the role can become.** `NOINHERIT` does not stop `SET ROLE` - it
+ *    stops the privileges arriving *implicitly*, and a role that can name a
+ *    privileged role in a `SET ROLE` holds everything that role holds, for the
+ *    asking. So every role this one is a member of is read too, and one that
+ *    carries an attribute above, or **owns a managed table**, refuses the boot.
+ *
+ * Ownership belongs on that list beside the attributes: an owner is exempt from
+ * its own RLS unless `FORCE` is set, and it may drop the policy outright, so
+ * becoming the owner of a tenant table is the boundary rather than a route past
+ * one particular part of it.
  */
-const checkRolePrivileges = async (pool: Pool): Promise<string | null> => {
-  const { rows } = await pool.query<{
-    rolname: string;
-    rolsuper: boolean;
-    rolbypassrls: boolean;
-  }>(
-    "select rolname, rolsuper, rolbypassrls from pg_roles where rolname = current_user"
+const checkRolePrivileges = async (
+  pool: Pool,
+  classification: Classification
+): Promise<string | null> => {
+  const { rows } = await pool.query<RoleFlags>(
+    `select rolname, rolsuper, rolbypassrls, rolreplication
+       from pg_roles where rolname = current_user`
   );
   const [role] = rows;
   if (!role) {
     return "current_user has no pg_roles row";
   }
-  const flags = [
-    role.rolsuper ? "SUPERUSER" : null,
-    role.rolbypassrls ? "BYPASSRLS" : null,
-  ].filter((flag) => flag !== null);
-  return flags.length > 0
-    ? `${role.rolname} carries ${flags.join(" + ")}, so every policy would be ignored with no error`
-    : null;
+
+  const carried = elevation(role);
+  const members = await reachableRoles(
+    pool,
+    tableNames(classification.managed)
+  );
+  const reachable = members.filter((candidate) => worth(candidate) !== "");
+
+  const problems = [
+    carried.length > 0
+      ? `${role.rolname} carries ${carried.join(" + ")}, each of which reaches every Owner's rows with no error, warning or notice raised anywhere`
+      : null,
+    reachable.length > 0
+      ? `${role.rolname} can SET ROLE into ${reachable.map((candidate) => `${candidate.rolname} (${worth(candidate)})`).join(", ")}, which NOINHERIT does not prevent`
+      : null,
+  ].filter((problem) => problem !== null);
+
+  return problems.length > 0 ? problems.join("; ") : null;
 };
 
 /** The relation kinds a privilege can be granted on and rows can be read from. */
@@ -666,7 +763,10 @@ export const runBootChecks = async (
   classification: Classification = CLASSIFICATION
 ): Promise<CheckOutcome[]> => {
   const checks: [CheckName, () => Promise<string | null>][] = [
-    ["runtime-role-is-not-privileged", () => checkRolePrivileges(pool)],
+    [
+      "runtime-role-is-not-privileged",
+      () => checkRolePrivileges(pool, classification),
+    ],
     [
       "runtime-role-reaches-only-the-managed-tables",
       () => checkPrivilegeReach(pool, classification),

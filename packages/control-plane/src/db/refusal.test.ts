@@ -20,6 +20,8 @@ import type { TestDatabase } from "./local-stack.test-support.js";
 import {
   bootRefusal,
   createBypassRlsRole,
+  createMemberRole,
+  createReplicationRole,
   createTestDatabase,
   onRuntimeConnection,
   RUNTIME_PASSWORD,
@@ -32,6 +34,9 @@ import { createRuntimeDb } from "./runtime.js";
 import { publication } from "./schema.js";
 
 const BYPASSRLS_ROLE = "reprove_bypassrls";
+const REPLICATION_ROLE = "reprove_replication";
+const MEMBER_ROLE = "reprove_setrole_member";
+const OWNER_ROLE = "reprove_test_owner";
 const GROUP_ROLE = "reprove_test_group";
 
 const opened: TestDatabase[] = [];
@@ -81,6 +86,74 @@ describe("boot refuses to serve", () => {
     expect(detailOf(refusal, "runtime-role-is-not-privileged")).toContain(
       "BYPASSRLS"
     );
+  });
+
+  it("a role carrying REPLICATION, which never meets a policy at all", async () => {
+    const database = await arrange("reprove_test_refusal_replication");
+    // The flag that goes round the boundary rather than through it: a
+    // replication connection streams the write-ahead log, and a base backup
+    // copies the heap, so every Owner's rows arrive as bytes. Row-level security
+    // is a planner rewrite and runs on neither path - no policy is ignored,
+    // because none is consulted.
+    await createReplicationRole(REPLICATION_ROLE);
+    await database.admin(
+      `grant connect on database "${database.name}" to "${REPLICATION_ROLE}"`
+    );
+
+    const refusal = await bootRefusal(
+      createRuntimeDb({
+        connectionString: runtimeUrl(database.name, REPLICATION_ROLE),
+      })
+    );
+
+    expect(failedChecks(refusal)).toContain("runtime-role-is-not-privileged");
+    expect(detailOf(refusal, "runtime-role-is-not-privileged")).toContain(
+      "REPLICATION"
+    );
+  });
+
+  it("a role that carries nothing and can SET ROLE into two that do", async () => {
+    const database = await arrange("reprove_test_refusal_set_role");
+    // `NOINHERIT` does not stop `SET ROLE`. It stops the privileges arriving
+    // implicitly, and the role below still holds everything either granted role
+    // holds, for the asking - so a check that read only `current_user`'s own
+    // flags would pass a connection one statement away from ignoring every
+    // policy.
+    //
+    // Both arms at once, because they fail differently. `reprove_bypassrls`
+    // carries the attribute; `reprove_test_owner` carries none and simply owns
+    // `run`, which is exemption from that table's own RLS unless FORCE is set
+    // and the right to drop the policy either way.
+    //
+    // A role of the test's own on every end of every grant. A membership is
+    // cluster-wide, and the other files in this folder are booting
+    // `reprove_runtime` against the same cluster while this runs; the ownership
+    // transfer is confined to this test's database.
+    await createBypassRlsRole(BYPASSRLS_ROLE);
+    await database.admin(
+      `do $$ begin
+         if not exists (select 1 from pg_roles where rolname = '${OWNER_ROLE}') then
+           create role ${OWNER_ROLE} nologin;
+         end if;
+       end $$`
+    );
+    await database.admin(`alter table run owner to ${OWNER_ROLE}`);
+    await createMemberRole(MEMBER_ROLE, BYPASSRLS_ROLE);
+    await createMemberRole(MEMBER_ROLE, OWNER_ROLE);
+    await database.admin(
+      `grant connect on database "${database.name}" to "${MEMBER_ROLE}"`
+    );
+
+    const refusal = await bootRefusal(
+      createRuntimeDb({
+        connectionString: runtimeUrl(database.name, MEMBER_ROLE),
+      })
+    );
+
+    expect(failedChecks(refusal)).toContain("runtime-role-is-not-privileged");
+    const detail = detailOf(refusal, "runtime-role-is-not-privileged");
+    expect(detail).toContain(`can SET ROLE into ${BYPASSRLS_ROLE} (BYPASSRLS)`);
+    expect(detail).toContain(`${OWNER_ROLE} (owns a managed table)`);
   });
 
   it("a tenant table whose FORCE was removed out of band", async () => {

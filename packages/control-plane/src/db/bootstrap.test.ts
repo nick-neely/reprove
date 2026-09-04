@@ -31,6 +31,7 @@ interface RoleFlags {
   readonly rolcanlogin: boolean;
   readonly rolsuper: boolean;
   readonly rolbypassrls: boolean;
+  readonly rolreplication: boolean;
   readonly rolcreatedb: boolean;
   readonly rolcreaterole: boolean;
   readonly rolinherit: boolean;
@@ -47,7 +48,8 @@ const provision = (database: TestDatabase): Promise<void> =>
 
 const runtimeRoleFlags = async (): Promise<RoleFlags | undefined> => {
   const rows = await first.admin<RoleFlags>(
-    `select rolcanlogin, rolsuper, rolbypassrls, rolcreatedb, rolcreaterole, rolinherit
+    `select rolcanlogin, rolsuper, rolbypassrls, rolreplication,
+            rolcreatedb, rolcreaterole, rolinherit
        from pg_roles where rolname = '${RUNTIME_ROLE}'`
   );
   return rows[0];
@@ -89,6 +91,7 @@ describe("two bootstraps started together", () => {
       rolcreatedb: false,
       rolcreaterole: false,
       rolinherit: false,
+      rolreplication: false,
       rolsuper: false,
     });
   });
