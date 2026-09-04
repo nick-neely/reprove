@@ -15,6 +15,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
 import { assertTenantBoundary } from "./checks.js";
+import { requireNonEmpty } from "./config.js";
 import type { CheckOutcome } from "./refusal.js";
 import * as schema from "./schema.js";
 
@@ -82,6 +83,9 @@ const DEFAULT_POOL_SIZE = 8;
  *
  * @param config The pooled runtime connection and its pool size.
  * @returns A client whose tenant boundary has been measured, not assumed.
+ * @throws {TypeError} If the connection string is not a non-empty string; `pg`
+ *   would otherwise resolve an absent one from the ambient `PG*` variables and
+ *   serve from whatever database the shell happened to name.
  * @throws {import("./refusal.js").BootRefusalError} Naming every check that
  *   failed. The pool is drained first, so a refused boot leaves no connection
  *   behind.
@@ -89,8 +93,13 @@ const DEFAULT_POOL_SIZE = 8;
 export const createRuntimeDb = async (
   config: RuntimeDbConfig
 ): Promise<RuntimeDb> => {
+  const connectionString = requireNonEmpty(
+    config.connectionString,
+    "RuntimeDbConfig.connectionString"
+  );
+
   const pool = new Pool({
-    connectionString: config.connectionString,
+    connectionString,
     max: config.poolSize ?? DEFAULT_POOL_SIZE,
   });
   pool.on("error", (error) => config.onConnectionError?.(error));

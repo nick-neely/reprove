@@ -13,6 +13,7 @@ import { migrate as applyMigrations } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
 
 import { CLASSIFICATION, tableNames } from "./classification.js";
+import { requireNonEmpty } from "./config.js";
 import { MIGRATIONS_FOLDER, readCommittedMigrations } from "./migrations.js";
 import { applyRuntimeGrants } from "./privileges.js";
 import { RUNTIME_ROLE } from "./roles.js";
@@ -72,10 +73,18 @@ const appliedMillis = async (pool: Pool): Promise<Set<number>> => {
  * @returns The journal tags this call applied, in order. An empty array means
  *   the database was already up to date, not that nothing happened: the grants
  *   were re-applied either way.
+ * @throws {TypeError} If the connection string is not a non-empty string; `pg`
+ *   would otherwise resolve an absent one from the ambient `PG*` variables and
+ *   migrate whatever database the shell happened to name.
  * @throws {Error} If `bootstrap()` has not run against this cluster.
  */
 export const migrate = async (config: MigrateConfig): Promise<string[]> => {
-  const pool = new Pool({ connectionString: config.connectionString, max: 1 });
+  const connectionString = requireNonEmpty(
+    config.connectionString,
+    "MigrateConfig.connectionString"
+  );
+
+  const pool = new Pool({ connectionString, max: 1 });
   try {
     const role = await pool.query("select 1 from pg_roles where rolname = $1", [
       RUNTIME_ROLE,

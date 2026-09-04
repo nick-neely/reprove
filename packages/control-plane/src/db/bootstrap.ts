@@ -25,6 +25,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import type { PoolClient } from "pg";
 import { Pool } from "pg";
 
+import { requireNonEmpty } from "./config.js";
 import { ddl } from "./privileges.js";
 import { RUNTIME_ROLE } from "./roles.js";
 
@@ -357,22 +358,27 @@ const provisionOrRetry = async (
  * a database per file are the same case.
  *
  * @param config The admin connection and the runtime role's password.
+ * @throws {TypeError} If either field is not a non-empty string. A JavaScript
+ *   caller can omit one, and neither omission fails loudly on its own.
  */
 export const bootstrap = async (config: BootstrapConfig): Promise<void> => {
-  // `format('%L', NULL)` renders the bare token `NULL`, which would create a
-  // role with no password at all. The bin rejects an unset variable, but the
-  // exported function is reachable without it.
-  if (config.runtimePassword === "") {
-    throw new Error(
-      `the runtime role "${RUNTIME_ROLE}" needs a password; an empty one would provision a role with none.`
-    );
-  }
+  // Both fields, before anything connects. The bin rejects an unset variable,
+  // but the exported function is reachable without it, and what an absent one
+  // does here is silent rather than loud - see `config.ts`.
+  const connectionString = requireNonEmpty(
+    config.connectionString,
+    "BootstrapConfig.connectionString"
+  );
+  const runtimePassword = requireNonEmpty(
+    config.runtimePassword,
+    "BootstrapConfig.runtimePassword"
+  );
 
-  const pool = new Pool({ connectionString: config.connectionString, max: 1 });
+  const pool = new Pool({ connectionString, max: 1 });
   const client = await pool.connect();
   try {
     const context = await adminContext(client);
-    await provisionOrRetry(client, context, config.runtimePassword, 1);
+    await provisionOrRetry(client, context, runtimePassword, 1);
   } finally {
     client.release();
     await pool.end();
