@@ -26,7 +26,7 @@ import type { PoolClient } from "pg";
 import { Pool } from "pg";
 
 import { requireNonEmpty } from "./config.js";
-import { ddl } from "./privileges.js";
+import { ddl, revokeMemberships } from "./privileges.js";
 import { RUNTIME_ROLE } from "./roles.js";
 
 /** `CREATE ROLE` against a name another connection created first. */
@@ -222,6 +222,12 @@ const provision = async (
 
   await provisionRole(client, password);
 
+  // Every membership it holds, whatever it is a membership in. The boot
+  // assertion refuses one outright, because a `SET ROLE` reaches privileges no
+  // check here or there can see - so this repairs a stray grant the way the
+  // `ALTER ROLE` above repairs a stray flag.
+  await revokeMemberships(client, RUNTIME_ROLE);
+
   await ddl(
     client,
     "grant connect on database %I to %I",
@@ -345,6 +351,12 @@ const provisionOrRetry = async (
  * **Run this before `migrate()`.** `CREATE POLICY ... TO "reprove_runtime"`
  * fails outright if the role does not exist yet, so the two commands are
  * ordered rather than interchangeable.
+ *
+ * What it takes **away** is as much of the point as what it grants: the negative
+ * flags in {@link ROLE_FLAGS}, `CREATE` on `public`, `TEMPORARY` on the
+ * database, and every membership the role holds - see
+ * {@link revokeMemberships}. Each of those is something the boot assertion
+ * refuses, and re-running this is how an operator repairs one.
  *
  * What it does **not** do is grant anything on Reprove's tables. Those grants
  * name the managed tables one by one and are issued by `migrate()`, which is the

@@ -35,6 +35,12 @@ export interface BootstrapConfig {
  * fails outright if the role does not exist yet, so the two commands are
  * ordered rather than interchangeable.
  *
+ * What it takes **away** is as much of the point as what it grants: the negative
+ * flags in {@link ROLE_FLAGS}, `CREATE` on `public`, `TEMPORARY` on the
+ * database, and every membership the role holds - see
+ * {@link revokeMemberships}. Each of those is something the boot assertion
+ * refuses, and re-running this is how an operator repairs one.
+ *
  * What it does **not** do is grant anything on Reprove's tables. Those grants
  * name the managed tables one by one and are issued by `migrate()`, which is the
  * only moment those tables are known to exist; see
@@ -356,6 +362,11 @@ export declare const normalizePredicate: (expression: string, table: string) => 
  * A **view** is the sharpest form of that. A view runs as its owner unless it
  * carries `security_invoker`, so an admin-owned view over a tenant table reads
  * every Owner's rows, and a schema-wide grant hands it over.
+ *
+ * What the role may **be** is here for the same reason. A membership is a
+ * privilege path as surely as a grant is, and the one no privilege query
+ * answers, so the rule against it has the same two ends: `bootstrap()` revokes
+ * one and the boot assertion refuses one - see {@link revokeMemberships}.
  */
 import type { PoolClient } from "pg";
 /**
@@ -415,6 +426,33 @@ export declare const ddl: (client: PoolClient, template: string, ...args: string
  * @param tables The SQL names of the managed tables.
  */
 export declare const applyRuntimeGrants: (client: PoolClient, tables: readonly string[]) => Promise<void>;
+/**
+ * Revokes every membership the given role holds, and reports what it revoked.
+ *
+ * The negative counterpart of {@link applyRuntimeGrants}, and it lives here for
+ * the same reason: the boot assertion refuses a runtime role that is a member of
+ * anything at all, so the rule has two ends - the refusal in `checks.ts` and the
+ * repair `bootstrap()` runs - and one place to be stated.
+ *
+ * Why every membership rather than the dangerous ones: a membership is a
+ * `SET ROLE` path the checks cannot see through, because every privilege they
+ * read is `current_user`'s own. Whatever a granted role holds is invisible to
+ * all seven of them, so the membership itself is the misconfiguration, and
+ * nothing in this design needs one.
+ *
+ * A `REVOKE` needs `ADMIN OPTION` on the granted role. The role that owns the
+ * tables and applies the migrations has it over anything it granted; where it
+ * does not, this fails the way every other statement in the bootstrap
+ * transaction fails - loudly, having applied nothing.
+ *
+ * @param client A connected admin client, inside a transaction.
+ * @param member The role to strip. Production passes {@link RUNTIME_ROLE} and
+ *   nothing else; the parameter is what lets the repair be measured on a role of
+ *   a test's own, because granting a membership to the cluster-wide runtime role
+ *   would refuse every boot running beside it.
+ * @returns The roles whose membership was revoked, as the catalog listed them.
+ */
+export declare const revokeMemberships: (client: PoolClient, member: string) => Promise<string[]>;
 ```
 
 ## dist/db/refusal.d.ts

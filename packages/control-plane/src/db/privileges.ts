@@ -16,6 +16,11 @@
  * A **view** is the sharpest form of that. A view runs as its owner unless it
  * carries `security_invoker`, so an admin-owned view over a tenant table reads
  * every Owner's rows, and a schema-wide grant hands it over.
+ *
+ * What the role may **be** is here for the same reason. A membership is a
+ * privilege path as surely as a grant is, and the one no privilege query
+ * answers, so the rule against it has the same two ends: `bootstrap()` revokes
+ * one and the boot assertion refuses one - see {@link revokeMemberships}.
  */
 import type { PoolClient } from "pg";
 
@@ -194,4 +199,57 @@ export const applyRuntimeGrants = async (
       RUNTIME_ROLE
     );
   }
+};
+
+/**
+ * Revokes every membership the given role holds, and reports what it revoked.
+ *
+ * The negative counterpart of {@link applyRuntimeGrants}, and it lives here for
+ * the same reason: the boot assertion refuses a runtime role that is a member of
+ * anything at all, so the rule has two ends - the refusal in `checks.ts` and the
+ * repair `bootstrap()` runs - and one place to be stated.
+ *
+ * Why every membership rather than the dangerous ones: a membership is a
+ * `SET ROLE` path the checks cannot see through, because every privilege they
+ * read is `current_user`'s own. Whatever a granted role holds is invisible to
+ * all seven of them, so the membership itself is the misconfiguration, and
+ * nothing in this design needs one.
+ *
+ * A `REVOKE` needs `ADMIN OPTION` on the granted role. The role that owns the
+ * tables and applies the migrations has it over anything it granted; where it
+ * does not, this fails the way every other statement in the bootstrap
+ * transaction fails - loudly, having applied nothing.
+ *
+ * @param client A connected admin client, inside a transaction.
+ * @param member The role to strip. Production passes {@link RUNTIME_ROLE} and
+ *   nothing else; the parameter is what lets the repair be measured on a role of
+ *   a test's own, because granting a membership to the cluster-wide runtime role
+ *   would refuse every boot running beside it.
+ * @returns The roles whose membership was revoked, as the catalog listed them.
+ */
+export const revokeMemberships = async (
+  client: PoolClient,
+  member: string
+): Promise<string[]> => {
+  // `distinct` because two grantors granting the same role write two rows, and
+  // one `REVOKE` removes both.
+  const { rows } = await client.query<{ granted: string }>(
+    `select distinct g.rolname as granted
+       from pg_auth_members m
+       join pg_roles g on g.oid = m.roleid
+       join pg_roles r on r.oid = m.member
+      where r.rolname = $1
+      order by g.rolname`,
+    [member]
+  );
+
+  const granted = rows.map((row) => row.granted);
+  // One statement naming every membership, as the grants above are one
+  // statement naming every table: `REVOKE` takes a list, and a list is either
+  // applied or refused as a whole.
+  const grantedList = await identifierList(client, granted);
+  if (grantedList !== null) {
+    await ddl(client, "revoke %s from %I", grantedList, member);
+  }
+  return granted;
 };
