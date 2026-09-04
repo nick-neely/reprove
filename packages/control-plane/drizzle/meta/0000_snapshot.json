@@ -1,5 +1,5 @@
 {
-  "id": "514b0c41-fa7a-4840-9f74-d6dc5aa8852f",
+  "id": "a671a695-7aec-4bcb-9594-7e34048638ad",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -740,7 +740,13 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "publication_one_per_run": {
+          "name": "publication_one_per_run",
+          "nullsNotDistinct": false,
+          "columns": ["run_id"]
+        }
+      },
       "policies": {
         "publication_tenant": {
           "name": "publication_tenant",

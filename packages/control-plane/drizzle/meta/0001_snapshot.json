@@ -1,6 +1,6 @@
 {
-  "id": "894e778f-6a53-48e0-8960-0818e3429905",
-  "prevId": "514b0c41-fa7a-4840-9f74-d6dc5aa8852f",
+  "id": "3fe8f63c-95db-4a0b-a512-b9dc4d0f8334",
+  "prevId": "a671a695-7aec-4bcb-9594-7e34048638ad",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -740,7 +740,13 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "publication_one_per_run": {
+          "name": "publication_one_per_run",
+          "columns": ["run_id"],
+          "nullsNotDistinct": false
+        }
+      },
       "policies": {
         "publication_tenant": {
           "name": "publication_tenant",

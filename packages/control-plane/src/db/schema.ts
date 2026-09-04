@@ -427,6 +427,12 @@ export const publication = pgTable(
   (t) => [
     tenantPolicy("publication_tenant", t.ownerId),
     index("publication_owner_idx").on(t.ownerId),
+    // "One row per Run" is ADR 0007's wording and the sentence above this table,
+    // and until now it was only a sentence. On `run_id` alone rather than on the
+    // pair beside it: a second Publication for one Run is wrong whoever owns it,
+    // and the composite foreign key is what ties the pair to a Run of the same
+    // Owner.
+    unique("publication_one_per_run").on(t.runId),
     foreignKey({
       name: "publication_run_owner_scoped_fk",
       columns: [t.ownerId, t.runId],

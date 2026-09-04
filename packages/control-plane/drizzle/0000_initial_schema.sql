@@ -88,7 +88,8 @@ CREATE TABLE "publication" (
 	"reconciled_against_run_id" uuid,
 	"prior_reconciliation" jsonb,
 	"attempts" jsonb,
-	"submitted_at" timestamp with time zone
+	"submitted_at" timestamp with time zone,
+	CONSTRAINT "publication_one_per_run" UNIQUE("run_id")
 );
 --> statement-breakpoint
 ALTER TABLE "publication" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
