@@ -264,6 +264,33 @@ export const createMemberRole = async (
   });
 };
 
+/**
+ * Creates a login role that **inherits** from the roles given.
+ *
+ * The counterpart to {@link createMemberRole}: there the membership is a `SET
+ * ROLE` away and nothing arrives implicitly, here every privilege and every
+ * policy of the granted roles applies to this one directly. It is what lets a
+ * case measure something *through* `reprove_runtime` - the grants it holds and
+ * the policies written for it - without granting anything **to**
+ * `reprove_runtime`, which is cluster-wide and would refuse every boot the other
+ * files in this folder run beside it.
+ *
+ * @param role The role name to create.
+ * @param inheritedFrom The roles to grant it inheriting membership in.
+ */
+export const createInheritingRole = async (
+  role: string,
+  inheritedFrom: readonly string[]
+): Promise<void> => {
+  await defineRole(role, "login nosuperuser nobypassrls noreplication inherit");
+  // One `GRANT` over the list, and re-granting an existing membership is a
+  // no-op, so this needs no collision handling of its own.
+  const list = inheritedFrom.map((granted) => `"${granted}"`).join(", ");
+  await onDatabase(MAINTENANCE_DATABASE, (client) =>
+    client.query(`grant ${list} to "${role}" with inherit true`)
+  );
+};
+
 /** What a Postgres rejection says, once it has been dug out of its wrapper. */
 export interface DriverFailure {
   readonly code: string | undefined;

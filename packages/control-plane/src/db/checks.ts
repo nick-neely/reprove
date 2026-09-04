@@ -245,8 +245,8 @@ interface RoleFlags {
   readonly rolreplication: boolean;
 }
 
-/** A role reachable by `SET ROLE`, and what reaching it would be worth. */
-interface ReachableRole extends RoleFlags {
+/** A role the runtime role is a member of, and what that membership is worth. */
+interface Membership extends RoleFlags {
   /** Whether it owns a table the schema module manages. */
   readonly owns: boolean;
 }
@@ -268,24 +268,25 @@ const elevation = (role: RoleFlags): string[] =>
   ].filter((flag) => flag !== null);
 
 /**
- * Every role the runtime role could become, with what it would gain by becoming
- * it. `current_user` itself is excluded, because `pg_has_role` reports every
- * role as a member of itself and the flags it carries directly are the other
- * half of the same check.
+ * Every role the runtime role holds a membership in, with the flags and the
+ * ownership that say what that membership is worth.
  *
- * `'member'` rather than Postgres 16's narrower `'set'`, deliberately. This
- * cluster is 17, where `pg_has_role(..., 'set')` reports exactly what `SET ROLE`
- * permits - but a `GRANT ... WITH SET FALSE` membership still carries the
- * granted role's *privileges* to a member that inherits, and nothing in this
- * check asserts that this role does not. `'member'` is the question that covers
- * both routes, and the only one an older cluster answers at all.
+ * Read from `pg_auth_members` rather than asked of `pg_has_role`, because the
+ * question here is whether a grant exists at all and not what it currently
+ * confers: `GRANT ... WITH INHERIT FALSE` and `WITH SET FALSE` each narrow one
+ * route and leave the other open, so a predicate over either would answer "no"
+ * about a row that is still a way in. Direct rows are enough - a transitive
+ * membership is a chain of direct ones, and its first link is on this role.
+ *
+ * `distinct` because two grantors granting the same role write two rows, and
+ * that is one membership as far as a refusal is concerned.
  */
-const reachableRoles = async (
+const memberships = async (
   pool: Pool,
   managed: string[]
-): Promise<ReachableRole[]> => {
-  const { rows } = await pool.query<ReachableRole>(
-    `select r.rolname, r.rolsuper, r.rolbypassrls, r.rolreplication,
+): Promise<Membership[]> => {
+  const { rows } = await pool.query<Membership>(
+    `select distinct r.rolname, r.rolsuper, r.rolbypassrls, r.rolreplication,
             exists (
               select 1 from pg_class c
                 join pg_namespace n on n.oid = c.relnamespace
@@ -293,20 +294,26 @@ const reachableRoles = async (
                  and c.relname = any($1::text[])
                  and c.relowner = r.oid
             ) as owns
-       from pg_roles r
-      where r.rolname <> current_user
-        and pg_has_role(current_user, r.oid, 'member')
+       from pg_auth_members m
+       join pg_roles r on r.oid = m.roleid
+      where m.member = (select oid from pg_roles where rolname = current_user)
       order by r.rolname`,
     [managed]
   );
   return rows;
 };
 
-/** What reaching a role would be worth, as the refusal states it. */
-const worth = (role: ReachableRole): string =>
-  [...elevation(role), role.owns ? "owns a managed table" : null]
+/**
+ * A membership as the refusal names it: the role, and what is already visible
+ * about what reaching it would be worth. The parenthesis is enrichment only -
+ * the membership refuses whether or not anything is known to be behind it.
+ */
+const named = (role: Membership): string => {
+  const gains = [...elevation(role), role.owns ? "owns a managed table" : null]
     .filter((gain) => gain !== null)
     .join(" + ");
+  return gains === "" ? role.rolname : `${role.rolname} (${gains})`;
+};
 
 /**
  * Rule 4, and the one that fails **silently**, which is why it is checked at
@@ -317,16 +324,30 @@ const worth = (role: ReachableRole): string =>
  * Two questions, because the flags on the role are only half of the answer.
  *
  * 1. **What the role carries.** {@link elevation}, on `current_user`.
- * 2. **What the role can become.** `NOINHERIT` does not stop `SET ROLE` - it
- *    stops the privileges arriving *implicitly*, and a role that can name a
- *    privileged role in a `SET ROLE` holds everything that role holds, for the
- *    asking. So every role this one is a member of is read too, and one that
- *    carries an attribute above, or **owns a managed table**, refuses the boot.
+ * 2. **What it is a member of.** Any membership at all, in any role, refuses the
+ *    boot.
  *
- * Ownership belongs on that list beside the attributes: an owner is exempt from
- * its own RLS unless `FORCE` is set, and it may drop the policy outright, so
- * becoming the owner of a tenant table is the boundary rather than a route past
- * one particular part of it.
+ * The second is stated as a closed rule rather than as a list of privilege
+ * shapes, and that is the whole of its strength. Every privilege the other six
+ * checks read is `current_user`'s own - {@link checkPrivilegeReach} asks
+ * `has_table_privilege(current_user, ...)`, and the policy checks ask what
+ * applies to `current_user` - so whatever a granted role holds is invisible to
+ * all seven, and one `SET ROLE` puts the connection behind it. Refusing only the
+ * memberships whose target is known to be dangerous means enumerating those
+ * shapes - an elevation flag, ownership of a managed table, `TRUNCATE` on one,
+ * `SELECT` on an owner-executed view over one - and that list is wrong again the
+ * moment somebody grants the next thing. Nothing in this design needs the
+ * runtime role to be a member of anything, so the membership is itself the
+ * misconfiguration.
+ *
+ * `NOINHERIT` does not make one safe: it stops the privileges arriving
+ * implicitly, and a role that can name another in a `SET ROLE` holds everything
+ * that role holds, for the asking. `WITH SET FALSE` does not either, because an
+ * inheriting member holds them without ever naming the role. See
+ * {@link memberships}.
+ *
+ * `bootstrap()` revokes every membership the runtime role holds, so re-running
+ * it repairs this the way it repairs a flag somebody set out of band.
  */
 const checkRolePrivileges = async (
   pool: Pool,
@@ -342,18 +363,14 @@ const checkRolePrivileges = async (
   }
 
   const carried = elevation(role);
-  const members = await reachableRoles(
-    pool,
-    tableNames(classification.managed)
-  );
-  const reachable = members.filter((candidate) => worth(candidate) !== "");
+  const memberOf = await memberships(pool, tableNames(classification.managed));
 
   const problems = [
     carried.length > 0
       ? `${role.rolname} carries ${carried.join(" + ")}, each of which reaches every Owner's rows with no error, warning or notice raised anywhere`
       : null,
-    reachable.length > 0
-      ? `${role.rolname} can SET ROLE into ${reachable.map((candidate) => `${candidate.rolname} (${worth(candidate)})`).join(", ")}, which NOINHERIT does not prevent`
+    memberOf.length > 0
+      ? `${role.rolname} is a member of ${memberOf.map(named).join(", ")}, and a membership is a SET ROLE path these checks cannot see through - every privilege they read is current_user's own`
       : null,
   ].filter((problem) => problem !== null);
 

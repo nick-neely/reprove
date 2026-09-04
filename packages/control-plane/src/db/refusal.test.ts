@@ -20,6 +20,7 @@ import type { TestDatabase } from "./local-stack.test-support.js";
 import {
   bootRefusal,
   createBypassRlsRole,
+  createInheritingRole,
   createMemberRole,
   createReplicationRole,
   createTestDatabase,
@@ -37,7 +38,22 @@ const BYPASSRLS_ROLE = "reprove_bypassrls";
 const REPLICATION_ROLE = "reprove_replication";
 const MEMBER_ROLE = "reprove_setrole_member";
 const OWNER_ROLE = "reprove_test_owner";
+const TRUNCATE_ROLE = "reprove_test_truncate";
 const GROUP_ROLE = "reprove_test_group";
+const INHERITOR_ROLE = "reprove_test_inheritor";
+
+/** Creates a `nologin` role of the test's own, or leaves another file's alone. */
+const defineGroup = (
+  database: TestDatabase,
+  role: string
+): Promise<unknown[]> =>
+  database.admin(
+    `do $$ begin
+       if not exists (select 1 from pg_roles where rolname = '${role}') then
+         create role ${role} nologin;
+       end if;
+     end $$`
+  );
 
 const opened: TestDatabase[] = [];
 
@@ -112,34 +128,37 @@ describe("boot refuses to serve", () => {
     );
   });
 
-  it("a role that carries nothing and can SET ROLE into two that do", async () => {
+  it("a role that carries nothing and is a member of three roles", async () => {
     const database = await arrange("reprove_test_refusal_set_role");
     // `NOINHERIT` does not stop `SET ROLE`. It stops the privileges arriving
-    // implicitly, and the role below still holds everything either granted role
+    // implicitly, and the role below still holds everything every granted role
     // holds, for the asking - so a check that read only `current_user`'s own
     // flags would pass a connection one statement away from ignoring every
     // policy.
     //
-    // Both arms at once, because they fail differently. `reprove_bypassrls`
-    // carries the attribute; `reprove_test_owner` carries none and simply owns
-    // `run`, which is exemption from that table's own RLS unless FORCE is set
-    // and the right to drop the policy either way.
+    // Three arms at once, because they are refused for the same reason and only
+    // one of them is visible to any other check. `reprove_bypassrls` carries the
+    // attribute. `reprove_test_owner` carries none and simply owns `run`, which
+    // is exemption from that table's own RLS unless FORCE is set and the right
+    // to drop the policy either way. `reprove_test_truncate` carries nothing and
+    // owns nothing: it holds one privilege on one managed table, which empties
+    // another Owner's rows through a boundary that denies it every one of them -
+    // and a rule that filtered these roles by elevation and ownership walked
+    // straight past it, because the privilege queries read `current_user` alone.
+    // Which is why the rule is now the membership itself.
     //
     // A role of the test's own on every end of every grant. A membership is
     // cluster-wide, and the other files in this folder are booting
     // `reprove_runtime` against the same cluster while this runs; the ownership
-    // transfer is confined to this test's database.
+    // transfer and the TRUNCATE are confined to this test's database.
     await createBypassRlsRole(BYPASSRLS_ROLE);
-    await database.admin(
-      `do $$ begin
-         if not exists (select 1 from pg_roles where rolname = '${OWNER_ROLE}') then
-           create role ${OWNER_ROLE} nologin;
-         end if;
-       end $$`
-    );
+    await defineGroup(database, OWNER_ROLE);
+    await defineGroup(database, TRUNCATE_ROLE);
     await database.admin(`alter table run owner to ${OWNER_ROLE}`);
+    await database.admin(`grant truncate on run to ${TRUNCATE_ROLE}`);
     await createMemberRole(MEMBER_ROLE, BYPASSRLS_ROLE);
     await createMemberRole(MEMBER_ROLE, OWNER_ROLE);
+    await createMemberRole(MEMBER_ROLE, TRUNCATE_ROLE);
     await database.admin(
       `grant connect on database "${database.name}" to "${MEMBER_ROLE}"`
     );
@@ -151,9 +170,16 @@ describe("boot refuses to serve", () => {
     );
 
     expect(failedChecks(refusal)).toContain("runtime-role-is-not-privileged");
-    const detail = detailOf(refusal, "runtime-role-is-not-privileged");
-    expect(detail).toContain(`can SET ROLE into ${BYPASSRLS_ROLE} (BYPASSRLS)`);
-    expect(detail).toContain(`${OWNER_ROLE} (owns a managed table)`);
+    // Spelled out whole, because what each name carries is the point: the two
+    // roles something is known about are named with what is known, and
+    // `reprove_test_truncate` is named with nothing after it and refused just
+    // the same.
+    expect(detailOf(refusal, "runtime-role-is-not-privileged")).toBe(
+      `${MEMBER_ROLE} is a member of ${BYPASSRLS_ROLE} (BYPASSRLS), ` +
+        `${OWNER_ROLE} (owns a managed table), ${TRUNCATE_ROLE}, and a ` +
+        "membership is a SET ROLE path these checks cannot see through - " +
+        "every privilege they read is current_user's own"
+    );
   });
 
   it("a tenant table whose FORCE was removed out of band", async () => {
@@ -267,42 +293,42 @@ describe("boot refuses to serve", () => {
     ).toContain("run carries run_tenant");
   });
 
-  it("a policy the runtime role reaches only through a group it inherits", async () => {
+  it("a policy the connected role reaches only through a group it inherits", async () => {
     const database = await arrange("reprove_test_refusal_inherited");
     // Role inheritance is a database fact with no representation in the schema
     // module, so only the catalog can see it. Postgres applies a policy through
     // an *inheritable* membership - measured, not assumed: the same grant made
     // `WITH INHERIT FALSE` leaves the policy inert, which is exactly what
     // `pg_has_role(..., 'usage')` reports.
+    //
+    // Measured on a login role of the test's own that inherits `reprove_runtime`
+    // rather than on `reprove_runtime` itself, and the two are the same
+    // connection as far as the policy check is concerned: it holds the runtime
+    // role's grants and the canonical policies apply to it, through exactly the
+    // membership under test. Granting the group to `reprove_runtime` would be a
+    // cluster-wide change, and every boot the other files run beside this one
+    // would refuse on the membership - which is now the point of check (a).
+    await defineGroup(database, GROUP_ROLE);
+    await createInheritingRole(INHERITOR_ROLE, [RUNTIME_ROLE, GROUP_ROLE]);
     await database.admin(
-      `do $$ begin
-         if not exists (select 1 from pg_roles where rolname = '${GROUP_ROLE}') then
-           create role ${GROUP_ROLE} nologin;
-         end if;
-       end $$`
+      `create policy run_group_open on run as permissive for all to ${GROUP_ROLE} using (true)`
     );
-    await database.admin(
-      `grant ${GROUP_ROLE} to ${RUNTIME_ROLE} with inherit true`
+
+    const refusal = await bootRefusal(
+      createRuntimeDb({
+        connectionString: runtimeUrl(database.name, INHERITOR_ROLE),
+      })
     );
-    try {
-      await database.admin(
-        `create policy run_group_open on run as permissive for all to ${GROUP_ROLE} using (true)`
-      );
 
-      const refusal = await bootRefusal(
-        createRuntimeDb({ connectionString: database.runtimeUrl })
-      );
-
-      expect(failedChecks(refusal)).toStrictEqual([
-        "tenant-policies-are-exactly-canonical",
-      ]);
-      expect(
-        detailOf(refusal, "tenant-policies-are-exactly-canonical")
-      ).toContain("run has 2 policies applying to this role");
-    } finally {
-      // A role grant is cluster-wide, unlike the policy above.
-      await database.admin(`revoke ${GROUP_ROLE} from ${RUNTIME_ROLE}`);
-    }
+    // Two refusals for two different reasons: the memberships themselves, and
+    // the extra policy one of them carries in.
+    expect(failedChecks(refusal)).toStrictEqual([
+      "runtime-role-is-not-privileged",
+      "tenant-policies-are-exactly-canonical",
+    ]);
+    expect(
+      detailOf(refusal, "tenant-policies-are-exactly-canonical")
+    ).toContain("run has 2 policies applying to this role");
   });
 
   it("a runtime role that owns a table, and is therefore exempt from its RLS", async () => {

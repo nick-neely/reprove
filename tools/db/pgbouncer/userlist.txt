@@ -1,7 +1,12 @@
 ; Local development and CI only. `auth_type = trust` on both hops means neither
 ; password is ever checked, so nothing here is a credential.
+;
+; PgBouncer reads this file when it starts, and it will not forward a name it
+; has never heard of - so a name added here reaches a running stack only after
+; `pnpm db:down && pnpm db:up`.
 "postgres" ""
 "reprove_runtime" ""
 "reprove_bypassrls" ""
 "reprove_replication" ""
 "reprove_setrole_member" ""
+"reprove_test_inheritor" ""
