@@ -11,7 +11,7 @@
  *  4 fresh fingerprint   compared against the cached one; drift evicts
  *  5 render              the argument vector
  *  6 argument audit      refuses before anything is created
- *  7 own the resources   the Workspace volume, and the network if there is one
+ *  7 own the resources   the Workspace volume
  *  8 create              the instance exists and is not running
  *  9 attest              refuses, having removed what it created
  * 10 start               execution is authorized only here
@@ -31,6 +31,7 @@
 import {
   auditArguments,
   createArguments,
+  NO_NETWORK,
   redactedArguments,
   renderCreate,
   SANDBOX_LABEL,
@@ -171,14 +172,10 @@ const lines = (stdout: string): readonly string[] =>
  * open, and the only honest answer to "what is still out there" is everything,
  * until something proves otherwise.
  */
-const presumed = (names: LaunchNames): readonly Residue[] => {
-  const created: readonly Residue[] = [
-    { kind: "instance", id: names.instance },
-    { kind: "workspace", id: names.workspaceVolume },
-    { kind: "network", id: names.network },
-  ];
-  return names.network === "none" ? created.slice(0, -1) : created;
-};
+const presumed = (names: LaunchNames): readonly Residue[] => [
+  { kind: "instance", id: names.instance },
+  { kind: "workspace", id: names.workspaceVolume },
+];
 
 export const createSandboxProvider = (
   options: SandboxProviderOptions
@@ -230,9 +227,6 @@ export const createSandboxProvider = (
   const release = async (names: LaunchNames): Promise<void> => {
     await attempt(["rm", "--force", "--volumes", names.instance]);
     await attempt(["volume", "rm", names.workspaceVolume]);
-    if (names.network !== "none") {
-      await attempt(["network", "rm", names.network]);
-    }
   };
 
   const survivors = async (names: LaunchNames): Promise<readonly Residue[]> => {
@@ -256,20 +250,6 @@ export const createSandboxProvider = (
         "{{.Name}}",
       ])
     );
-    const networks =
-      names.network === "none"
-        ? []
-        : lines(
-            await invoke([
-              "network",
-              "ls",
-              "--filter",
-              `name=${names.network}`,
-              "--format",
-              "{{.Name}}",
-            ])
-          );
-
     // Exact names, not what the filter matched. Both runtimes treat a name
     // filter as a substring or a pattern, so a neighbour whose name contains
     // this one would otherwise read as residue.
@@ -280,9 +260,6 @@ export const createSandboxProvider = (
       ...volumes
         .filter((name) => name === names.workspaceVolume)
         .map((id): Residue => ({ kind: "workspace", id })),
-      ...networks
-        .filter((name) => name === names.network)
-        .map((id): Residue => ({ kind: "network", id })),
     ];
   };
 
@@ -367,16 +344,6 @@ export const createSandboxProvider = (
         SANDBOX_LABEL,
         names.workspaceVolume,
       ]);
-      if (names.network !== "none") {
-        await invoke([
-          "network",
-          "create",
-          "--internal",
-          "--label",
-          SANDBOX_LABEL,
-          names.network,
-        ]);
-      }
       await invoke(createArguments(rendered));
 
       const instance = dialect.readInstanceReport(
@@ -387,7 +354,7 @@ export const createSandboxProvider = (
         instance,
         host,
         fingerprint,
-        network: names.network,
+        network: NO_NETWORK,
         workspaceVolume: names.workspaceVolume,
       });
       if (!attestation.authorized) {
@@ -434,7 +401,6 @@ export const createSandboxProvider = (
     const names: LaunchNames = {
       instance: `reprove-sbx-${id}`,
       workspaceVolume: `reprove-ws-${id}`,
-      network: request.egress.kind === "none" ? "none" : `reprove-net-${id}`,
     };
     const rendered = renderCreate(request, names);
 

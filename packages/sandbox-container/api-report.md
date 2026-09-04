@@ -37,8 +37,6 @@ import type { RequirementOutcome } from "./requirements.js";
 export interface LaunchNames {
     readonly instance: string;
     readonly workspaceVolume: string;
-    /** The Sandbox-owned network, or `none` when there is no egress at all. */
-    readonly network: string;
 }
 /**
  * The rendered launch, with the flag region kept apart from the image and the
@@ -53,12 +51,22 @@ export interface RenderedCreate {
  * What every resource a launch creates is labelled with, so an abandoned one
  * can be found.
  *
- * The instance, the Workspace volume and the network all carry it. A label on
- * the instance alone sweeps up only the resource that is easiest to notice: a
- * volume and a network outlive the instance that used them, and an operator
- * reaping by label would leave behind exactly the two things nothing else names.
+ * Both the instance and the Workspace volume carry it. A label on the instance
+ * alone sweeps up only the resource that is easiest to notice: a volume
+ * outlives the instance that used it, and an operator reaping by label would
+ * leave behind exactly the thing nothing else names.
  */
 export declare const SANDBOX_LABEL = "io.reprove.sandbox=1";
+/**
+ * The only network a Sandbox is ever put on.
+ *
+ * `EgressPolicy` has one member, so this is rendered unconditionally rather
+ * than derived from the request. When the proxy that terminates a Sandbox-owned
+ * network exists, this becomes a name the provider generates - and the audit
+ * below, which refuses `host`, `container:` and `ns:` whatever the renderer
+ * produced, is written against that day rather than against this one.
+ */
+export declare const NO_NETWORK = "none";
 /**
  * Renders one launch.
  *
@@ -427,6 +435,7 @@ export interface CliRuntimeOptions {
     readonly name: RuntimeName;
     /** Defaults to the runtime's own name, resolved on `PATH`. */
     readonly executable?: string;
+    /** Positive and finite. Defaults to ten minutes. */
     readonly timeoutMs?: number;
     readonly maxBufferBytes?: number;
 }
@@ -676,20 +685,25 @@ export interface ResourceLimits {
     readonly processes: number;
 }
 /**
- * How far a Sandbox may reach. `none` is the floor and the safe posture;
- * `proxy` reaches exactly one Reprove-owned endpoint over a Sandbox-owned
- * network the provider creates and destroys.
+ * How far a Sandbox may reach. Today there is one answer: nowhere.
  *
- * There is no `host` member and no "allow these domains" member. ADR 0004 says
- * egress goes through Reprove's proxy or nowhere, and a per-request domain list
- * would be a policy this package has no way to enforce.
+ * ADR 0004 says egress goes through Reprove's proxy or nowhere, and the proxy
+ * is not in this package yet - so `none` is the whole of the type, and every
+ * launch renders `--network none`. A `proxy` member with an `endpoint` nothing
+ * consumed was the thing ADR 0004 calls out by name: a weakened posture that
+ * never runs quietly is not compatible with a request field that is accepted
+ * and ignored, and a caller reading the type would have believed it got egress
+ * it never had.
+ *
+ * A union of one rather than a bare kind, so the proxy variant lands
+ * additively when the proxy that terminates it exists. There is no `host`
+ * member and no "allow these domains" member: a per-request domain list would
+ * be a policy this package has no way to enforce.
  */
-export type EgressPolicy = {
+interface NoEgress {
     readonly kind: "none";
-} | {
-    readonly kind: "proxy";
-    readonly endpoint: string;
-};
+}
+export type EgressPolicy = NoEgress;
 /**
  * A mount a caller may ask for, beside the Workspace.
  *
@@ -743,6 +757,7 @@ export interface SandboxRequest {
     readonly environment: readonly EnvironmentEntry[];
     readonly mounts: readonly MountRequest[];
 }
+export {};
 ```
 
 ## dist/requirements.d.ts
@@ -826,7 +841,7 @@ export declare const checkRequest: (request: SandboxRequest) => readonly Require
 import type { RequirementOutcome } from "./requirements.js";
 /** One thing that should not still exist. */
 export interface Residue {
-    readonly kind: "instance" | "workspace" | "network";
+    readonly kind: "instance" | "workspace";
     readonly id: string;
 }
 /**

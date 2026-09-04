@@ -245,7 +245,6 @@ export const linesStdout = (names: readonly string[]): string =>
 export interface Survivors {
   readonly instances: readonly string[];
   readonly volumes: readonly string[];
-  readonly networks: readonly string[];
 }
 
 /** How the fake runtime answers one invocation, keyed by its first arguments. */
@@ -305,7 +304,6 @@ export const createRecordingRuntime = (
     (() => ({
       instances: [],
       volumes: [],
-      networks: [],
     }));
 
   const answer = (argv: readonly string[]): RuntimeOutcome => {
@@ -327,9 +325,6 @@ export const createRecordingRuntime = (
     }
     if (first === "volume") {
       return ok(second === "ls" ? linesStdout(survivors().volumes) : "");
-    }
-    if (first === "network") {
-      return ok(second === "ls" ? linesStdout(survivors().networks) : "");
     }
     return ok("");
   };

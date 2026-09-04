@@ -14,7 +14,7 @@ A Sandbox is defined by properties, not by a technology ([ADR 0004](../../docs/a
 
 | Property | Request check | Argument audit | Attestation |
 | --- | --- | --- | --- |
-| Its own network namespace | | `--network` names one network, and not the host's or another instance's | `NetworkMode` is the network this Sandbox owns |
+| Its own network namespace | | `--network` names one network, and not the host's or another instance's | `NetworkMode` is the network this Sandbox was stated to own, which today is `none` |
 | Its own PID namespace | | no `--pid`, `--ipc`, `--userns`, `--uts` or `--cgroupns` pointing at the host | `PidMode` is private |
 | Its own mount namespace | | | the resolved mount set is exactly the Workspace volume and the ephemeral mounts that were asked for, and the root filesystem is read-only |
 | Not privileged | not representable in a request | no `--privileged` | `Privileged` is false and `no-new-privileges` is applied |
@@ -55,7 +55,7 @@ Each one sees something the others cannot. The request check sees intent and cos
  4 fresh fingerprint   compared against the cached one; drift evicts
  5 render              the argument vector
  6 argument audit      refuses before anything is created
- 7 own the resources   the Workspace volume, and the network if there is one
+ 7 own the resources   the Workspace volume
  8 create              the instance exists and is not running
  9 attest              refuses, having removed what it created
 10 start               execution is authorized only here
@@ -78,7 +78,7 @@ The host is nonetheless re-read on every launch, and its fingerprint compared. A
 
 Steps 7 to 10 are one region that owns resources, and a failure anywhere in it releases them all on the way out - so a `create` the runtime rejects leaves no Workspace volume behind either. The error that leaves is the one that arrived: a cleanup failure reported in place of a Refusal would hide which requirement failed.
 
-Teardown does not trust the exit code of the command that removed something. It re-lists the instance, the Workspace volume and the network through the runtime, and compares exact names. A `TeardownReceipt` never carries residue; a teardown that found some raises `SandboxTeardownError`, whose `reason` is ADR 0015's reserved `sandbox_teardown_incomplete`.
+Teardown does not trust the exit code of the command that removed something. It re-lists the instance and the Workspace volume through the runtime, and compares exact names. A `TeardownReceipt` never carries residue; a teardown that found some raises `SandboxTeardownError`, whose `reason` is ADR 0015's reserved `sandbox_teardown_incomplete`.
 
 ## Brokering
 
@@ -106,11 +106,11 @@ There is one implementation of the contract and a per-runtime table, rather than
 | limit support | `CpuCfsQuota`, `MemoryLimit`, `PidsLimit` | `host.cgroupControllers` holds `cpu`, `memory`, `pids` |
 | cgroup version | `"2"` | `"v2"`, normalized to `"2"` |
 | instance report | `inspect <id> --format '{{json .}}'` | identical; Podman carries a Docker-compatible `HostConfig` |
-| everything else | `create` / `start` / `exec` / `rm`, `volume`, `network`, `ps`, and every flag rendered | identical |
+| everything else | `create` / `start` / `exec` / `rm`, `volume`, `ps`, and every flag rendered | identical |
 
 **Stated plainly: the Podman dialect is not proven against a live Podman.** Podman is installed neither on the machine this was written on nor in CI. It ships proven against the whole shared contract suite and against a recorded fixture whose shape is taken from the `libpod/define` structs at Podman v5.8.6 - not against a running daemon. The Docker dialect has additionally been driven end to end against Docker 29.1.3 by hand. "Nothing warns and runs" applies to this README too, so the gap is named rather than left for someone to infer from a green suite.
 
-Naming it precisely: the `podman info` reader is checked against a fixture built from Podman's own structs, but the *instance* reader and the Attestation are checked against a **Docker** recording, because both runtimes report a Docker-compatible `HostConfig`. Four fields are where that assumption would break, and each would refuse every Podman launch rather than admit one: `NanoCpus` (Podman may express `--cpus` as `CpuQuota`/`CpuPeriod` instead), `CapDrop` (if `ALL` is expanded into an explicit list), `NetworkMode` (if it reports `bridge` rather than the network's name), and `SecurityOpt` for a named seccomp profile. Every one fails closed, which is the right direction and still not the same as being proven.
+Naming it precisely: the `podman info` reader is checked against a fixture built from Podman's own structs, but the *instance* reader and the Attestation are checked against a **Docker** recording, because both runtimes report a Docker-compatible `HostConfig`. Four fields are where that assumption would break, and each would refuse every Podman launch rather than admit one: `NanoCpus` (Podman may express `--cpus` as `CpuQuota`/`CpuPeriod` instead), `CapDrop` (if `ALL` is expanded into an explicit list), `NetworkMode` (if it reports `bridge` rather than `none`), and `SecurityOpt` for a named seccomp profile. Every one fails closed, which is the right direction and still not the same as being proven.
 
 If Podman ever needs `--userns=keep-id`, a quadlet or a `podman machine` path, the dialect has become a strategy and two implementations become the right answer.
 
@@ -120,7 +120,7 @@ If Podman ever needs `--userns=keep-id`, a quadlet or a `podman machine` path, t
 
 ## Deliberate gaps
 
-- **The egress proxy itself is not here.** `EgressPolicy.proxy` creates a Sandbox-owned `--internal` network and destroys it at teardown, so nothing routes out; the proxy that terminates it, and the `endpoint` becoming an argument, is a follow-up.
+- **Egress is `none` and nothing else.** `EgressPolicy` has one member, every launch renders `--network none`, and this package creates no network of its own. Proxy egress - a Sandbox-owned `--internal` network, the proxy that terminates it, and the endpoint becoming an argument - is a follow-up, and the member lands with it. It is not shipped as an accepted-and-ignored request field first: ADR 0004's public promise is that **a weakened posture never runs quietly**, and a `{ kind: "proxy", endpoint }` that produced exactly the same `--network none` as `none` did is precisely that - a caller who asked for brokered egress, was told yes by the type, and got a Sandbox that could not reach the proxy. `EgressPolicy` stays a union of one so the variant is additive when it is real.
 - **`WorkspaceRequest.sizeBytes` is recorded, not imposed.** The local volume driver on both runtimes takes no size. It is required to be positive and it is what a driver that does take one would be given.
 - **The instance runs as the image's own user, which is usually `root` inside the Sandbox.** That is root in a user namespace under a rootless daemon and root in the instance under a rootful one; either way it holds no capabilities and cannot write the root filesystem. The two in-container identities ADR 0012 requires are worker-core work.
 - **`InstanceReport` carries no devices, IPC mode or `Config.Env`.** Nothing can render a `--device` or an `--ipc` (the audit refuses both, and `--` keeps the image out of the flag region), so this is a gap in the third layer rather than a hole in the boundary - but it means `no-credential-in-brokered-sandbox` is decided at the request layer alone.

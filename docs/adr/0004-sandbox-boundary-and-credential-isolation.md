@@ -313,6 +313,14 @@ Everything else in ADR 0003 stands unchanged.
 > suite runs against both dialects and parity is proven rather than claimed. Two implementations
 > would duplicate the argument rendering, which is the security-critical part.
 >
+> **Egress is `none` and nothing else in that package today.** This ADR requires egress only through
+> Reprove's proxy; the proxy is not in the package, so every launch renders `--network none` and the
+> provider creates no network of its own. Proxy egress - a Sandbox-owned internal network and the
+> endpoint that terminates it - is deferred as a whole rather than shipped as a request field that
+> is accepted and ignored, because "a weakened posture never runs quietly" is not satisfied by a
+> type that promises brokered egress and delivers no egress at all. `EgressPolicy` is a union of one
+> so the variant lands additively.
+>
 > The `@ai-sdk/harness` bridge is **deliberately deferred** out of `@reprove/sandbox-container` and
 > lands with the issue that first drives a Harness. ADR 0010's forbidden-type gate runs over this
 > package's packed declarations, so the bridge needs a non-leaking wrapper of its own; keeping the

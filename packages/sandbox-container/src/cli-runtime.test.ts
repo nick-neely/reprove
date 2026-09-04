@@ -137,6 +137,20 @@ describe("the command-line runtime", () => {
     );
   });
 
+  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])(
+    "refuses to exist with a timeout of %o",
+    (timeoutMs) => {
+      // `execFile` arms its killer only when `timeout > 0`, so a zero is not
+      // "no timeout" but "wait for a wedged daemon forever" - and the whole
+      // point of the timeout is that a Worker is never held open by one. It is
+      // refused where it is a configuration mistake rather than at the
+      // invocation that never returns.
+      expect(() =>
+        createCliRuntime({ name: "docker", executable: execPath, timeoutMs })
+      ).toThrow(RangeError);
+    }
+  );
+
   it("defaults its executable to the runtime's own name", () => {
     expect(createCliRuntime({ name: "podman" }).name).toBe("podman");
   });

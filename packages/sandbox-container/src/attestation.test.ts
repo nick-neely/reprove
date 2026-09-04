@@ -296,15 +296,47 @@ describe("attesting an instance", () => {
           },
         ],
       },
-      requirements: ["ephemeral-workspace"],
+      requirements: ["own-mount-namespace", "ephemeral-workspace"],
     },
     {
       why: "it has no Workspace at all",
       drift: { mounts: [] },
-      requirements: ["ephemeral-workspace"],
+      requirements: ["own-mount-namespace", "ephemeral-workspace"],
     },
   ])("refuses an instance because $why", ({ drift, requirements }) => {
     expect(attestWith(drift)).toStrictEqual(requirements);
+  });
+
+  it("refuses an instance missing an ephemeral mount that was asked for", () => {
+    // The allowlist read from its other end. An instance that never got the
+    // tmpfs the request named is not the instance that was requested, and a
+    // check that only looks for storage nobody asked for cannot see it - so a
+    // Harness writes into the read-only root instead of the scratch it expects.
+    const refused = attestInstance({
+      ...SOUND,
+      instance: {
+        ...INSTANCE,
+        mounts: INSTANCE.mounts.filter((mount) => mount.kind !== "tmpfs"),
+      },
+    });
+    const mount = refused.outcomes.find(
+      (each) => each.name === "own-mount-namespace"
+    );
+
+    expect(refused.authorized).toBeFalsy();
+    expect(mount?.satisfied).toBeFalsy();
+    expect(mount?.detail).toContain("tmpfs at /tmp");
+  });
+
+  it("refuses a colon-free socket bind by both the names it violates", () => {
+    // `/var/run/docker.sock` with no `:` is one whole source. Slicing to the
+    // first colon would hand the socket check `/var/run/docker.soc`, which
+    // reads as satisfied while only the bind check refuses - and an operator is
+    // then told the wrong requirement failed.
+    expect(attestWith({ binds: ["/var/run/docker.sock"] })).toStrictEqual([
+      "no-runtime-socket",
+      "no-host-bind-mount",
+    ]);
   });
 
   it("refuses an instance on a host that drifted since it was measured", () => {
@@ -393,7 +425,11 @@ describe("attesting an instance", () => {
     ).toStrictEqual(["own-network-namespace"]);
   });
 
-  it("accepts the Sandbox-owned network a proxied Sandbox reaches out through", () => {
+  it("accepts an instance on exactly the network it was stated to own", () => {
+    // `attestInstance` is public and re-attestable, so the expected network is
+    // stated rather than assumed to be `none`: the provider renders `none`
+    // today, and the Attestation is what a Sandbox-owned network would be
+    // measured against on the day one exists.
     expect(
       attestWith(
         { networkMode: "reprove-net-abc" },

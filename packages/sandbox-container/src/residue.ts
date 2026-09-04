@@ -12,7 +12,7 @@ import type { RequirementOutcome } from "./requirements.js";
 
 /** One thing that should not still exist. */
 export interface Residue {
-  readonly kind: "instance" | "workspace" | "network";
+  readonly kind: "instance" | "workspace";
   readonly id: string;
 }
 
@@ -31,7 +31,7 @@ export const checkResidue = (residue: readonly Residue[]): RequirementOutcome =>
     "teardown-leaves-no-residue",
     residue.length === 0,
     residue.length === 0
-      ? "the instance, its Workspace and its network are all gone"
+      ? "the instance and its Workspace are both gone"
       : `teardown left ${describe(residue)} behind`
   );
 

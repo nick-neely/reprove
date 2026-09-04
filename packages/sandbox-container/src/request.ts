@@ -62,17 +62,26 @@ export interface ResourceLimits {
 }
 
 /**
- * How far a Sandbox may reach. `none` is the floor and the safe posture;
- * `proxy` reaches exactly one Reprove-owned endpoint over a Sandbox-owned
- * network the provider creates and destroys.
+ * How far a Sandbox may reach. Today there is one answer: nowhere.
  *
- * There is no `host` member and no "allow these domains" member. ADR 0004 says
- * egress goes through Reprove's proxy or nowhere, and a per-request domain list
- * would be a policy this package has no way to enforce.
+ * ADR 0004 says egress goes through Reprove's proxy or nowhere, and the proxy
+ * is not in this package yet - so `none` is the whole of the type, and every
+ * launch renders `--network none`. A `proxy` member with an `endpoint` nothing
+ * consumed was the thing ADR 0004 calls out by name: a weakened posture that
+ * never runs quietly is not compatible with a request field that is accepted
+ * and ignored, and a caller reading the type would have believed it got egress
+ * it never had.
+ *
+ * A union of one rather than a bare kind, so the proxy variant lands
+ * additively when the proxy that terminates it exists. There is no `host`
+ * member and no "allow these domains" member: a per-request domain list would
+ * be a policy this package has no way to enforce.
  */
-export type EgressPolicy =
-  | { readonly kind: "none" }
-  | { readonly kind: "proxy"; readonly endpoint: string };
+interface NoEgress {
+  readonly kind: "none";
+}
+
+export type EgressPolicy = NoEgress;
 
 /**
  * A mount a caller may ask for, beside the Workspace.

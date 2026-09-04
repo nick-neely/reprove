@@ -103,8 +103,20 @@ export interface Attestation {
 /** Both runtimes spell "a namespace of its own" one of these two ways. */
 const PRIVATE_PID_MODES: ReadonlySet<string> = new Set(["", "private"]);
 
-/** The host path a `--volume` or `--mount` argument names, before the `:`. */
-const bindSource = (bind: string): string => bind.slice(0, bind.indexOf(":"));
+/**
+ * The source a `Binds` entry names, which is everything before the first colon.
+ *
+ * An entry with no colon at all is an anonymous volume, and the whole of it is
+ * the source - so the missing separator is handled rather than sliced off the
+ * end of the string, which would turn `/var/run/docker.sock` into
+ * `/var/run/docker.soc` and hand the socket check a path that is not one. The
+ * same reading as `arguments.ts`, because two spellings of one rule is one
+ * chance for the layers to disagree about which requirement failed.
+ */
+const bindSource = (bind: string): string => {
+  const split = bind.indexOf(":");
+  return split === -1 ? bind : bind.slice(0, split);
+};
 
 const isHostPath = (source: string): boolean => source.startsWith("/");
 
@@ -184,6 +196,12 @@ const mountKey = (mount: ObservedMount): string =>
  * for. The read-only root is checked here too, because the two facts together
  * are the claim - the only writable places inside are the ones that were
  * requested.
+ *
+ * "Exactly" is read in both directions. Storage that was asked for and is not
+ * there is the same broken equality as storage nobody asked for, and it is the
+ * direction a one-sided check cannot see: an instance whose scratch tmpfs never
+ * materialized has a Harness writing at a path the read-only root owns, and
+ * every requirement above would still read as satisfied.
  */
 const mountOutcome = (input: AttestationInput): RequirementOutcome => {
   const expected = new Set([
@@ -198,18 +216,22 @@ const mountOutcome = (input: AttestationInput): RequirementOutcome => {
         mountKey({ kind: "tmpfs", source: "", destination: mount.path })
       ),
   ]);
+  const observed = new Set(input.instance.mounts.map(mountKey));
   const unasked = input.instance.mounts.filter(
     (mount) => !expected.has(mountKey(mount))
   );
+  const missing = [...expected].filter((key) => !observed.has(key));
   const satisfied =
-    unasked.length === 0 && input.instance.readOnlyRootFilesystem;
+    unasked.length === 0 &&
+    missing.length === 0 &&
+    input.instance.readOnlyRootFilesystem;
 
   return outcome(
     "own-mount-namespace",
     satisfied,
     satisfied
-      ? "the instance holds a read-only root and no storage beyond the Workspace and the ephemeral mounts that were asked for"
-      : `the instance's root filesystem is ${input.instance.readOnlyRootFilesystem ? "read-only" : "writable"} and it holds storage nobody asked for: ${listed(unasked.map((mount) => `${mount.kind} ${mount.source === "" ? mount.destination : `${mount.source} at ${mount.destination}`}`))}`
+      ? "the instance holds a read-only root and exactly the storage that was asked for: the Workspace and the ephemeral mounts"
+      : `the instance's root filesystem is ${input.instance.readOnlyRootFilesystem ? "read-only" : "writable"}, it holds storage nobody asked for: ${listed(unasked.map((mount) => `${mount.kind} ${mount.source === "" ? mount.destination : `${mount.source} at ${mount.destination}`}`))}, and storage that was asked for is missing: ${listed(missing)}`
   );
 };
 

@@ -332,7 +332,6 @@ describe("the hard requirements", () => {
     const names: LaunchNames = {
       instance: "reprove-sbx-x",
       workspaceVolume: "reprove-ws-x",
-      network: "none",
     };
     const host = {
       runtime: "docker",

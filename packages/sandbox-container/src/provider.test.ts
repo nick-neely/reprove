@@ -38,7 +38,6 @@ import type {
 const ID = "probe";
 const INSTANCE_NAME = `reprove-sbx-${ID}`;
 const WORKSPACE_VOLUME = `reprove-ws-${ID}`;
-const NETWORK_NAME = `reprove-net-${ID}`;
 const SANDBOX_LABEL = "io.reprove.sandbox=1";
 
 /**
@@ -87,7 +86,7 @@ const arrange = (
 ): Arrangement => {
   let host: Partial<HostFacts> = {};
   let instance: Partial<InstanceFacts> = {};
-  let survivors: Survivors = { instances: [], volumes: [], networks: [] };
+  let survivors: Survivors = { instances: [], volumes: [] };
   let now = CLOCK_START;
   const runtime = createRecordingRuntime(dialect.name, {
     info: () => ({ exitCode: 0, stdout: infoStdout(host), stderr: "" }),
@@ -672,12 +671,11 @@ describe.each(DIALECTS)(
       });
 
       it("names everything it could not account for when it could not ask", async () => {
-        const { provider, runtime, setInstance } = arrange(dialect, infoStdout);
-        setInstance({ networkMode: NETWORK_NAME });
-        const sandbox = await provider.launch({
-          ...REQUEST,
-          egress: { kind: "proxy", endpoint: "http://proxy.reprove.internal" },
-        });
+        // A removal the runtime never answered leaves the same question open as
+        // one that answered "still there", so everything the launch created is
+        // named rather than nothing.
+        const { provider, runtime } = arrange(dialect, infoStdout);
+        const sandbox = await provider.launch(REQUEST);
         runtime.reject("rm");
 
         await expect(sandbox.teardown()).rejects.toMatchObject({
@@ -685,7 +683,6 @@ describe.each(DIALECTS)(
           residue: [
             { kind: "instance", id: INSTANCE_NAME },
             { kind: "workspace", id: WORKSPACE_VOLUME },
-            { kind: "network", id: NETWORK_NAME },
           ],
         });
       });
@@ -703,35 +700,21 @@ describe.each(DIALECTS)(
     });
 
     describe("egress", () => {
-      it("puts a Sandbox that may not reach out on no network at all", async () => {
+      it("puts every Sandbox on no network, and owns no network at all", async () => {
+        // `EgressPolicy` has one member and it is the floor. Nothing here
+        // creates a network, so nothing here has a network to leak, and the
+        // whole life of a Sandbox is asserted rather than the create alone.
         const { provider, runtime } = arrange(dialect, infoStdout);
-        await provider.launch(REQUEST);
+        const sandbox = await provider.launch(REQUEST);
+        await sandbox.teardown();
+        const create =
+          runtime.invocations.find((argv) => argv[0] === "create") ?? [];
+        const flag = create.indexOf("--network");
 
         expect(runtime.countOf("network")).toBe(0);
-        expect(runtime.everyArgument()).toContain("none");
-      });
-
-      it("gives a proxied Sandbox an internal network of its own", async () => {
-        const { provider, runtime, setInstance } = arrange(dialect, infoStdout);
-        setInstance({ networkMode: NETWORK_NAME });
-        const sandbox = await provider.launch({
-          ...REQUEST,
-          egress: { kind: "proxy", endpoint: "http://proxy.reprove.internal" },
-        });
-
-        expect(runtime.invocations).toContainEqual([
-          "network",
-          "create",
-          "--internal",
-          "--label",
-          SANDBOX_LABEL,
-          NETWORK_NAME,
-        ]);
-        await sandbox.teardown();
-        expect(runtime.invocations).toContainEqual([
-          "network",
-          "rm",
-          NETWORK_NAME,
+        expect(create.slice(flag, flag + 2)).toStrictEqual([
+          "--network",
+          "none",
         ]);
       });
     });
@@ -744,7 +727,7 @@ describe("two providers on one host", () => {
     // per Run would otherwise throw it away with the provider that raised it,
     // which is the whole of what the quarantine was for. Deliberately built
     // without a `cache`, unlike every other case in this file.
-    let survivors: Survivors = { instances: [], volumes: [], networks: [] };
+    let survivors: Survivors = { instances: [], volumes: [] };
     const runtime = createRecordingRuntime("podman", {
       info: () => ({ exitCode: 0, stdout: podmanInfoStdout(), stderr: "" }),
       inspect: () => ({

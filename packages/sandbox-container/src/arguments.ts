@@ -36,8 +36,6 @@ import type { RequirementOutcome } from "./requirements.js";
 export interface LaunchNames {
   readonly instance: string;
   readonly workspaceVolume: string;
-  /** The Sandbox-owned network, or `none` when there is no egress at all. */
-  readonly network: string;
 }
 
 /**
@@ -54,10 +52,10 @@ export interface RenderedCreate {
  * What every resource a launch creates is labelled with, so an abandoned one
  * can be found.
  *
- * The instance, the Workspace volume and the network all carry it. A label on
- * the instance alone sweeps up only the resource that is easiest to notice: a
- * volume and a network outlive the instance that used them, and an operator
- * reaping by label would leave behind exactly the two things nothing else names.
+ * Both the instance and the Workspace volume carry it. A label on the instance
+ * alone sweeps up only the resource that is easiest to notice: a volume
+ * outlives the instance that used it, and an operator reaping by label would
+ * leave behind exactly the thing nothing else names.
  */
 export const SANDBOX_LABEL = "io.reprove.sandbox=1";
 
@@ -67,6 +65,17 @@ export const SANDBOX_LABEL = "io.reprove.sandbox=1";
  * Reviewer can drop a binary on and run is a boundary with a hole in it.
  */
 const TMPFS_OPTIONS = "rw,nosuid,nodev,noexec";
+
+/**
+ * The only network a Sandbox is ever put on.
+ *
+ * `EgressPolicy` has one member, so this is rendered unconditionally rather
+ * than derived from the request. When the proxy that terminates a Sandbox-owned
+ * network exists, this becomes a name the provider generates - and the audit
+ * below, which refuses `host`, `container:` and `ns:` whatever the renderer
+ * produced, is written against that day rather than against this one.
+ */
+export const NO_NETWORK = "none";
 
 const tmpfsArgument = (path: string, sizeBytes: number | undefined): string =>
   sizeBytes === undefined
@@ -111,7 +120,7 @@ export const renderCreate = (
       "--label",
       SANDBOX_LABEL,
       "--network",
-      names.network,
+      NO_NETWORK,
       "--cap-drop",
       "ALL",
       "--security-opt",

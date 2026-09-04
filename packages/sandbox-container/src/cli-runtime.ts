@@ -20,6 +20,7 @@ export interface CliRuntimeOptions {
   readonly name: RuntimeName;
   /** Defaults to the runtime's own name, resolved on `PATH`. */
   readonly executable?: string;
+  /** Positive and finite. Defaults to ten minutes. */
   readonly timeoutMs?: number;
   readonly maxBufferBytes?: number;
 }
@@ -47,6 +48,16 @@ export const createCliRuntime = (
   const executable = options.executable ?? options.name;
   const timeout = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxBuffer = options.maxBufferBytes ?? DEFAULT_MAX_BUFFER_BYTES;
+  // `execFile` arms its killer only when `timeout > 0`, so a zero, a negative
+  // or a `NaN` is not "no timeout" but "wait for a wedged daemon forever" -
+  // and holding a Worker open indefinitely is the one thing the timeout exists
+  // to stop. A `RangeError` rather than a Refusal: no Sandbox has been asked
+  // for yet, and this is a runtime nobody should be handed at all.
+  if (!Number.isFinite(timeout) || timeout <= 0) {
+    throw new RangeError(
+      `timeoutMs is ${timeout}, and a container-runtime invocation must have a positive finite timeout: anything else leaves a wedged ${options.name} holding a Worker open forever`
+    );
+  }
 
   return {
     name: options.name,

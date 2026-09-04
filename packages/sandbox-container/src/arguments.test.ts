@@ -26,7 +26,7 @@ const SOUND: SandboxRequest = {
   workspace: { path: "/reprove/workspace", sizeBytes: 1_073_741_824 },
   limits: { cpus: 0.5, memoryBytes: 268_435_456, processes: 64 },
   seccomp: { kind: "runtime-default" },
-  egress: { kind: "proxy", endpoint: "http://proxy.reprove.internal" },
+  egress: { kind: "none" },
   environment: [{ name: "CLAUDE_CODE_SAFE_MODE", value: "1" }],
   mounts: [{ kind: "ephemeral", path: "/tmp", sizeBytes: 67_108_864 }],
 };
@@ -34,7 +34,6 @@ const SOUND: SandboxRequest = {
 const NAMES: LaunchNames = {
   instance: "reprove-sbx-probe",
   workspaceVolume: "reprove-ws-probe",
-  network: "reprove-net-probe",
 };
 
 const RENDERED = renderCreate(SOUND, NAMES);
@@ -94,6 +93,18 @@ describe("the argument audit", () => {
       "cpu-limit",
       "memory-limit",
       "process-limit",
+    ]);
+  });
+
+  it("puts every Sandbox on no network, whatever the request said", () => {
+    // `EgressPolicy` has one member. The renderer does not consult the request
+    // for a network at all, so there is no request that produces a different
+    // one - which is the whole of the egress posture until a proxy exists.
+    const flag = RENDERED.options.indexOf("--network");
+
+    expect(RENDERED.options.slice(flag, flag + 2)).toStrictEqual([
+      "--network",
+      "none",
     ]);
   });
 
