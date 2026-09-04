@@ -39,6 +39,17 @@ const ID = "probe";
 const INSTANCE_NAME = `reprove-sbx-${ID}`;
 const WORKSPACE_VOLUME = `reprove-ws-${ID}`;
 const NETWORK_NAME = `reprove-net-${ID}`;
+const SANDBOX_LABEL = "io.reprove.sandbox=1";
+
+/**
+ * A clock that moves.
+ *
+ * A constant one would satisfy "the capability was established once" for a
+ * capability re-established on every launch, so every reading is distinct and
+ * `establishedAt` names which reading it was.
+ */
+const CLOCK_START = 1_700_000_000_000;
+const CLOCK_TICK = 1000;
 
 const REQUEST: SandboxRequest = {
   image: "alpine:3.20",
@@ -54,6 +65,14 @@ const REQUEST: SandboxRequest = {
 interface Arrangement {
   readonly provider: SandboxProvider;
   readonly runtime: RecordingRuntime;
+  /**
+   * A second provider on the same host, sharing this one's cache and runtime.
+   *
+   * A quarantine is a fact about the host rather than about the object that
+   * raised it, so "it stuck" is only proven by something that was not there
+   * when it was raised.
+   */
+  readonly another: () => SandboxProvider;
   /** What the next `info` invocation answers with. */
   readonly setHost: (facts: Partial<HostFacts>) => void;
   /** What the next `inspect` invocation answers with. */
@@ -69,6 +88,7 @@ const arrange = (
   let host: Partial<HostFacts> = {};
   let instance: Partial<InstanceFacts> = {};
   let survivors: Survivors = { instances: [], volumes: [], networks: [] };
+  let now = CLOCK_START;
   const runtime = createRecordingRuntime(dialect.name, {
     info: () => ({ exitCode: 0, stdout: infoStdout(host), stderr: "" }),
     inspect: () => ({
@@ -78,16 +98,23 @@ const arrange = (
     }),
     survivors: () => survivors,
   });
+  const cache = createCapabilityCache();
+  const build = (): SandboxProvider =>
+    createSandboxProvider({
+      runtime,
+      dialect,
+      cache,
+      clock: () => {
+        now += CLOCK_TICK;
+        return now;
+      },
+      newId: () => ID,
+    });
 
   return {
     runtime,
-    provider: createSandboxProvider({
-      runtime,
-      dialect,
-      cache: createCapabilityCache(),
-      clock: () => 1_700_000_000_000,
-      newId: () => ID,
-    }),
+    provider: build(),
+    another: build,
     setHost: (facts) => {
       host = facts;
     },
@@ -110,6 +137,16 @@ const refusalFrom = async (launch: Promise<Sandbox>): Promise<string[]> => {
     throw error;
   }
   throw new Error("the launch was authorized and should have been refused");
+};
+
+/** What a launch that failed rather than refused said. */
+const messageFrom = async (launch: Promise<Sandbox>): Promise<string> => {
+  try {
+    await launch;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+  throw new Error("the launch was authorized and should have failed");
 };
 
 /** The index of the first invocation leading with a given argument, or -1. */
@@ -211,6 +248,8 @@ describe.each(DIALECTS)(
         expect(runtime.invocations).toContainEqual([
           "volume",
           "create",
+          "--label",
+          SANDBOX_LABEL,
           WORKSPACE_VOLUME,
         ]);
         expect(sandbox.workspace).toStrictEqual({
@@ -359,6 +398,32 @@ describe.each(DIALECTS)(
       );
     });
 
+    describe("a launch refused by the vector it rendered", () => {
+      it("refuses a Workspace path that smuggles a second mount target", async () => {
+        // The request layer sees an absolute path and a positive size and has
+        // nothing to object to. The vector it renders is
+        // `--volume reprove-ws-probe:/w:/var/run/docker.sock`, which is a
+        // second target the request never named - and the audit reads the
+        // vector rather than the intent, which is the whole reason it is a
+        // separate layer.
+        const { provider, runtime } = arrange(dialect, infoStdout);
+
+        await expect(
+          refusalFrom(
+            provider.launch({
+              ...REQUEST,
+              workspace: {
+                path: "/w:/var/run/docker.sock",
+                sizeBytes: 1_073_741_824,
+              },
+            })
+          )
+        ).resolves.toStrictEqual(["no-runtime-socket"]);
+        expect(runtime.countOf("create")).toBe(0);
+        expect(runtime.countOf("volume")).toBe(0);
+      });
+    });
+
     describe("a launch refused by the instance it created", () => {
       it("removes an instance that came up privileged, and never starts it", async () => {
         const { provider, runtime, setInstance } = arrange(dialect, infoStdout);
@@ -393,6 +458,46 @@ describe.each(DIALECTS)(
         await expect(
           refusalFrom(provider.launch(REQUEST))
         ).resolves.toStrictEqual(["local-capability-not-quarantined"]);
+      });
+
+      it("keeps the Refusal, and quarantines, when the cleanup fails too", async () => {
+        // Two things have to survive one path: the caller still has to be told
+        // which requirement failed, and the host still has to be marked. A
+        // cleanup error thrown over the Refusal would lose the first, and a
+        // cleanup error that skipped the quarantine would lose the second.
+        const { provider, runtime, setInstance, another } = arrange(
+          dialect,
+          infoStdout
+        );
+        setInstance({ privileged: true });
+        runtime.reject("rm");
+
+        await expect(
+          refusalFrom(provider.launch(REQUEST))
+        ).resolves.toStrictEqual(["not-privileged"]);
+        await expect(
+          refusalFrom(another().launch(REQUEST))
+        ).resolves.toStrictEqual(["local-capability-not-quarantined"]);
+      });
+
+      it("keeps environment values out of the error it raises", async () => {
+        // An invocation that failed prints its argument vector, and the vector
+        // holds every `--env NAME=value` the request asked for. The name is
+        // what makes the message useful; the value is what makes it a leak.
+        const { provider, runtime } = arrange(dialect, infoStdout);
+        runtime.refuse("create");
+        const message = await messageFrom(
+          provider.launch({
+            ...REQUEST,
+            environment: [{ name: "NPM_CONFIG_REGISTRY", value: "s3cr3t" }],
+          })
+        );
+
+        expect(message).toContain("NPM_CONFIG_REGISTRY=<redacted>");
+        expect(message).not.toContain("s3cr3t");
+        // Redacted where it is printed, not where it is sent: the instance
+        // still gets the value it asked for.
+        expect(runtime.everyArgument()).toContain("NPM_CONFIG_REGISTRY=s3cr3t");
       });
 
       it.each(["create", "inspect", "start"])(
@@ -467,7 +572,10 @@ describe.each(DIALECTS)(
         expect(runtime.countOf("inspect")).toBe(2);
         const established = await provider.capability();
 
-        expect(established.establishedAt).toBe(1_700_000_000_000);
+        // The clock moves on every reading, so this is the *first* one: a
+        // capability re-established on the second launch would carry a later
+        // timestamp, and against a constant clock it could not.
+        expect(established.establishedAt).toBe(CLOCK_START + CLOCK_TICK);
       });
 
       it("refuses the instance that would have used a host that drifted", async () => {
@@ -535,6 +643,53 @@ describe.each(DIALECTS)(
         ).resolves.toStrictEqual(["local-capability-not-quarantined"]);
       });
 
+      it("quarantines when the re-list itself refuses", async () => {
+        // Not knowing whether anything survived is the same posture as knowing
+        // it did. A teardown whose re-list exits non-zero has proven nothing,
+        // and a provider that returned a clean receipt there would hand the
+        // next Run a host that may still be holding the last Sandbox.
+        const { provider, runtime, another } = arrange(dialect, infoStdout);
+        const sandbox = await provider.launch(REQUEST);
+        runtime.refuse("ps");
+
+        await expect(sandbox.teardown()).rejects.toThrow(SandboxTeardownError);
+        await expect(
+          refusalFrom(another().launch(REQUEST))
+        ).resolves.toStrictEqual(["local-capability-not-quarantined"]);
+      });
+
+      it("quarantines when the removal never reaches the runtime", async () => {
+        // A rejection is not a non-zero exit: there is no answer at all, so
+        // nothing was removed and nothing was re-listed.
+        const { provider, runtime, another } = arrange(dialect, infoStdout);
+        const sandbox = await provider.launch(REQUEST);
+        runtime.reject("rm");
+
+        await expect(sandbox.teardown()).rejects.toThrow(SandboxTeardownError);
+        await expect(
+          refusalFrom(another().launch(REQUEST))
+        ).resolves.toStrictEqual(["local-capability-not-quarantined"]);
+      });
+
+      it("names everything it could not account for when it could not ask", async () => {
+        const { provider, runtime, setInstance } = arrange(dialect, infoStdout);
+        setInstance({ networkMode: NETWORK_NAME });
+        const sandbox = await provider.launch({
+          ...REQUEST,
+          egress: { kind: "proxy", endpoint: "http://proxy.reprove.internal" },
+        });
+        runtime.reject("rm");
+
+        await expect(sandbox.teardown()).rejects.toMatchObject({
+          reason: "sandbox_teardown_incomplete",
+          residue: [
+            { kind: "instance", id: INSTANCE_NAME },
+            { kind: "workspace", id: WORKSPACE_VOLUME },
+            { kind: "network", id: NETWORK_NAME },
+          ],
+        });
+      });
+
       it("names what survived on the Failure it raises", async () => {
         const { provider, setSurvivors } = arrange(dialect, infoStdout);
         const sandbox = await provider.launch(REQUEST);
@@ -568,6 +723,8 @@ describe.each(DIALECTS)(
           "network",
           "create",
           "--internal",
+          "--label",
+          SANDBOX_LABEL,
           NETWORK_NAME,
         ]);
         await sandbox.teardown();

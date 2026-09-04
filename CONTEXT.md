@@ -127,7 +127,9 @@ The language model a Harness drives, chosen separately from the Harness.
 _Avoid_: LLM
 
 **Provider**:
-The service that serves a Model to a Harness.
+The service that serves a Model to a Harness. Unqualified, **Provider** always means this; the
+local component that launches Sandboxes is a **Sandbox provider** and is always written with the
+qualifier, because the two serve different things to different callers.
 _Avoid_: vendor
 
 **Reviewer**:

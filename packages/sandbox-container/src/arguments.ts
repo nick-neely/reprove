@@ -24,7 +24,12 @@
  * instance being created at all.
  */
 import type { SandboxRequest } from "./request.js";
-import { isRuntimeSocket, outcome } from "./requirements.js";
+import {
+  isRuntimeSocket,
+  isSharedNamespace,
+  listed,
+  outcome,
+} from "./requirements.js";
 import type { RequirementOutcome } from "./requirements.js";
 
 /** The names the provider generated for the resources this Sandbox owns. */
@@ -45,7 +50,15 @@ export interface RenderedCreate {
   readonly command: readonly string[];
 }
 
-/** What every instance is labelled with, so an abandoned one can be found. */
+/**
+ * What every resource a launch creates is labelled with, so an abandoned one
+ * can be found.
+ *
+ * The instance, the Workspace volume and the network all carry it. A label on
+ * the instance alone sweeps up only the resource that is easiest to notice: a
+ * volume and a network outlive the instance that used them, and an operator
+ * reaping by label would leave behind exactly the two things nothing else names.
+ */
 export const SANDBOX_LABEL = "io.reprove.sandbox=1";
 
 /**
@@ -139,6 +152,40 @@ export const createArguments = (
   ...rendered.command,
 ];
 
+/** The flags that carry an environment entry, in both runtimes' spellings. */
+const ENVIRONMENT_FLAGS: ReadonlySet<string> = new Set(["--env", "-e"]);
+
+const REDACTED = "<redacted>";
+
+/** `NAME=value` with the value taken out, and `NAME` kept. */
+const redactEntry = (entry: string): string => {
+  const split = entry.indexOf("=");
+  return `${split === -1 ? entry : entry.slice(0, split)}=${REDACTED}`;
+};
+
+/**
+ * The argument vector as an error may print it.
+ *
+ * A failed invocation names the vector it failed on, because "which command"
+ * and "which subcommand" are most of what makes the message actionable - but
+ * the vector carries every `--env NAME=value` the request asked for, and an
+ * error message travels into logs the Sandbox's own contents never reach. The
+ * name is what makes the message useful and the value is what makes it a leak,
+ * so the name stays and the value goes. Redacted where it is *printed*, not
+ * where it is sent: the instance still receives what was asked for.
+ */
+export const redactedArguments = (argv: readonly string[]): readonly string[] =>
+  argv.map((token, index) => {
+    const previous = argv[index - 1];
+    if (previous !== undefined && ENVIRONMENT_FLAGS.has(previous)) {
+      return redactEntry(token);
+    }
+    const split = token.indexOf("=");
+    return split > 0 && ENVIRONMENT_FLAGS.has(token.slice(0, split))
+      ? `${token.slice(0, split)}=${redactEntry(token.slice(split + 1))}`
+      : token;
+  });
+
 /** One flag and the value that followed it, whichever way it was spelled. */
 interface FlagPair {
   readonly flag: string;
@@ -188,20 +235,46 @@ const has = (
   ...flags: readonly string[]
 ): boolean => pairs.some((pair) => flags.includes(pair.flag));
 
-/** A namespace flag pointing at somebody else's namespace. */
+/** Every flag that can hand this Sandbox a namespace it does not own. */
 const NAMESPACE_FLAGS = ["--pid", "--ipc", "--userns", "--uts", "--cgroupns"];
-
-const isForeignNetwork = (value: string): boolean =>
-  value === "" ||
-  value === "host" ||
-  value.startsWith("container:") ||
-  value.startsWith("ns:");
 
 const positive = (values: readonly string[]): boolean =>
   values.length === 1 && Number(values[0]) > 0;
 
-const listed = (values: readonly string[]): string =>
-  values.length === 0 ? "none" : values.join(", ");
+/**
+ * The source of a `--volume` value, which is everything before the first colon.
+ *
+ * A value with no colon at all is an anonymous volume, and the whole of it is
+ * the source - so the missing separator is handled rather than sliced off the
+ * end of the string, which would turn `/data` into `/dat`.
+ */
+const bindSource = (value: string): string => {
+  const split = value.indexOf(":");
+  return split === -1 ? value : value.slice(0, split);
+};
+
+/**
+ * Whether a bind source is a host path rather than a sandbox-owned volume.
+ *
+ * "Starts with a slash" is a spelling test rather than a boundary: both
+ * runtimes read `./secrets`, `../secrets`, `.` and `~/.ssh` as paths too, and
+ * resolve a relative one against a working directory this package does not
+ * choose. A volume *name* may not begin with any of these, so the test is which
+ * of the two a source could possibly be.
+ */
+const HOST_SOURCE = /^[/.~]/u;
+
+/**
+ * Everything inside one argument that could be a path.
+ *
+ * A socket reaches the boundary through whichever field a runtime happens to
+ * read it from: `--volume src:dst`, `--mount source=...,target=...`, or the
+ * bare path itself. Splitting on every separator either syntax uses reads all
+ * of them, which is why the check is not "does the destination end in
+ * `docker.sock`" - the destination is whatever name the person who wanted the
+ * socket chose to give it inside.
+ */
+const PATH_SEPARATORS = /[:,=]/u;
 
 /**
  * Refuses an argument vector that would widen the boundary, before it is
@@ -215,17 +288,26 @@ export const auditArguments = (
 ): readonly RequirementOutcome[] => {
   const pairs = flagPairs(rendered.options);
   const networks = valuesOf(pairs, "--network", "--net");
-  const shared = NAMESPACE_FLAGS.filter((flag) =>
-    valuesOf(pairs, flag).includes("host")
+  // `--pid` at all, whatever it says: this package renders no PID mode, so the
+  // only vector carrying one is a vector nothing here produced.
+  const shared = NAMESPACE_FLAGS.filter(
+    (flag) =>
+      valuesOf(pairs, flag).some(isSharedNamespace) ||
+      (flag === "--pid" && has(pairs, flag))
   );
-  const bindSources = valuesOf(pairs, "--volume", "-v").map((value) =>
-    value.slice(0, value.indexOf(":"))
-  );
-  const hostBinds = bindSources.filter((source) => source.startsWith("/"));
+  const hostBinds = valuesOf(pairs, "--volume", "-v")
+    .map(bindSource)
+    .filter((source) => HOST_SOURCE.test(source));
   const foreignMounts = valuesOf(pairs, "--mount").filter((value) =>
     value.includes("type=bind")
   );
-  const sockets = rendered.options.filter(isRuntimeSocket);
+  const sockets = [
+    ...new Set(
+      rendered.options
+        .flatMap((token) => token.split(PATH_SEPARATORS))
+        .filter(isRuntimeSocket)
+    ),
+  ];
   const cpus = valuesOf(pairs, "--cpus");
   const memory = valuesOf(pairs, "--memory");
   const processes = valuesOf(pairs, "--pids-limit");
@@ -248,15 +330,15 @@ export const auditArguments = (
     ),
     outcome(
       "own-network-namespace",
-      networks.length === 1 && !isForeignNetwork(networks[0] ?? ""),
+      networks.length === 1 && !isSharedNamespace(networks[0] ?? ""),
       `the vector asks for ${listed(networks)}`
     ),
     outcome(
       "own-pid-namespace",
-      shared.length === 0 && !has(pairs, "--pid"),
-      shared.length === 0 && !has(pairs, "--pid")
+      shared.length === 0,
+      shared.length === 0
         ? "the vector asks for no namespace of anybody else's"
-        : `the vector shares ${listed(shared)} with the host`
+        : `the vector joins a namespace of somebody else's through ${listed(shared)}`
     ),
     outcome(
       "no-host-bind-mount",

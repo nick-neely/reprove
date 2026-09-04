@@ -120,11 +120,63 @@ export const isRuntimeSocket = (hostPath: string): boolean => {
   return RUNTIME_SOCKET_NAMES.has(cleaned.slice(cleaned.lastIndexOf("/") + 1));
 };
 
+/**
+ * Whether a namespace value names somebody else's namespace rather than one of
+ * this Sandbox's own.
+ *
+ * One predicate for every namespace a runtime can be told to share, because
+ * `host`, `container:<other>` and `ns:<path>` are the same hole reached through
+ * three spellings and a check that knows only the first of them is a check
+ * anyone can walk around. The empty value counts too: an unnamed namespace is
+ * whatever the daemon's default is, which is not a namespace this Sandbox owns.
+ *
+ * Shared by the argument audit and the Attestation deliberately. Two copies of
+ * this predicate is two chances for one of them to learn a spelling the other
+ * does not.
+ */
+export const isSharedNamespace = (value: string): boolean =>
+  value === "" ||
+  value === "host" ||
+  value.startsWith("container:") ||
+  value.startsWith("ns:");
+
 /** A positive, finite quantity. Zero is "no limit" to every runtime here. */
 const isPositive = (value: number): boolean =>
   Number.isFinite(value) && value > 0;
 
-const listed = (values: readonly string[]): string => values.join(", ");
+/**
+ * The house form for the values a `detail` names.
+ *
+ * Shared by every layer, because an isolation report whose three layers spell
+ * an empty list three different ways reads as three different facts.
+ */
+export const listed = (values: readonly string[]): string =>
+  values.length === 0 ? "none" : values.join(", ");
+
+/**
+ * The one path spelling that is not a path.
+ *
+ * `SeccompProfile` has no `unconfined` member, so a caller cannot ask for one
+ * by type - but `{ kind: "file", path: "unconfined" }` renders
+ * `--security-opt seccomp=unconfined`, which is the value ADR 0004 names as the
+ * thing seccomp must never be. It is refused here by the same name the argument
+ * audit and the Attestation refuse it by, so the earliest layer that can see it
+ * is the one that says so.
+ */
+const UNCONFINED = "unconfined";
+
+const isProfileFile = (path: string): boolean =>
+  path !== "" && path !== UNCONFINED;
+
+const describeProfilePath = (path: string): string => {
+  if (path === "") {
+    return "unnamed, which would render no profile at all";
+  }
+  if (path === UNCONFINED) {
+    return `${UNCONFINED}, which is not a file but the one profile ADR 0004 forbids`;
+  }
+  return path;
+};
 
 /**
  * Refuses a request before anything reaches a container runtime.
@@ -193,10 +245,11 @@ export const checkRequest = (
     ),
     outcome(
       "seccomp-enabled",
-      request.seccomp.kind === "runtime-default" || request.seccomp.path !== "",
+      request.seccomp.kind === "runtime-default" ||
+        isProfileFile(request.seccomp.path),
       request.seccomp.kind === "runtime-default"
         ? "the runtime's own profile applies"
-        : `the profile file is ${request.seccomp.path === "" ? "unnamed, which would render no profile at all" : request.seccomp.path}`
+        : `the profile file is ${describeProfilePath(request.seccomp.path)}`
     ),
     outcome(
       "cpu-limit",

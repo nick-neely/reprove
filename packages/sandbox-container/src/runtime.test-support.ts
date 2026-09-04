@@ -1,3 +1,4 @@
+import { RuntimeUnavailableError } from "./runtime-unavailable.js";
 /**
  * The recorded runtime output every test in this package is measured against,
  * and the fake runtime that answers with it.
@@ -263,6 +264,14 @@ export interface RecordingRuntime extends ContainerRuntime {
   readonly countOf: (first: string) => number;
   /** Makes every later invocation leading with this argument exit non-zero. */
   readonly refuse: (first: string) => void;
+  /**
+   * Makes every later invocation leading with this argument reject outright.
+   *
+   * Not the same fault as `refuse`, and kept apart deliberately: a non-zero
+   * exit is the daemon answering "no", and a rejection is no answer at all.
+   * Anything that handles only the first fails open on the second.
+   */
+  readonly reject: (first: string) => void;
 }
 
 const ok = (stdout: string): RuntimeOutcome => ({
@@ -290,6 +299,7 @@ export const createRecordingRuntime = (
 ): RecordingRuntime => {
   const invocations: (readonly string[])[] = [];
   const refused = new Set<string>();
+  const unavailable = new Set<string>();
   const survivors =
     script.survivors ??
     (() => ({
@@ -331,9 +341,18 @@ export const createRecordingRuntime = (
     refuse: (first) => {
       refused.add(first);
     },
+    reject: (first) => {
+      unavailable.add(first);
+    },
     countOf: (first) => invocations.filter((argv) => argv[0] === first).length,
     invoke: (invocation) => {
       invocations.push(invocation.arguments);
+      const [first] = invocation.arguments;
+      if (first !== undefined && unavailable.has(first)) {
+        return Promise.reject(
+          new RuntimeUnavailableError(name, name, "did not run")
+        );
+      }
       return Promise.resolve(answer(invocation.arguments));
     },
   };

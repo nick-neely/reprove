@@ -174,6 +174,20 @@ describe("the request check", () => {
       ).toStrictEqual([]);
     });
 
+    it("refuses a profile named `unconfined`, which is the one profile there is not", () => {
+      // `SeccompProfile` has no `unconfined` member, so nobody can ask for one
+      // by type - but this path renders `--security-opt seccomp=unconfined`,
+      // which is the value ADR 0004 forbids by name. Representable by spelling
+      // is representable.
+      const request: SandboxRequest = {
+        ...SOUND,
+        seccomp: { kind: "file", path: "unconfined" },
+      };
+
+      expect(refused(request)).toStrictEqual(["seccomp-enabled"]);
+      expect(detailOf(request, "seccomp-enabled")).toContain("unconfined");
+    });
+
     it("refuses a profile file with no path, which would render nothing", () => {
       const request: SandboxRequest = {
         ...SOUND,
@@ -258,6 +272,10 @@ describe("the request check", () => {
       "LD_PRELOAD",
       "LD_LIBRARY_PATH",
       "SSH_AUTH_SOCK",
+      "NODE_OPTIONS",
+      "PYTHONPATH",
+      "PYTHONSTARTUP",
+      "PERL5LIB",
     ])("refuses %s at any value at all, including the placeholder", (name) => {
       const asPlaceholder = withEnvironment([
         { name, value: BROKERED_PLACEHOLDER },

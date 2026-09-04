@@ -9,13 +9,15 @@
  * this package states the same posture as a Refusal instead, and states it on
  * the request rather than on the provider that happened to be wired up.
  *
- * There are three structural facts here, and none of them is a lint rule:
+ * There are four structural facts here, and none of them is a lint rule:
  *
  * 1. `SandboxRequest` has no credential member. There is nothing to pass one
  *    through.
  * 2. A credential-shaped environment *name* may hold the placeholder and
  *    nothing else.
  * 3. A denied environment name may hold nothing at all.
+ * 4. A name has to be a name, because every guard above reads the name it was
+ *    given and an entry renders as `name=value`.
  */
 
 /**
@@ -85,6 +87,14 @@ export const isCredentialName = (name: string): boolean =>
  * under a requirement of their own, because they are the same request: an
  * environment entry that redefines the boundary instead of configuring the
  * process inside it.
+ *
+ * The dynamic linker is not the only loader that takes its instructions from
+ * the environment, and a Sandbox runs whatever interpreter the repository under
+ * review needs. `NODE_OPTIONS` injects a module into every Node process,
+ * `PYTHONPATH` and `PYTHONSTARTUP` put a chosen module ahead of the real one
+ * and run a file before the interpreter reads anything else, and `PERL5LIB`
+ * does the same for Perl. Each of them is `LD_PRELOAD` for a different runtime:
+ * code that runs before the code anybody asked to run.
  */
 export const DENIED_ENVIRONMENT_NAMES: readonly string[] = [
   "DOCKER_HOST",
@@ -94,6 +104,10 @@ export const DENIED_ENVIRONMENT_NAMES: readonly string[] = [
   "LD_PRELOAD",
   "LD_LIBRARY_PATH",
   "SSH_AUTH_SOCK",
+  "NODE_OPTIONS",
+  "PYTHONPATH",
+  "PYTHONSTARTUP",
+  "PERL5LIB",
 ];
 
 const DENIED: ReadonlySet<string> = new Set(DENIED_ENVIRONMENT_NAMES);

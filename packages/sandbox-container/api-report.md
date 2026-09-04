@@ -49,7 +49,15 @@ export interface RenderedCreate {
     readonly image: string;
     readonly command: readonly string[];
 }
-/** What every instance is labelled with, so an abandoned one can be found. */
+/**
+ * What every resource a launch creates is labelled with, so an abandoned one
+ * can be found.
+ *
+ * The instance, the Workspace volume and the network all carry it. A label on
+ * the instance alone sweeps up only the resource that is easiest to notice: a
+ * volume and a network outlive the instance that used them, and an operator
+ * reaping by label would leave behind exactly the two things nothing else names.
+ */
 export declare const SANDBOX_LABEL = "io.reprove.sandbox=1";
 /**
  * Renders one launch.
@@ -73,6 +81,18 @@ export declare const renderCreate: (request: SandboxRequest, names: LaunchNames)
  * shell, one parser further in.
  */
 export declare const createArguments: (rendered: RenderedCreate) => readonly string[];
+/**
+ * The argument vector as an error may print it.
+ *
+ * A failed invocation names the vector it failed on, because "which command"
+ * and "which subcommand" are most of what makes the message actionable - but
+ * the vector carries every `--env NAME=value` the request asked for, and an
+ * error message travels into logs the Sandbox's own contents never reach. The
+ * name is what makes the message useful and the value is what makes it a leak,
+ * so the name stays and the value goes. Redacted where it is *printed*, not
+ * where it is sent: the instance still receives what was asked for.
+ */
+export declare const redactedArguments: (argv: readonly string[]) => readonly string[];
 /**
  * Refuses an argument vector that would widen the boundary, before it is
  * invoked.
@@ -177,6 +197,17 @@ export interface Attestation {
     readonly outcomes: readonly RequirementOutcome[];
 }
 /**
+ * Did the host stay the host its capability describes?
+ *
+ * Exported because the provider decides the same thing one step earlier, before
+ * an instance exists to attest at all. Two copies of one comparison is two
+ * messages an operator has to recognise as the same fact.
+ *
+ * @param observed The fingerprint taken now.
+ * @param established The fingerprint the capability was established at.
+ */
+export declare const fingerprintOutcome: (observed: HostFingerprint, established: HostFingerprint) => RequirementOutcome;
+/**
  * Proves the instance that was actually created holds every hard requirement.
  *
  * Pure, and public: it is what a Worker's structured isolation report is built
@@ -205,13 +236,15 @@ export declare const attestInstance: (input: AttestationInput) => Attestation;
  * this package states the same posture as a Refusal instead, and states it on
  * the request rather than on the provider that happened to be wired up.
  *
- * There are three structural facts here, and none of them is a lint rule:
+ * There are four structural facts here, and none of them is a lint rule:
  *
  * 1. `SandboxRequest` has no credential member. There is nothing to pass one
  *    through.
  * 2. A credential-shaped environment *name* may hold the placeholder and
  *    nothing else.
  * 3. A denied environment name may hold nothing at all.
+ * 4. A name has to be a name, because every guard above reads the name it was
+ *    given and an entry renders as `name=value`.
  */
 /**
  * What a brokered Sandbox holds where a credential would be.
@@ -247,6 +280,14 @@ export declare const isCredentialName: (name: string) => boolean;
  * under a requirement of their own, because they are the same request: an
  * environment entry that redefines the boundary instead of configuring the
  * process inside it.
+ *
+ * The dynamic linker is not the only loader that takes its instructions from
+ * the environment, and a Sandbox runs whatever interpreter the repository under
+ * review needs. `NODE_OPTIONS` injects a module into every Node process,
+ * `PYTHONPATH` and `PYTHONSTARTUP` put a chosen module ahead of the real one
+ * and run a file before the interpreter reads anything else, and `PERL5LIB`
+ * does the same for Perl. Each of them is `LD_PRELOAD` for a different runtime:
+ * code that runs before the code anybody asked to run.
  */
 export declare const DENIED_ENVIRONMENT_NAMES: readonly string[];
 /** Whether a name is on the denied list, whatever it was going to hold. */
@@ -741,6 +782,28 @@ export declare const allSatisfied: (outcomes: readonly RequirementOutcome[]) => 
 /** The names that failed, which is what a Refusal message is built from. */
 export declare const failedNames: (outcomes: readonly RequirementOutcome[]) => readonly RequirementName[];
 export declare const isRuntimeSocket: (hostPath: string) => boolean;
+/**
+ * Whether a namespace value names somebody else's namespace rather than one of
+ * this Sandbox's own.
+ *
+ * One predicate for every namespace a runtime can be told to share, because
+ * `host`, `container:<other>` and `ns:<path>` are the same hole reached through
+ * three spellings and a check that knows only the first of them is a check
+ * anyone can walk around. The empty value counts too: an unnamed namespace is
+ * whatever the daemon's default is, which is not a namespace this Sandbox owns.
+ *
+ * Shared by the argument audit and the Attestation deliberately. Two copies of
+ * this predicate is two chances for one of them to learn a spelling the other
+ * does not.
+ */
+export declare const isSharedNamespace: (value: string) => boolean;
+/**
+ * The house form for the values a `detail` names.
+ *
+ * Shared by every layer, because an isolation report whose three layers spell
+ * an empty list three different ways reads as three different facts.
+ */
+export declare const listed: (values: readonly string[]) => string;
 /**
  * Refuses a request before anything reaches a container runtime.
  *

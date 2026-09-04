@@ -308,10 +308,10 @@ Everything else in ADR 0003 stands unchanged.
 > **Amended by [issue #45](https://github.com/nick-neely/reprove/issues/45), 2026-09-04:** the local
 > provider is **one CLI-shaped implementation with a per-runtime dialect**, not a Docker provider
 > and a Podman provider. The differences that exist for the flags this ADR requires are an
-> executable name and one host-report reader; the argument rendering, the launch pipeline, the
-> Attestation and the teardown are shared, so the whole contract suite runs against both dialects
-> and parity is proven rather than claimed. Two implementations would duplicate the argument
-> rendering, which is the security-critical part.
+> executable name and two report readers, one for the host and one for the instance; the argument
+> rendering, the launch pipeline, the Attestation and the teardown are shared, so the whole contract
+> suite runs against both dialects and parity is proven rather than claimed. Two implementations
+> would duplicate the argument rendering, which is the security-critical part.
 >
 > The `@ai-sdk/harness` bridge is **deliberately deferred** out of `@reprove/sandbox-container` and
 > lands with the issue that first drives a Harness. ADR 0010's forbidden-type gate runs over this

@@ -28,9 +28,15 @@
  * Worker core remains the sole authorizer of execution. Every gate here can
  * only refuse.
  */
-import { auditArguments, createArguments, renderCreate } from "./arguments.js";
+import {
+  auditArguments,
+  createArguments,
+  redactedArguments,
+  renderCreate,
+  SANDBOX_LABEL,
+} from "./arguments.js";
 import type { LaunchNames, RenderedCreate } from "./arguments.js";
-import { attestInstance } from "./attestation.js";
+import { attestInstance, fingerprintOutcome } from "./attestation.js";
 import type { Attestation } from "./attestation.js";
 import {
   checkHost,
@@ -49,7 +55,7 @@ import { DOCKER_DIALECT, PODMAN_DIALECT } from "./dialect.js";
 import type { RuntimeDialect } from "./dialect.js";
 import { SandboxRefusalError } from "./refusal.js";
 import type { Isolation, RuntimeName, SandboxRequest } from "./request.js";
-import { allSatisfied, checkRequest, outcome } from "./requirements.js";
+import { allSatisfied, checkRequest } from "./requirements.js";
 import { checkResidue, SandboxTeardownError } from "./residue.js";
 import type { Residue } from "./residue.js";
 import type { ContainerRuntime } from "./runtime.js";
@@ -78,6 +84,18 @@ export interface ExecOutcome {
  */
 export interface TeardownReceipt {
   readonly residue: readonly Residue[];
+}
+
+/**
+ * What a teardown could not account for, and why it could not.
+ *
+ * Internal: it carries the quarantine's reason, and the reason a host was
+ * quarantined is a Worker's to read from the Failure rather than from a shape
+ * this package publishes.
+ */
+interface Unaccounted {
+  readonly residue: readonly Residue[];
+  readonly detail: string;
 }
 
 export interface Sandbox {
@@ -145,6 +163,23 @@ const lines = (stdout: string): readonly string[] =>
     .map((line) => line.trim())
     .filter((line) => line !== "");
 
+/**
+ * Everything a launch created, presumed to have survived.
+ *
+ * What teardown falls back to when it could not ask. A removal the runtime
+ * never answered and a re-list that produced no answer leave the same question
+ * open, and the only honest answer to "what is still out there" is everything,
+ * until something proves otherwise.
+ */
+const presumed = (names: LaunchNames): readonly Residue[] => {
+  const created: readonly Residue[] = [
+    { kind: "instance", id: names.instance },
+    { kind: "workspace", id: names.workspaceVolume },
+    { kind: "network", id: names.network },
+  ];
+  return names.network === "none" ? created.slice(0, -1) : created;
+};
+
 export const createSandboxProvider = (
   options: SandboxProviderOptions
 ): SandboxProvider => {
@@ -167,7 +202,7 @@ export const createSandboxProvider = (
     const invoked = await attempt(argv);
     if (invoked.exitCode !== 0) {
       throw new Error(
-        `${dialect.executable} ${argv.join(" ")} exited ${invoked.exitCode}: ${invoked.stderr.trim()}`
+        `${dialect.executable} ${redactedArguments(argv).join(" ")} exited ${invoked.exitCode}: ${invoked.stderr.trim()}`
       );
     }
     return invoked.stdout;
@@ -251,15 +286,36 @@ export const createSandboxProvider = (
     ];
   };
 
+  /**
+   * Removes everything a launch owns and proves what is left.
+   *
+   * Every way this can go wrong is the same posture: not knowing whether
+   * anything survived is not weaker evidence than knowing it did, it is the
+   * same absence of proof. So a removal that never reached the runtime, a
+   * re-list that exited non-zero and a re-list that found something all leave
+   * here as residue with a detail that says which of the three it was.
+   */
+  const destroy = async (names: LaunchNames): Promise<Unaccounted> => {
+    try {
+      await release(names);
+      const residue = await survivors(names);
+      return { residue, detail: checkResidue(residue).detail };
+    } catch (error) {
+      return {
+        residue: presumed(names),
+        detail: `teardown could not be confirmed, so nothing it created can be assumed gone: ${String(error)}`,
+      };
+    }
+  };
+
   const teardown = async (names: LaunchNames): Promise<TeardownReceipt> => {
-    await release(names);
-    const residue = await survivors(names);
-    if (residue.length > 0) {
+    const unaccounted = await destroy(names);
+    if (unaccounted.residue.length > 0) {
       // Fail closed and stay closed. A host that cannot prove it destroyed the
       // last Sandbox cannot be trusted with the next one, so this outlives the
       // Failure that raised it.
-      cache.quarantine(dialect.name, checkResidue(residue).detail);
-      throw new SandboxTeardownError(residue);
+      cache.quarantine(dialect.name, unaccounted.detail);
+      throw new SandboxTeardownError(unaccounted.residue);
     }
     return { residue: [] };
   };
@@ -268,27 +324,18 @@ export const createSandboxProvider = (
    * Gives up on a launch, and quarantines the runtime if giving up did not
    * work.
    *
-   * The Refusal that sent us here is the error the caller gets, so residue on
-   * this path has no exception of its own to travel in - which is exactly why
-   * it has to stick. Without this a `create` that succeeded, an Attestation
-   * that refused and an `rm` that then failed leave an instance and a volume
-   * that nobody ever hears about, and ADR 0015 reserves an identifier for that
-   * precisely so it is never silent.
+   * The same posture as `teardown`, minus the throw: the Refusal that sent us
+   * here is the error the caller gets, so residue on this path has no exception
+   * of its own to travel in - which is exactly why it has to stick. Without it
+   * a `create` that succeeded, an Attestation that refused and an `rm` that
+   * then failed leave an instance and a volume that nobody ever hears about,
+   * and ADR 0015 reserves an identifier for that precisely so it is never
+   * silent.
    */
   const abandon = async (names: LaunchNames): Promise<void> => {
-    await release(names);
-    try {
-      const residue = await survivors(names);
-      if (residue.length > 0) {
-        cache.quarantine(dialect.name, checkResidue(residue).detail);
-      }
-    } catch (error) {
-      // The re-list itself failed, so whether anything survived is unknown -
-      // which is the same posture as knowing it did.
-      cache.quarantine(
-        dialect.name,
-        `teardown could not be confirmed after a refused launch: ${String(error)}`
-      );
+    const unaccounted = await destroy(names);
+    if (unaccounted.residue.length > 0) {
+      cache.quarantine(dialect.name, unaccounted.detail);
     }
   };
 
@@ -313,9 +360,22 @@ export const createSandboxProvider = (
     fingerprint: HostFingerprint
   ): Promise<Attestation> => {
     try {
-      await invoke(["volume", "create", names.workspaceVolume]);
+      await invoke([
+        "volume",
+        "create",
+        "--label",
+        SANDBOX_LABEL,
+        names.workspaceVolume,
+      ]);
       if (names.network !== "none") {
-        await invoke(["network", "create", "--internal", names.network]);
+        await invoke([
+          "network",
+          "create",
+          "--internal",
+          "--label",
+          SANDBOX_LABEL,
+          names.network,
+        ]);
       }
       await invoke(createArguments(rendered));
 
@@ -361,13 +421,7 @@ export const createSandboxProvider = (
       throw new SandboxRefusalError(host.outcomes);
     }
 
-    const unchanged = outcome(
-      "host-fingerprint-unchanged",
-      observed === host.fingerprint,
-      observed === host.fingerprint
-        ? `the host still digests to ${host.fingerprint}`
-        : `the host digested to ${host.fingerprint} when its capability was established and digests to ${observed} now`
-    );
+    const unchanged = fingerprintOutcome(observed, host.fingerprint);
     if (!unchanged.satisfied) {
       // Drift, not residue: forget the capability so the next launch measures
       // the host as it is now, and refuse the instance that would have used the

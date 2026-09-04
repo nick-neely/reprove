@@ -20,8 +20,8 @@ A Sandbox is defined by properties, not by a technology ([ADR 0004](../../docs/a
 | Not privileged | not representable in a request | no `--privileged` | `Privileged` is false and `no-new-privileges` is applied |
 | No added capabilities | | no `--cap-add`, and `--cap-drop ALL` is present | `CapAdd` is empty and `CapDrop` holds `ALL` |
 | No container-runtime socket | a mounted socket, or `DOCKER_HOST` and friends in the environment | no argument naming a socket | no bind or mount naming a socket |
-| No host bind mount | any `host` mount at all | no `--volume` whose source is an absolute path | no `Binds` entry whose source is an absolute path |
-| Seccomp enabled, never `unconfined` | a profile file with no path | no `seccomp=unconfined` | no `seccomp=unconfined`, a profile of its own when one was named, **and** a daemon that still applies a profile |
+| No host bind mount | any `host` mount at all | no `--volume` whose source is a path rather than a volume name - a leading `/`, `.` or `~` | no `Binds` entry whose source is an absolute path |
+| Seccomp enabled, never `unconfined` | a profile file with no path, or one named `unconfined` | no `seccomp=unconfined` | no `seccomp=unconfined`, a profile of its own when one was named, **and** a daemon that still applies a profile |
 | CPU, memory and process limits | absent, zero, negative or non-finite | all three present and positive | each is exactly the value that was asked for |
 | An ephemeral, sandbox-owned Workspace | a relative path, a non-positive size, or a relative ephemeral mount | | the Workspace is the volume this provider created, at the path that was asked for |
 | No credential in a brokered Sandbox | an environment name that is not a name, or a credential-shaped one not holding the placeholder | | |
@@ -29,7 +29,7 @@ A Sandbox is defined by properties, not by a technology ([ADR 0004](../../docs/a
 | The local capability is not quarantined | the launch refuses before any invocation | | |
 | Teardown leaves no residue | | | teardown re-lists each resource through the runtime |
 
-`unconfined` is not a value a caller can express: `SeccompProfile` has two members and neither is it. `privileged` is not a member of `SandboxRequest` at all. A host bind mount *is* representable, on purpose - a standalone primitive is handed requests by callers who have never read ADR 0004, and an unrepresentable request produces no Refusal anyone can read.
+There is no `unconfined` member to select: `SeccompProfile` has two, and neither is it. A profile *path* spelled `unconfined` is a different thing and is handled as one - `{ kind: "file", path: "unconfined" }` would render `--security-opt seccomp=unconfined`, so it is refused by name at the request, again in the argument audit, and again in the Attestation. `privileged` is not a member of `SandboxRequest` at all. A host bind mount *is* representable, on purpose - a standalone primitive is handed requests by callers who have never read ADR 0004, and an unrepresentable request produces no Refusal anyone can read.
 
 Two of those rows are stricter than they look, and both are deliberate:
 
@@ -84,18 +84,18 @@ Teardown does not trust the exit code of the command that removed something. It 
 
 On the Brokered Route the credential is substituted **outside** the boundary, on the outbound request, after it has left the Sandbox. Inside there is only `BROKERED_PLACEHOLDER`, which is not a secret.
 
-Three structural facts hold this up, and none of them is a lint rule:
+Four structural facts hold this up, and none of them is a lint rule:
 
 1. `SandboxRequest` has no credential member. There is nothing to pass one through.
 2. An environment entry whose **name** is credential-shaped may hold the placeholder and nothing else. The guard splits the name on `_` and compares whole tokens against `TOKEN`, `SECRET`, `KEY`, `APIKEY`, `PASSWORD`, `PASSPHRASE`, `CREDENTIAL`, `CREDENTIALS`, `AUTH`, `COOKIE` and `SESSION` - so `ANTHROPIC_API_KEY` is refused and `GITHUB_AUTHOR` and `KEYBOARD` are not. A guard that refuses correct requests is one operators learn to route around.
-3. A short list of names may hold nothing at all: `DOCKER_HOST`, `CONTAINER_HOST`, `DOCKER_CONFIG`, `XDG_RUNTIME_DIR`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, `SSH_AUTH_SOCK`. These redefine the boundary rather than configure the process inside it.
+3. A short list of names may hold nothing at all: `DOCKER_HOST`, `CONTAINER_HOST`, `DOCKER_CONFIG`, `XDG_RUNTIME_DIR`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, `SSH_AUTH_SOCK`, `NODE_OPTIONS`, `PYTHONPATH`, `PYTHONSTARTUP`, `PERL5LIB`. These redefine the boundary rather than configure the process inside it: the first seven name the daemon, the host's authority or the dynamic linker, and the last four are the same trick for Node, Python and Perl - code that runs before the code anybody asked to run.
 4. A name has to be a name: `^[A-Za-z_][A-Za-z0-9_]*$`. An entry renders as `name=value`, so a *name* holding an `=` sets a variable neither guard above ever read - `{ name: "ANTHROPIC_API_KEY=sk-live" }` renders `--env ANTHROPIC_API_KEY=sk-live=`, and the credential guard's last token is `KEY=SK-LIVE`, which is not `KEY`. Every guard downstream of a name that is not a name is reading the wrong string.
 
 The environment member exists at all because instruction suppression - `CLAUDE_CODE_SAFE_MODE`, `OPENCODE_DISABLE_PROJECT_CONFIG` and their siblings - is a Sandbox-provisioning concern. A per-command environment is merged *over* the Sandbox's own, so a suppression flag set per command can be shadowed and one set here cannot.
 
 ## One implementation, two dialects
 
-There is one implementation of the contract and a per-runtime table, rather than two providers. The differences that exist for the arguments ADR 0004 needs are an executable name and one report reader; the rendering, the pipeline, the Attestation and the teardown are identical. Duplicating them would duplicate the security-critical part, and duplicated security code is how one of the two copies drifts silently.
+There is one implementation of the contract and a per-runtime table, rather than two providers. The differences that exist for the arguments ADR 0004 needs are an executable name and two report readers, one for the host and one for the instance; the rendering, the pipeline, the Attestation and the teardown are identical. Duplicating them would duplicate the security-critical part, and duplicated security code is how one of the two copies drifts silently.
 
 | Concern | Docker | Podman |
 | --- | --- | --- |

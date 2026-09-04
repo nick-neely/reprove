@@ -16,7 +16,13 @@
  */
 import type { HostCapability, HostFingerprint } from "./capability.js";
 import type { Isolation, SandboxRequest } from "./request.js";
-import { allSatisfied, isRuntimeSocket, outcome } from "./requirements.js";
+import {
+  allSatisfied,
+  isRuntimeSocket,
+  isSharedNamespace,
+  listed,
+  outcome,
+} from "./requirements.js";
 import type { RequirementOutcome } from "./requirements.js";
 
 /**
@@ -94,14 +100,6 @@ export interface Attestation {
   readonly outcomes: readonly RequirementOutcome[];
 }
 
-/** A network mode that is somebody else's namespace rather than this one's. */
-const SHARED_NETWORK_MODES: ReadonlySet<string> = new Set(["", "host"]);
-
-const isSharedNetwork = (mode: string): boolean =>
-  SHARED_NETWORK_MODES.has(mode) ||
-  mode.startsWith("container:") ||
-  mode.startsWith("ns:");
-
 /** Both runtimes spell "a namespace of its own" one of these two ways. */
 const PRIVATE_PID_MODES: ReadonlySet<string> = new Set(["", "private"]);
 
@@ -112,9 +110,6 @@ const isHostPath = (source: string): boolean => source.startsWith("/");
 
 const seccompOption = (options: readonly string[]): string | undefined =>
   options.find((option) => option.startsWith("seccomp="));
-
-const listed = (values: readonly string[]): string =>
-  values.length === 0 ? "none" : values.join(", ");
 
 /**
  * Whether the host capability decided a requirement *and* it held.
@@ -127,15 +122,27 @@ const listed = (values: readonly string[]): string =>
 const hostSaid = (host: HostCapability, name: "seccomp-enabled"): boolean =>
   host.outcomes.some((each) => each.name === name && each.satisfied);
 
-/** Did the host stay the host its capability describes? */
-const fingerprintOutcome = (input: AttestationInput): RequirementOutcome => {
-  const unchanged = input.fingerprint === input.host.fingerprint;
+/**
+ * Did the host stay the host its capability describes?
+ *
+ * Exported because the provider decides the same thing one step earlier, before
+ * an instance exists to attest at all. Two copies of one comparison is two
+ * messages an operator has to recognise as the same fact.
+ *
+ * @param observed The fingerprint taken now.
+ * @param established The fingerprint the capability was established at.
+ */
+export const fingerprintOutcome = (
+  observed: HostFingerprint,
+  established: HostFingerprint
+): RequirementOutcome => {
+  const unchanged = observed === established;
   return outcome(
     "host-fingerprint-unchanged",
     unchanged,
     unchanged
-      ? `the host still digests to ${input.host.fingerprint}`
-      : `the host digested to ${input.host.fingerprint} when its capability was established and digests to ${input.fingerprint} now`
+      ? `the host still digests to ${established}`
+      : `the host digested to ${established} when its capability was established and digests to ${observed} now`
   );
 };
 
@@ -144,7 +151,7 @@ const networkOutcome = (input: AttestationInput): RequirementOutcome => {
   const { networkMode } = input.instance;
   return outcome(
     "own-network-namespace",
-    networkMode === input.network && !isSharedNetwork(networkMode),
+    networkMode === input.network && !isSharedNamespace(networkMode),
     `the instance is on ${networkMode === "" ? "an unnamed network" : networkMode} and this Sandbox owns ${input.network}`
   );
 };
@@ -353,7 +360,7 @@ const workspaceOutcome = (input: AttestationInput): RequirementOutcome => {
  */
 export const attestInstance = (input: AttestationInput): Attestation => {
   const outcomes: readonly RequirementOutcome[] = [
-    fingerprintOutcome(input),
+    fingerprintOutcome(input.fingerprint, input.host.fingerprint),
     networkOutcome(input),
     pidOutcome(input.instance),
     mountOutcome(input),
