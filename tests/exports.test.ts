@@ -2,7 +2,10 @@ import { packageName as adapters } from "@reprove/adapters";
 import { packageName as controlPlane } from "@reprove/control-plane";
 import { packageName as controlPlaneWorkflow } from "@reprove/control-plane-workflow";
 import { protocolVersion } from "@reprove/protocol/v1";
-import { packageName as sandboxContainer } from "@reprove/sandbox-container";
+import {
+  createDockerProvider,
+  packageName as sandboxContainer,
+} from "@reprove/sandbox-container";
 import { packageName as worker } from "@reprove/worker";
 import { packageName as workerCore } from "@reprove/worker-core";
 import { packageName as workerHosted } from "@reprove/worker-hosted";
@@ -37,5 +40,12 @@ describe("public entry points", () => {
 
   it("resolves the protocol's versioned subpath export", () => {
     expect(protocolVersion).toBe(1);
+  });
+
+  it("resolves a value export, not only a name, from the Sandbox primitive", () => {
+    // The one package offered as a standalone primitive, so the thing an
+    // outside consumer actually reaches for has to arrive through the export
+    // map rather than only the package's own name.
+    expect(createDockerProvider).toBeTypeOf("function");
   });
 });

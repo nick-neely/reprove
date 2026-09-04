@@ -304,3 +304,24 @@ Everything else in ADR 0003 stands unchanged.
   had to run.
 - **The local `HarnessV1SandboxProvider`'s contract is now fully specified** by the Sandbox
   contract above, so it remains a phase-map implementation task rather than a decision.
+
+> **Amended by [issue #45](https://github.com/nick-neely/reprove/issues/45), 2026-09-04:** the local
+> provider is **one CLI-shaped implementation with a per-runtime dialect**, not a Docker provider
+> and a Podman provider. The differences that exist for the flags this ADR requires are an
+> executable name and two report readers, one for the host and one for the instance; the argument
+> rendering, the launch pipeline, the Attestation and the teardown are shared, so the whole contract
+> suite runs against both dialects and parity is proven rather than claimed. Two implementations
+> would duplicate the argument rendering, which is the security-critical part.
+>
+> **Egress is `none` and nothing else in that package today.** This ADR requires egress only through
+> Reprove's proxy; the proxy is not in the package, so every launch renders `--network none` and the
+> provider creates no network of its own. Proxy egress - a Sandbox-owned internal network and the
+> endpoint that terminates it - is deferred as a whole rather than shipped as a request field that
+> is accepted and ignored, because "a weakened posture never runs quietly" is not satisfied by a
+> type that promises brokered egress and delivers no egress at all. `EgressPolicy` is a union of one
+> so the variant lands additively.
+>
+> The `@ai-sdk/harness` bridge is **deliberately deferred** out of `@reprove/sandbox-container` and
+> lands with the issue that first drives a Harness. ADR 0010's forbidden-type gate runs over this
+> package's packed declarations, so the bridge needs a non-leaking wrapper of its own; keeping the
+> published surface free of upstream types is worth more than shipping the adapter early.
