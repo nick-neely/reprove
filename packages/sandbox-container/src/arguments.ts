@@ -1,0 +1,293 @@
+/**
+ * The argument vector, and the audit of it.
+ *
+ * Everything ADR 0004 asks for that a container runtime can be told is told to
+ * it here, so this is the one module where getting a string wrong is a hole in
+ * the boundary. Which is why the vector is audited *after* it is rendered and
+ * *before* it is invoked: the renderer and the audit are written from the two
+ * ends of the same requirement, and the audit refuses a vector the renderer
+ * should never have produced rather than trusting that it did not.
+ *
+ * The image and the command are kept out of the audited region on purpose. Both
+ * runtimes stop parsing flags at the first positional argument, so a command
+ * whose own arguments include `--privileged` is text rather than a request -
+ * and auditing it would refuse a correct launch for a word inside somebody's
+ * shell script.
+ *
+ * That is only true once the flag region is *terminated*, which is why
+ * `createArguments` renders `--` before the image. Without it the image is the
+ * first token the flag parser reads, so an image of `--privileged` and a
+ * command of `["alpine:3.20", "sh", ...]` produces a privileged instance from a
+ * request that never mentions one - measured against Docker 29.1.3, not
+ * reasoned about. The Attestation refuses that instance and removes it before
+ * it starts, so the boundary held either way; the separator is what stops the
+ * instance being created at all.
+ */
+import type { SandboxRequest } from "./request.js";
+import { isRuntimeSocket, outcome } from "./requirements.js";
+import type { RequirementOutcome } from "./requirements.js";
+
+/** The names the provider generated for the resources this Sandbox owns. */
+export interface LaunchNames {
+  readonly instance: string;
+  readonly workspaceVolume: string;
+  /** The Sandbox-owned network, or `none` when there is no egress at all. */
+  readonly network: string;
+}
+
+/**
+ * The rendered launch, with the flag region kept apart from the image and the
+ * command so the audit can read one without the other.
+ */
+export interface RenderedCreate {
+  readonly options: readonly string[];
+  readonly image: string;
+  readonly command: readonly string[];
+}
+
+/** What every instance is labelled with, so an abandoned one can be found. */
+export const SANDBOX_LABEL = "io.reprove.sandbox=1";
+
+/**
+ * The tmpfs options every ephemeral mount gets. `noexec` and `nosuid` are not
+ * negotiable and are not derived from the request: a writable scratch mount a
+ * Reviewer can drop a binary on and run is a boundary with a hole in it.
+ */
+const TMPFS_OPTIONS = "rw,nosuid,nodev,noexec";
+
+const tmpfsArgument = (path: string, sizeBytes: number | undefined): string =>
+  sizeBytes === undefined
+    ? `${path}:${TMPFS_OPTIONS}`
+    : `${path}:${TMPFS_OPTIONS},size=${sizeBytes}`;
+
+/**
+ * Renders one launch.
+ *
+ * A host mount is never rendered. It is refused by `checkRequest` before
+ * anything reaches here, and dropping it silently would be the narrowing ADR
+ * 0004 forbids - so this function is reached only for a request that asked for
+ * none.
+ *
+ * @param request The Sandbox as it was asked for.
+ * @param names The resources the provider generated for it.
+ * @returns The flag region, the image and the command, apart.
+ */
+export const renderCreate = (
+  request: SandboxRequest,
+  names: LaunchNames
+): RenderedCreate => {
+  const seccomp: readonly string[] =
+    request.seccomp.kind === "file"
+      ? ["--security-opt", `seccomp=${request.seccomp.path}`]
+      : [];
+  const ephemeral = request.mounts
+    .filter((mount) => mount.kind === "ephemeral")
+    .flatMap((mount) => [
+      "--tmpfs",
+      tmpfsArgument(mount.path, mount.sizeBytes),
+    ]);
+  const environment = request.environment.flatMap((entry) => [
+    "--env",
+    `${entry.name}=${entry.value}`,
+  ]);
+
+  return {
+    options: [
+      "--name",
+      names.instance,
+      "--label",
+      SANDBOX_LABEL,
+      "--network",
+      names.network,
+      "--cap-drop",
+      "ALL",
+      "--security-opt",
+      "no-new-privileges",
+      ...seccomp,
+      "--pids-limit",
+      String(request.limits.processes),
+      "--memory",
+      String(request.limits.memoryBytes),
+      "--cpus",
+      String(request.limits.cpus),
+      "--read-only",
+      "--volume",
+      `${names.workspaceVolume}:${request.workspace.path}`,
+      ...ephemeral,
+      ...environment,
+    ],
+    image: request.image,
+    command: request.command,
+  };
+};
+
+/**
+ * The whole vector, ready for the runtime.
+ *
+ * `--` terminates the flag region. Everything after it is positional to both
+ * runtimes' argument parsers, so no request field can reach one of them as a
+ * flag - the same reason `createCliRuntime` uses `execFile` rather than a
+ * shell, one parser further in.
+ */
+export const createArguments = (
+  rendered: RenderedCreate
+): readonly string[] => [
+  "create",
+  ...rendered.options,
+  "--",
+  rendered.image,
+  ...rendered.command,
+];
+
+/** One flag and the value that followed it, whichever way it was spelled. */
+interface FlagPair {
+  readonly flag: string;
+  readonly value: string | undefined;
+}
+
+/**
+ * Reads the flag region as flag-and-value pairs.
+ *
+ * Both `--flag value` and `--flag=value` are understood even though the
+ * renderer only ever produces the first: an audit that only understands the
+ * spelling its own renderer uses audits the renderer rather than the vector.
+ */
+const flagPairs = (options: readonly string[]): readonly FlagPair[] => {
+  const pairs: FlagPair[] = [];
+  for (const [index, token] of options.entries()) {
+    if (!token.startsWith("-")) {
+      continue;
+    }
+    const split = token.indexOf("=");
+    if (split > 0) {
+      pairs.push({
+        flag: token.slice(0, split),
+        value: token.slice(split + 1),
+      });
+      continue;
+    }
+    const next = options[index + 1];
+    pairs.push({
+      flag: token,
+      value: next === undefined || next.startsWith("-") ? undefined : next,
+    });
+  }
+  return pairs;
+};
+
+const valuesOf = (
+  pairs: readonly FlagPair[],
+  ...flags: readonly string[]
+): readonly string[] =>
+  pairs
+    .filter((pair) => flags.includes(pair.flag))
+    .map((pair) => pair.value ?? "");
+
+const has = (
+  pairs: readonly FlagPair[],
+  ...flags: readonly string[]
+): boolean => pairs.some((pair) => flags.includes(pair.flag));
+
+/** A namespace flag pointing at somebody else's namespace. */
+const NAMESPACE_FLAGS = ["--pid", "--ipc", "--userns", "--uts", "--cgroupns"];
+
+const isForeignNetwork = (value: string): boolean =>
+  value === "" ||
+  value === "host" ||
+  value.startsWith("container:") ||
+  value.startsWith("ns:");
+
+const positive = (values: readonly string[]): boolean =>
+  values.length === 1 && Number(values[0]) > 0;
+
+const listed = (values: readonly string[]): string =>
+  values.length === 0 ? "none" : values.join(", ");
+
+/**
+ * Refuses an argument vector that would widen the boundary, before it is
+ * invoked.
+ *
+ * @param rendered The rendered launch. Only its flag region is read.
+ * @returns One outcome per requirement an argument vector can decide.
+ */
+export const auditArguments = (
+  rendered: RenderedCreate
+): readonly RequirementOutcome[] => {
+  const pairs = flagPairs(rendered.options);
+  const networks = valuesOf(pairs, "--network", "--net");
+  const shared = NAMESPACE_FLAGS.filter((flag) =>
+    valuesOf(pairs, flag).includes("host")
+  );
+  const bindSources = valuesOf(pairs, "--volume", "-v").map((value) =>
+    value.slice(0, value.indexOf(":"))
+  );
+  const hostBinds = bindSources.filter((source) => source.startsWith("/"));
+  const foreignMounts = valuesOf(pairs, "--mount").filter((value) =>
+    value.includes("type=bind")
+  );
+  const sockets = rendered.options.filter(isRuntimeSocket);
+  const cpus = valuesOf(pairs, "--cpus");
+  const memory = valuesOf(pairs, "--memory");
+  const processes = valuesOf(pairs, "--pids-limit");
+
+  return [
+    outcome(
+      "not-privileged",
+      !has(pairs, "--privileged"),
+      "the vector does not ask for a privileged instance"
+    ),
+    outcome(
+      "no-added-capabilities",
+      !has(pairs, "--cap-add") && valuesOf(pairs, "--cap-drop").includes("ALL"),
+      `the vector adds ${listed(valuesOf(pairs, "--cap-add"))} and drops ${listed(valuesOf(pairs, "--cap-drop"))}`
+    ),
+    outcome(
+      "seccomp-enabled",
+      !valuesOf(pairs, "--security-opt").includes("seccomp=unconfined"),
+      `the vector's security options are ${listed(valuesOf(pairs, "--security-opt"))}`
+    ),
+    outcome(
+      "own-network-namespace",
+      networks.length === 1 && !isForeignNetwork(networks[0] ?? ""),
+      `the vector asks for ${listed(networks)}`
+    ),
+    outcome(
+      "own-pid-namespace",
+      shared.length === 0 && !has(pairs, "--pid"),
+      shared.length === 0 && !has(pairs, "--pid")
+        ? "the vector asks for no namespace of anybody else's"
+        : `the vector shares ${listed(shared)} with the host`
+    ),
+    outcome(
+      "no-host-bind-mount",
+      hostBinds.length === 0 &&
+        foreignMounts.length === 0 &&
+        !has(pairs, "--device", "--volumes-from"),
+      hostBinds.length === 0 && foreignMounts.length === 0
+        ? "every mount in the vector is a sandbox-owned volume"
+        : `the vector mounts ${listed([...hostBinds, ...foreignMounts])}`
+    ),
+    outcome(
+      "no-runtime-socket",
+      sockets.length === 0,
+      sockets.length === 0
+        ? "no argument names a container-runtime socket"
+        : `arguments naming a container-runtime socket: ${listed(sockets)}`
+    ),
+    outcome(
+      "cpu-limit",
+      positive(cpus),
+      `the vector's CPU limit is ${listed(cpus)}`
+    ),
+    outcome(
+      "memory-limit",
+      positive(memory),
+      `the vector's memory limit is ${listed(memory)}`
+    ),
+    outcome(
+      "process-limit",
+      positive(processes),
+      `the vector's process limit is ${listed(processes)}`
+    ),
+  ];
+};

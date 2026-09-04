@@ -234,6 +234,20 @@ distinct from a Refusal, which happens before dispatch, and from a Review carryi
 which is a success.
 _Avoid_: error, crash, abort
 
+**Attestation**:
+The fresh proof, taken per Sandbox instance before execution is authorized, that the instance
+actually holds every hard Sandbox property. It is distinct from the cached host capability it is
+measured against: a capability says the host could, an Attestation says this instance did. A host
+that drifted since its capability was established is caught here rather than assumed away.
+_Avoid_: probe, verification, check
+
+**Quarantine**:
+The fail-closed state a local Sandbox capability enters when teardown leaves residue behind. It
+refuses every later Sandbox on that runtime until an operator clears it, because a host that cannot
+prove it destroyed the last Sandbox cannot be trusted with the next one. It is not a Refusal's cause
+being logged; it is the cause persisting.
+_Avoid_: disable, blocklist, circuit breaker
+
 ### Controls
 
 **Autonomy**:
