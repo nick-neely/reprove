@@ -33,6 +33,8 @@
  */
 import { z } from "zod";
 
+import { parseBody } from "./json.js";
+
 /** Same bound as the envelope's: a value past 2^53 has already lost digits. */
 const githubIdSchema = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 
@@ -105,39 +107,24 @@ export type ParsedPullRequest =
  * @returns The canonical state, or why there is none.
  */
 export const readPullRequest = (body: string): ParsedPullRequest => {
-  let json: unknown;
-  try {
-    json = JSON.parse(body);
-  } catch (error) {
-    return {
-      kind: "unreadable",
-      reason: `the response is not JSON: ${error instanceof Error ? error.message : String(error)}`,
-    };
+  const parsed = parseBody(body, pullRequestResponseSchema);
+  if (parsed.kind === "unreadable") {
+    return parsed;
   }
 
-  const parsed = pullRequestResponseSchema.safeParse(json);
-  if (!parsed.success) {
-    return {
-      kind: "unreadable",
-      reason: parsed.error.issues
-        .map((issue) => `${issue.path.join(".")} ${issue.message}`)
-        .join("; "),
-    };
-  }
-
-  const { base, head, user } = parsed.data;
+  const { base, head, user } = parsed.value;
   return {
     kind: "canonical",
     pullRequest: {
-      number: parsed.data.number,
-      open: parsed.data.state === "open",
-      draft: parsed.data.draft ?? false,
+      number: parsed.value.number,
+      open: parsed.value.state === "open",
+      draft: parsed.value.draft ?? false,
       baseSha: base.sha,
       headSha: head.sha,
       baseRepositoryId: base.repo.id,
       headRepositoryId: head.repo?.id ?? null,
       authorId: user.id,
-      authorAssociation: parsed.data.author_association,
+      authorAssociation: parsed.value.author_association,
     },
   };
 };

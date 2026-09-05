@@ -10,15 +10,7 @@
 import { describe, expect, it } from "vitest";
 
 import { readPullRequest } from "./canonical.js";
-
-/** Any JSON a case wants GitHub to have answered with. */
-type JsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | readonly JsonValue[]
-  | { readonly [key: string]: JsonValue };
+import type { JsonValue } from "./json.js";
 
 /** One canned pull request response. */
 interface CannedResponse {

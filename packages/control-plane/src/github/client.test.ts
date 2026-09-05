@@ -17,6 +17,7 @@ import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 import { createGitHubClient } from "./client.js";
+import type { JsonValue } from "./json.js";
 
 const PRIVATE_KEY = generateKeyPairSync("rsa", { modulusLength: 2048 })
   .privateKey.export({ format: "pem", type: "pkcs8" })
@@ -39,15 +40,6 @@ const REQUEST = {
   repositoryNameWithOwner: "acme/reprove",
   pullRequestNumber: 7,
 };
-
-/** Any JSON a case wants GitHub to have answered with. */
-type JsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | readonly JsonValue[]
-  | { readonly [key: string]: JsonValue };
 
 const json = (
   status: number,
@@ -330,5 +322,37 @@ describe("the canonical fetch", () => {
       })
     ).resolves.toMatchObject({ kind: "operator_attention" });
     expect(issued).toHaveLength(0);
+  });
+
+  it("classifies a private key the deployment got wrong as needing an operator", async () => {
+    // The credential cannot become valid on its own, so calling it transient
+    // would retry a truncated PEM forever with no signal that anything is
+    // wrong. It is also caught before the first request: `issued` is empty.
+    const wire = transport();
+    const client = createGitHubClient({
+      appId: "1234",
+      privateKey: PRIVATE_KEY.slice(0, 200),
+      fetch: wire.fetch,
+    });
+
+    await expect(client.canonicalPullRequest(REQUEST)).resolves.toMatchObject({
+      kind: "operator_attention",
+      reason: expect.stringContaining("App credential"),
+    });
+    expect(wire.issued).toHaveLength(0);
+  });
+
+  it("classifies an empty App id the same way, and asks GitHub nothing", async () => {
+    const wire = transport();
+    const client = createGitHubClient({
+      appId: "",
+      privateKey: PRIVATE_KEY,
+      fetch: wire.fetch,
+    });
+
+    await expect(client.canonicalPullRequest(REQUEST)).resolves.toMatchObject({
+      kind: "operator_attention",
+    });
+    expect(wire.issued).toHaveLength(0);
   });
 });

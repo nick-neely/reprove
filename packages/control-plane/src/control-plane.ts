@@ -63,10 +63,6 @@ export interface ControlPlaneGitHubConfig {
   readonly runProfile: Phase0RunProfile;
   /** The largest delivery body to accept, in bytes. */
   readonly maximumDeliveryBytes?: number;
-  /** GitHub's REST root. Defaults to `https://api.github.com`. */
-  readonly apiUrl?: string;
-  /** The per-request timeout, in milliseconds. */
-  readonly requestTimeoutMs?: number;
   /**
    * The transport. Defaults to the global `fetch`, and exists as configuration
    * because ADR 0016's acceptance scenario substitutes GitHub "only at the
@@ -157,8 +153,6 @@ export const createControlPlane = async (
     appId,
     privateKey,
     fetch: config.github.fetch ?? ((request) => fetch(request)),
-    baseUrl: config.github.apiUrl,
-    timeoutMs: config.github.requestTimeoutMs,
   });
 
   const processDelivery = createDeliveryProcessor({

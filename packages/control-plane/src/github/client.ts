@@ -40,7 +40,7 @@ import { appJwt, readInstallationToken } from "./app-auth.js";
 import type { CanonicalPullRequest } from "./canonical.js";
 import { readPullRequest } from "./canonical.js";
 
-/** GitHub's REST root. Overridden only by a test or by GitHub Enterprise. */
+/** GitHub's REST root. */
 export const GITHUB_API_URL = "https://api.github.com";
 
 /**
@@ -52,8 +52,13 @@ export const GITHUB_API_URL = "https://api.github.com";
  * timeout` set higher, "so application code normally aborts cleanly before
  * Postgres kills the session". Two requests at this budget still fit inside
  * that backstop.
+ *
+ * A constant rather than a configuration field, because the number is only
+ * correct in relation to that backstop: a deployment free to raise it could
+ * raise it past the timeout that exists to catch it, and no caller has ever
+ * needed to.
  */
-export const DEFAULT_REQUEST_TIMEOUT_MS = 5000;
+export const REQUEST_TIMEOUT_MS = 5000;
 
 /** The response version GitHub asks every App to pin. */
 const API_VERSION = "2022-11-28";
@@ -76,12 +81,6 @@ export type GitHubFetch = (request: Request) => Promise<Response>;
 /** What the client is composed over. No value here is read from anywhere. */
 export interface GitHubClientConfig extends AppCredentials {
   readonly fetch: GitHubFetch;
-  /** Defaults to {@link GITHUB_API_URL}. */
-  readonly baseUrl?: string;
-  /** Defaults to {@link DEFAULT_REQUEST_TIMEOUT_MS}. */
-  readonly timeoutMs?: number;
-  /** The clock the App JWT is dated from. Defaults to the system clock. */
-  readonly now?: () => Date;
 }
 
 /** Which pull request, reached through which grant. */
@@ -105,6 +104,22 @@ export type CanonicalOutcome =
   | { readonly kind: "transient"; readonly reason: string }
   /** A person has to act. Nonterminal: `received`, `operator_attention`. */
   | { readonly kind: "operator_attention"; readonly reason: string };
+
+/**
+ * The three ways the fetch concludes without canonical state. Named because
+ * two things return only these: the classification of a non-2xx, and the
+ * installation-token exchange, which cannot conclude a pull request at all.
+ */
+type FetchFailure = Exclude<CanonicalOutcome, { readonly kind: "canonical" }>;
+
+/**
+ * Installation authority, or the outcome that stands in for it. `canonical` is
+ * excluded for the reason above: a union that admitted it would need a branch
+ * at the call site for a case that cannot arise.
+ */
+type InstallationAuthority =
+  | { readonly kind: "token"; readonly token: string }
+  | FetchFailure;
 
 /** The one thing this client does. */
 export interface GitHubClient {
@@ -133,7 +148,7 @@ const classify = (
   response: Response,
   body: string,
   what: string
-): CanonicalOutcome => {
+): FetchFailure => {
   const reason = `${what} answered ${response.status}: ${quote(body)}`;
   if (response.status === 404) {
     // Under installation authority a repository outside the grant, a deleted
@@ -169,10 +184,6 @@ const bodyOf = async (response: Response): Promise<string> => {
 export const createGitHubClient = (
   config: GitHubClientConfig
 ): GitHubClient => {
-  const baseUrl = (config.baseUrl ?? GITHUB_API_URL).replace(/\/+$/u, "");
-  const timeoutMs = config.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
-  const now = config.now ?? (() => new Date());
-
   const send = (url: string, method: string, authorization: string) =>
     config.fetch(
       new Request(url, {
@@ -182,7 +193,7 @@ export const createGitHubClient = (
           authorization,
           "x-github-api-version": API_VERSION,
         },
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       })
     );
 
@@ -193,11 +204,27 @@ export const createGitHubClient = (
    */
   const installationToken = async (
     installationId: number
-  ): Promise<{ token: string } | CanonicalOutcome> => {
+  ): Promise<InstallationAuthority> => {
+    let assertion: string;
+    try {
+      assertion = appJwt(config, new Date());
+    } catch (error) {
+      // An App id or a private key the deployment got wrong - truncated, PEM
+      // newlines left escaped, the wrong file entirely. It is caught here
+      // rather than left to the catch below, which would call it `transient`
+      // and retry a credential that cannot become valid on its own. ADR 0013's
+      // whole point about typed causes applies before the first request as much
+      // as after it.
+      return {
+        kind: "operator_attention",
+        reason: `the App credential cannot sign an assertion: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+
     const response = await send(
-      `${baseUrl}/app/installations/${installationId}/access_tokens`,
+      `${GITHUB_API_URL}/app/installations/${installationId}/access_tokens`,
       "POST",
-      `Bearer ${appJwt(config, now())}`
+      `Bearer ${assertion}`
     );
     const body = await bodyOf(response);
     if (!response.ok) {
@@ -205,13 +232,13 @@ export const createGitHubClient = (
     }
 
     const issued = readInstallationToken(body);
-    if (issued.kind === "unreadable") {
+    if (issued.kind !== "parsed") {
       return {
         kind: "operator_attention",
         reason: `the installation token exchange answered ${response.status} with no usable token: ${quote(body)}`,
       };
     }
-    return { token: issued.token };
+    return { kind: "token", token: issued.value.token };
   };
 
   const canonicalPullRequest = async (
@@ -226,12 +253,12 @@ export const createGitHubClient = (
 
     try {
       const authorized = await installationToken(request.installationId);
-      if (!("token" in authorized)) {
+      if (authorized.kind !== "token") {
         return authorized;
       }
 
       const response = await send(
-        `${baseUrl}/repos/${request.repositoryNameWithOwner}/pulls/${request.pullRequestNumber}`,
+        `${GITHUB_API_URL}/repos/${request.repositoryNameWithOwner}/pulls/${request.pullRequestNumber}`,
         "GET",
         `Bearer ${authorized.token}`
       );

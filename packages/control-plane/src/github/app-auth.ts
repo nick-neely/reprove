@@ -24,6 +24,9 @@ import { createSign } from "node:crypto";
 
 import { z } from "zod";
 
+import type { ParsedBody } from "./json.js";
+import { parseBody } from "./json.js";
+
 /**
  * How far the `iat` claim is backdated. GitHub rejects a JWT whose `iat` is in
  * *its* future, and the two clocks are not the same clock; a minute is GitHub's
@@ -105,9 +108,7 @@ export const appJwt = (credentials: AppCredentials, issuedAt: Date): string => {
 const installationTokenSchema = z.object({ token: z.string().min(1) });
 
 /** An installation token, or the reason this response carried none. */
-export type IssuedInstallationToken =
-  | { readonly kind: "token"; readonly token: string }
-  | { readonly kind: "unreadable"; readonly reason: string };
+export type IssuedInstallationToken = ParsedBody<{ token: string }>;
 
 /**
  * Reads `POST /app/installations/{id}/access_tokens`'s body.
@@ -115,21 +116,5 @@ export type IssuedInstallationToken =
  * @param body The raw response body.
  * @returns The token, or why there is none.
  */
-export const readInstallationToken = (
-  body: string
-): IssuedInstallationToken => {
-  let json: unknown;
-  try {
-    json = JSON.parse(body);
-  } catch (error) {
-    return {
-      kind: "unreadable",
-      reason: `the response is not JSON: ${error instanceof Error ? error.message : String(error)}`,
-    };
-  }
-
-  const parsed = installationTokenSchema.safeParse(json);
-  return parsed.success
-    ? { kind: "token", token: parsed.data.token }
-    : { kind: "unreadable", reason: "the response carries no token" };
-};
+export const readInstallationToken = (body: string): IssuedInstallationToken =>
+  parseBody(body, installationTokenSchema);

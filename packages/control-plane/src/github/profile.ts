@@ -36,6 +36,8 @@ import { createHash } from "node:crypto";
 import type { ResolvedConfig, RunSpec } from "@reprove/protocol/v1";
 import { resolvedConfigSchema } from "@reprove/protocol/v1";
 
+import type { JsonValue } from "./json.js";
+
 /** ADR 0014's Phase 0 unclaimed window, which ADR 0016 restates as a fixture. */
 export const PHASE_0_CLAIMABLE_FOR_MS = 5 * 60 * 1000;
 
@@ -58,21 +60,6 @@ export interface Phase0RunProfile {
   /** How long a created Run stays claimable. Written into the spec. */
   readonly claimableForMs: number;
 }
-
-/**
- * JSON, as a value rather than as `unknown`.
- *
- * A configuration is JSON before it is a `ResolvedConfig` - today from a
- * literal, and from `.reprove.yml` once [#21](https://github.com/nick-neely/reprove/issues/21)
- * reads one - so the parse below takes the shape it actually arrives in.
- */
-export type JsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | readonly JsonValue[]
-  | { readonly [key: string]: JsonValue };
 
 /**
  * A plain object, identified by its prototype rather than by `typeof`, which
