@@ -13,7 +13,7 @@
  * a Drizzle transaction, and ADR 0010 forbids the only consumer from depending
  * on Drizzle; the app reaches this through `createControlPlane()` instead.
  */
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import type { TenantTransaction } from "../db/runtime.js";
 import type {
@@ -51,6 +51,72 @@ export type IngressOutcome =
       readonly retryClass: IngressRetryClass;
       readonly nextAttemptAt: Date | null;
     };
+
+/**
+ * The Repository identity row, written as an Owner-scoped update and only then
+ * an insert, rather than as one `on conflict (id) do update`.
+ *
+ * A repository id is unique across the whole of GitHub and a repository can be
+ * **transferred between accounts** while keeping it, so the id a delivery
+ * carries may already name a row belonging to another Owner. A single upsert
+ * conflicting on the primary key would then try to update a row this tenant
+ * cannot see, and the tenant policy raises `42501 new row violates row-level
+ * security policy` from inside the statement - failing the transaction, so the
+ * envelope is never committed and the handler answers non-2xx. GitHub does not
+ * auto-redeliver, which makes that a delivery lost for good, every time, for as
+ * long as the stale row stands.
+ *
+ * The update matches nothing across the boundary, and the insert behind it
+ * conflicts into `do nothing` rather than into an update, so a foreign row is
+ * left exactly as it was instead of being written or raised over. That is what
+ * ADR 0013's "**may** upsert identity facts" allows: identity is an operational
+ * cache, the ledger row is the durable record, and `ingress_delivery`
+ * references `owner` alone - so nothing about the envelope's durability depends
+ * on this row existing. Reconciling a transfer needs authority over both
+ * Owners, which no tenant transaction has and #49's canonical fetch does.
+ */
+const upsertRepository = async (
+  tx: TenantTransaction,
+  envelope: IngressEnvelope,
+  repositoryId: number
+): Promise<void> => {
+  const nameWithOwner =
+    envelope.repositoryNameWithOwner ?? String(repositoryId);
+  // The current name, because a rename moves it and the ledger row keeps the
+  // locator the delivery carried. `inScope` is untouched: it is an operational
+  // cache the canonical fetch owns. The Installation is written only where the
+  // delivery named one, because a delivery that named none is not evidence that
+  // there is none - and clearing the column would drop the grant this
+  // repository is reached through.
+  const identity =
+    envelope.installationId === null
+      ? { nameWithOwner }
+      : { nameWithOwner, installationId: envelope.installationId };
+
+  const updated = await tx
+    .update(schema.repository)
+    .set(identity)
+    .where(
+      and(
+        eq(schema.repository.id, repositoryId),
+        eq(schema.repository.ownerId, envelope.ownerId)
+      )
+    )
+    .returning({ id: schema.repository.id });
+  if (updated.length > 0) {
+    return;
+  }
+
+  await tx
+    .insert(schema.repository)
+    .values({
+      id: repositoryId,
+      ownerId: envelope.ownerId,
+      installationId: envelope.installationId,
+      nameWithOwner,
+    })
+    .onConflictDoNothing({ target: schema.repository.id });
+};
 
 /**
  * The identity facts a verified payload is allowed to establish.
@@ -96,23 +162,7 @@ const upsertIdentity = async (
   }
 
   if (envelope.repositoryId !== null) {
-    const nameWithOwner =
-      envelope.repositoryNameWithOwner ?? String(envelope.repositoryId);
-    await tx
-      .insert(schema.repository)
-      .values({
-        id: envelope.repositoryId,
-        ownerId: envelope.ownerId,
-        installationId: envelope.installationId,
-        nameWithOwner,
-      })
-      .onConflictDoUpdate({
-        target: schema.repository.id,
-        // The current name, because a rename moves it and the ledger row keeps
-        // the locator the delivery carried. `inScope` is untouched: it is an
-        // operational cache the canonical fetch owns.
-        set: { nameWithOwner, installationId: envelope.installationId },
-      });
+    await upsertRepository(tx, envelope, envelope.repositoryId);
   }
 };
 

@@ -170,6 +170,72 @@ describe("the ingress ledger against real Postgres", () => {
       expect(repository?.nameWithOwner).toBe("globex/renamed");
     });
 
+    it("keeps the Installation a later delivery did not name", async () => {
+      // A delivery that names no Installation is not evidence that there is
+      // none, and clearing the column would drop the grant the repository is
+      // reached through - for a fact the delivery never asserted.
+      await commit(
+        envelopeFor({
+          ownerId: GLOBEX,
+          ownerLogin: "globex",
+          ownerType: "user",
+          installationId: null,
+          repositoryId: 4001,
+          repositoryNameWithOwner: "globex/renamed",
+          deliveryGuid: "naming-no-installation",
+        })
+      );
+
+      const [repository] = await runtime.withOwner(GLOBEX, (tx) =>
+        tx.select().from(schema.repository)
+      );
+      expect(repository?.installationId).toBe(84);
+    });
+
+    it("commits a delivery for a repository transferred from another Owner", async () => {
+      // A repository id is unique across GitHub and survives a transfer between
+      // accounts, so the id can already name another Owner's row. Conflicting
+      // into an update there is a row-level security failure raised from inside
+      // the statement, which fails the transaction and loses a delivery GitHub
+      // will never resend. The envelope is what has to be durable; the identity
+      // row is an operational cache, and reconciling a transfer needs authority
+      // over both Owners that no tenant transaction has.
+      const transferred = {
+        repositoryId: 5001,
+        repositoryNameWithOwner: "acme/transferred",
+      };
+      await commit(
+        envelopeFor({ ...transferred, deliveryGuid: "before-the-transfer" })
+      );
+
+      const { row } = await commit(
+        envelopeFor({
+          ...transferred,
+          ownerId: GLOBEX,
+          ownerLogin: "globex",
+          ownerType: "user",
+          installationId: 84,
+          repositoryNameWithOwner: "globex/transferred",
+          deliveryGuid: "after-the-transfer",
+        })
+      );
+
+      expect(row?.ownerId).toBe(GLOBEX);
+      expect(row?.repositoryNameWithOwner).toBe("globex/transferred");
+      // The stale row stays exactly as it was rather than being written across
+      // the boundary or raised over.
+      const [stale] = await runtime.withOwner(ACME, (tx) =>
+        tx
+          .select()
+          .from(schema.repository)
+          .where(eq(schema.repository.id, transferred.repositoryId))
+      );
+      expect(stale).toMatchObject({
+        ownerId: ACME,
+        nameWithOwner: "acme/transferred",
+      });
+    });
+
     it("commits a lifecycle delivery that names no repository", async () => {
       const { row } = await commit(
         envelopeFor({

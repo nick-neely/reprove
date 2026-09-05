@@ -137,6 +137,16 @@ require that `installation.created` arrived first - GitHub never auto-redelivers
 lifecycle delivery would orphan an Owner permanently. Whether a repository is *in scope* stays with
 the canonical fetch under installation authority, which #49 builds.
 
+Identity is written so that it can never be what loses a delivery. A repository id is unique across
+GitHub and survives a **transfer between accounts**, so the id a delivery carries may already name a
+row belonging to another Owner; conflicting into an update there is a row-level security failure
+raised from inside the statement, which would fail the transaction and answer non-2xx for a delivery
+GitHub will never resend. So the Repository row is an Owner-scoped update and only then an insert
+that conflicts into `do nothing`: the foreign row is left as it is, the envelope still commits, and
+reconciling the transfer waits for authority over both Owners that no tenant transaction has. For
+the same reason an Installation the delivery did not name is left alone rather than cleared - a
+delivery that named none is not evidence that there is none.
+
 ### The App requests two read permissions and publishes no Check
 
 `githubAppManifest()` is the registration, and the grant in it is the complete one:
