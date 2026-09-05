@@ -58,6 +58,21 @@ export interface DeliveryToProcess {
   readonly envelope: IngressEnvelope;
 }
 
+/**
+ * A live Run this delivery ended, and how.
+ *
+ * Reported rather than left for the scheduler to discover, because the durable
+ * lifecycle that schedules an ended Run is asleep until its deadline and would
+ * otherwise wake only then. ADR 0014 has the lifecycle "resumed through its
+ * cancel hook so it terminates reportably", and this is what the resumer reads.
+ * The status is already written when this is returned; the notification that
+ * follows is exactly that, and changes nothing.
+ */
+export interface EndedRun {
+  readonly runId: string;
+  readonly status: "superseded" | "cancelled";
+}
+
 /** What one processing attempt concluded, and whether the ledger took it. */
 export interface ProcessedDelivery {
   /**
@@ -79,4 +94,6 @@ export interface ProcessedDelivery {
   readonly settled: boolean;
   /** The Run this delivery produced, where it produced one. */
   readonly runId: string | null;
+  /** The live Runs this delivery ended, in the same transaction. */
+  readonly endedRuns: readonly EndedRun[];
 }

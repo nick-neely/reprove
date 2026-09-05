@@ -108,6 +108,26 @@ describe("the canonical fetch", () => {
     });
   });
 
+  it("addresses every request under the REST root it was given", async () => {
+    // A GitHub Enterprise Server deployment, or a build gate standing a canned
+    // GitHub up on loopback. The trailing slash is the way a root is most often
+    // mistyped, and it must not produce `//app`.
+    const wire = transport(tokenIssued(), json(200, CANONICAL));
+    const client = createGitHubClient({
+      appId: "1234",
+      privateKey: PRIVATE_KEY,
+      fetch: wire.fetch,
+      apiUrl: "http://127.0.0.1:4141/",
+    });
+
+    await client.canonicalPullRequest(REQUEST);
+
+    expect(wire.issued.map((request) => request.url)).toStrictEqual([
+      "http://127.0.0.1:4141/app/installations/42/access_tokens",
+      "http://127.0.0.1:4141/repos/acme/reprove/pulls/7",
+    ]);
+  });
+
   it("addresses the installation token exchange with the App JWT", async () => {
     const { client, issued } = clientOver(tokenIssued(), json(200, CANONICAL));
 

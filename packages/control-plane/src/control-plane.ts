@@ -30,7 +30,14 @@ import type {
 import { recordDelivery } from "./github/ledger.js";
 import { createDeliveryProcessor } from "./github/processing.js";
 import type { Phase0RunProfile } from "./github/profile.js";
+import type { KickProcessing } from "./github/webhook.js";
 import { createGitHubWebhookHandler } from "./github/webhook.js";
+import {
+  expireUnclaimed,
+  readSchedule,
+  recordLifecycle,
+} from "./run/lifecycle.js";
+import type { RunLifecyclePort } from "./run/schedule.js";
 
 /** The database connection, as configuration rather than as a client. */
 export interface ControlPlaneDatabaseConfig {
@@ -70,12 +77,30 @@ export interface ControlPlaneGitHubConfig {
    * parsing all execute for real against a canned body.
    */
   readonly fetch?: GitHubFetch;
+  /**
+   * The REST root. Defaults to `https://api.github.com`; a GitHub Enterprise
+   * Server deployment names its own.
+   */
+  readonly apiUrl?: string;
 }
 
 /** Everything the control plane is composed over. */
 export interface ControlPlaneConfig {
   readonly database: ControlPlaneDatabaseConfig;
   readonly github: ControlPlaneGitHubConfig;
+  /**
+   * What the webhook hands a committed delivery to, after the acknowledgement
+   * and without awaiting it.
+   *
+   * ADR 0014 makes the durable spine the mechanism: the composition that owns
+   * Workflow passes the function that starts the ingress workflow, and the
+   * platform's step retry is then the re-drive of `contended` and `transient`
+   * dispositions. Left unset, the delivery is processed **in this process**,
+   * once, with the ledger row as the only recovery - which is ADR 0013's
+   * minimum and what a composition with no durable runtime, such as a test,
+   * gets. It is not what a deployment should run.
+   */
+  readonly kick?: KickProcessing;
 }
 
 /** The composed control plane, as the app holds it. */
@@ -100,6 +125,12 @@ export interface ControlPlane {
   readonly processDelivery: (
     delivery: DeliveryToProcess
   ) => Promise<ProcessedDelivery>;
+  /**
+   * The lifecycle's reach into a Run: record which durable run schedules it,
+   * read what to do next, and close the unclaimed window (ADR 0014). Every
+   * write is conditional on the writer being the recorded lifecycle.
+   */
+  readonly lifecycle: RunLifecyclePort;
   /** Drains the connection pool. */
   readonly close: () => Promise<void>;
 }
@@ -153,6 +184,7 @@ export const createControlPlane = async (
     appId,
     privateKey,
     fetch: config.github.fetch ?? ((request) => fetch(request)),
+    apiUrl: config.github.apiUrl,
   });
 
   const processDelivery = createDeliveryProcessor({
@@ -161,33 +193,49 @@ export const createControlPlane = async (
     profile: runProfile,
   });
 
+  // The in-process fallback. Started and not awaited, so the acknowledgement
+  // is not held behind the advisory lock and the canonical fetch. A rejection
+  // is swallowed rather than crashing the process on an unhandled rejection:
+  // the envelope is durable and the ledger row is still `received`, which is
+  // the state a re-drive picks up - and, with no durable spine composed, the
+  // state a manual redelivery finds it in.
+  const processInProcess: KickProcessing = (delivery) => {
+    void (async () => {
+      try {
+        await processDelivery(delivery);
+      } catch {
+        // Nothing to do, and nothing to log with: this package holds no
+        // logger.
+      }
+    })();
+  };
+
   const handleGitHubWebhook = createGitHubWebhookHandler({
     secret: webhookSecret,
     maximumBytes: config.github.maximumDeliveryBytes,
     commit: (envelope) =>
       runtime.withOwner(envelope.ownerId, (tx) => recordDelivery(tx, envelope)),
-    // Started and not awaited, so the acknowledgement is not held behind the
-    // advisory lock and the canonical fetch. A rejection is swallowed here
-    // rather than crashing the process on an unhandled rejection: the envelope
-    // is durable and the ledger row is still `received`, which is exactly the
-    // state #38's re-drive picks up.
-    kick: (delivery) => {
-      void (async () => {
-        try {
-          await processDelivery(delivery);
-        } catch {
-          // Nothing to do, and nothing to log with: this package holds no
-          // logger. The ledger row is still `received`, which is exactly the
-          // state #38's re-drive picks up.
-        }
-      })();
-    },
+    kick: config.kick ?? processInProcess,
   });
+
+  const lifecycle: RunLifecyclePort = {
+    record: (ownerId, runId, workflowRunId) =>
+      runtime.withOwner(ownerId, (tx) =>
+        recordLifecycle(tx, runId, workflowRunId)
+      ),
+    schedule: (ownerId, runId) =>
+      runtime.withOwner(ownerId, (tx) => readSchedule(tx, runId)),
+    expireUnclaimed: (ownerId, runId, workflowRunId) =>
+      runtime.withOwner(ownerId, (tx) =>
+        expireUnclaimed(tx, runId, workflowRunId)
+      ),
+  };
 
   return {
     checks: runtime.checks,
     handleGitHubWebhook,
     processDelivery,
+    lifecycle,
     close: runtime.close,
   };
 };

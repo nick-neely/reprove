@@ -40,7 +40,7 @@ import { appJwt, readInstallationToken } from "./app-auth.js";
 import type { CanonicalPullRequest } from "./canonical.js";
 import { readPullRequest } from "./canonical.js";
 
-/** GitHub's REST root. */
+/** GitHub's REST root, which is the default when a deployment names none. */
 export const GITHUB_API_URL = "https://api.github.com";
 
 /**
@@ -81,6 +81,12 @@ export type GitHubFetch = (request: Request) => Promise<Response>;
 /** What the client is composed over. No value here is read from anywhere. */
 export interface GitHubClientConfig extends AppCredentials {
   readonly fetch: GitHubFetch;
+  /**
+   * The REST root every request is addressed under. Defaults to
+   * {@link GITHUB_API_URL}; a GitHub Enterprise Server deployment names its
+   * own, and so does a build gate standing a canned GitHub up on loopback.
+   */
+  readonly apiUrl?: string;
 }
 
 /** Which pull request, reached through which grant. */
@@ -175,6 +181,9 @@ const classify = (
 export const createGitHubClient = (
   config: GitHubClientConfig
 ): GitHubClient => {
+  // Without a trailing slash, so the paths below join onto it the same way
+  // whether the root arrived as `https://host` or `https://host/`.
+  const apiUrl = (config.apiUrl ?? GITHUB_API_URL).replace(/\/+$/u, "");
   const send = (url: string, method: string, authorization: string) =>
     config.fetch(
       new Request(url, {
@@ -213,7 +222,7 @@ export const createGitHubClient = (
     }
 
     const response = await send(
-      `${GITHUB_API_URL}/app/installations/${installationId}/access_tokens`,
+      `${apiUrl}/app/installations/${installationId}/access_tokens`,
       "POST",
       `Bearer ${assertion}`
     );
@@ -249,7 +258,7 @@ export const createGitHubClient = (
       }
 
       const response = await send(
-        `${GITHUB_API_URL}/repos/${request.repositoryNameWithOwner}/pulls/${request.pullRequestNumber}`,
+        `${apiUrl}/repos/${request.repositoryNameWithOwner}/pulls/${request.pullRequestNumber}`,
         "GET",
         `Bearer ${authorized.token}`
       );
