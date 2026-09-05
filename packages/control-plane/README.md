@@ -66,7 +66,8 @@ The effective state is then a walk of the journal in order: `0001 FORCE` followe
 
 `0002` adds `account.issuer` as `NOT NULL` with no default and no backfill, which is drizzle-kit's own output and is left as generated. It is safe because it cannot meet a row: nothing wrote to `account` before `createAuth()` existed, so every database at `0001` has it empty. It is also the behaviour to want if that were ever untrue - a default would invent an issuer for accounts nobody can attribute, and mis-key them under the `(issuer, account_id)` unique index beside it, where the bare `NOT NULL` stops the migration and says so.
 
-`0003` completes ADR 0013's Run spec and is drizzle-kit's own output too. It adds `resolved_config` and `allow_hosted_fallback` as `NOT NULL` with no default, tightens `claimable_until` to `NOT NULL`, and adds the conditional unique index behind the automatic-trigger no-op. The same argument makes all four safe: nothing created a Run before #49, so every database at `0002` has `run` empty. The two new columns are ADR 0013's own words - "`Phase0RunProfile`'s config must persist" and "`claimableUntil` lives in immutable `spec`, so it is written at creation" - and a nullable deadline would let a `queued` Run exist that nothing ever moves off `queued`.
+`0004` puts `owner_id` at the front of both Run indexes, so an index that is global stops being
+scoped differently from the queries that check it. `0003` completes ADR 0013's Run spec and is drizzle-kit's own output too. It adds `resolved_config` and `allow_hosted_fallback` as `NOT NULL` with no default, tightens `claimable_until` to `NOT NULL`, and adds the conditional unique index behind the automatic-trigger no-op. The same argument makes all four safe: nothing created a Run before #49, so every database at `0002` has `run` empty. The two new columns are ADR 0013's own words - "`Phase0RunProfile`'s config must persist" and "`claimableUntil` lives in immutable `spec`, so it is written at creation" - and a nullable deadline would let a `queued` Run exist that nothing ever moves off `queued`.
 
 All of it is ordinary Vitest - `declared.test.ts`, `force.test.ts`, `force-generate.test.ts` - beside `tools/verify-migrations.mjs`, which is the Git-aware half that proves history was only appended to. None of it sees a database: what actually deployed is `createRuntimeDb()`'s seven checks, and that division is ADR 0017's, not an omission.
 
@@ -126,8 +127,9 @@ would then have to govern.
 **The delivery GUID is indexed and deliberately not unique.** GitHub reuses `X-GitHub-Delivery` on a
 manual redelivery, so a unique constraint would swallow the only recovery GitHub offers. The rule is
 stateful instead - same GUID plus a terminal state is a duplicate, same GUID plus a nonterminal one
-resumes. The ledger's states, the four terminal dispositions (`ineligible`,
-`duplicate_head`, `grant_gone`, `inert`) and the three retry classes (`transient`, `operator_attention`,
+resumes, and the critical section reads that state under the lock before it acts. The ledger's
+states, the five terminal dispositions (`inert`, `ineligible`, `duplicate_head`, `unchanged`,
+`grant_gone`) and the three retry classes (`transient`, `operator_attention`,
 `contended`) are named in [`src/db/schema-values.ts`](src/db/schema-values.ts) and settled through
 `settleDelivery()`, which counts the attempt in SQL so two processors cannot both write the count
 they each read. It settles a `received` row and only a `received` row, and returns whether it did:
@@ -148,20 +150,35 @@ competing with the durable one is worse than none.
 `ready_for_review` can produce a Run; `closed` and `converted_to_draft` can only end one;
 everything else - `edited` most of all, because ADR 0012 makes the title and description
 Author-controlled narrative and a re-triggering edit would be a free re-roll of the review - is
-`inert`, concluded the moment the event and action are read, with no lock taken and no request
-issued. The per-action conditions in that table are deliberately not repeated in the switch, because
-each of them is a statement about canonical state rather than about the action.
+`inert`. The per-action conditions in that table are deliberately not repeated in the switch,
+because each of them is a statement about canonical state rather than about the action.
+
+**`inert` means concluded from the delivery alone**: no lock taken and no request issued. It covers
+an event or action that is not a trigger, and an acting delivery naming no repository or pull
+request to act on, which no later attempt can supply. **`unchanged` is the opposite and is a
+separate disposition for that reason**: the lock was taken, GitHub was asked, and the answer made
+the delivery a no-op - a stale `closed` for a pull request that has since reopened. Calling that
+`inert` would claim no request was made, and calling it `ineligible` would claim canonical state
+refused the pull request when it did the opposite.
 
 Everything after that happens inside one `withOwner` transaction:
 
 ```text
 pg_try_advisory_xact_lock(hash of repository id and pull request number)
+  -> is this ledger row still `received`?  no -> stop, having written nothing
   -> GET /repos/{owner}/{repo}/pulls/{number}, under installation authority
   -> supersede a live Run at a head the pull request no longer has
   -> any Run at the canonical head, in any status  -> duplicate_head
   -> otherwise insert the Run, complete
   -> settle the ledger row
 ```
+
+**The ledger read is under the lock and before the fetch**, and it is what separates a re-drive from
+a second Run. `settleDelivery()` already refuses to reopen a terminal row, but it runs *after* the
+decision, so by the time it declined the work was done: a `done` delivery driven again - by #38's
+step retry, or by a manual GitHub redelivery, which reuses `X-GitHub-Delivery` and which the
+ledger's deliberately non-unique index accepts a second row for - would take the lock, observe a
+head that had since moved, supersede the live Run and insert a replacement no ledger row records.
 
 **The fetch is inside the lock, not before it.** Resolving canonical state at the top of the
 asynchronous job leaves an interleaving where "one live Run" holds at every step and the *older*
@@ -177,14 +194,30 @@ transaction-local `idle_in_transaction_session_timeout` set higher.
 **The settlement shares that transaction with the decision.** Settling afterwards would leave a
 window in which a Run exists and the delivery that created it still reads `received`, and a
 re-drive arriving in that window would take the lock, find its own Run at the canonical head, and
-conclude `duplicate_head` for a delivery that is actually `done`.
+conclude `duplicate_head` for a delivery that is actually `done`. The cost of sharing it is that a
+transaction which cannot commit takes the settlement down with it, leaving a row with no attempt
+counted and no retry class - which is a delivery ADR 0013's re-drive reads the class of and
+therefore never picks up. So a failed transaction is settled in a fresh one, classified by
+SQLSTATE: a concurrent writer, a lost connection, a deadlock or the
+`idle_in_transaction_session_timeout` backstop are `transient`, and everything else is
+`operator_attention`, because a constraint the code did not expect reaches the same failure on every
+attempt.
 
 Two indexes make the invariants structural as well. `run_one_live_per_pull_request` is ADR 0013's
 own partial unique index over `queued`, `claimed` and `executing`.
-`run_one_automatic_per_head`, on `(repository_id, pull_request_number, head_sha)`
+`run_one_automatic_per_head`, on `(owner_id, repository_id, pull_request_number, head_sha)`
 `WHERE trigger = 'automatic'`, is the structural half of the any-status no-op; the predicate is what
 reconciles it with ADR 0007's "a new push **or a retry** produces a new Run", because the retry ADR
-0013 leaves open is an explicit manual act and carries `trigger = 'manual'`. The application-level
+0013 leaves open is an explicit manual act and carries `trigger = 'manual'`.
+
+**Both are keyed on `owner_id` first**, so what they enforce is the same thing the code can see. An
+index is global and sees no policy, while every probe in front of it runs inside `withOwner`. A
+repository id survives a transfer between accounts, so an index scoped to the repository alone would
+let the new Owner's insert collide with a row it cannot select, supersede or explain. Today the
+composite foreign key from `run` to `repository (owner_id, id)` reaches that case first and refuses
+it - `run-creation.test.ts` measures that rather than assuming it - so the Owner column is defence
+in depth against a boundary the two halves would otherwise disagree about, not a live collision
+being fixed. The application-level
 rule stays primary and has **no status allowlist**: a `failed` Run at a head is not automatically
 retried, and a pull request reviewed at H3, then closed and reopened at the same H3, gets no second
 Run. Both consequences are ADR 0013's and are documented rather than hidden.

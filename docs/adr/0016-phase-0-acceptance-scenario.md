@@ -45,8 +45,14 @@ the build, which is precisely the failure ADR 0014 built its check to catch.
 
 **Only GitHub's own API is substituted, and only at the transport.** Signature verification is
 Reprove's own code and runs for real, on real bytes, with a timing-safe comparison. The canonical
-fetch is intercepted below Octokit, so the App-auth exchange, the request shape and the response
-parsing all execute; what is canned is the response body. A live App against a fixture repository
+fetch is intercepted at the transport, so the App-auth exchange, the request shape and the response
+parsing all execute; what is canned is the response body.
+
+> **Amended by [#49](https://github.com/nick-neely/reprove/issues/49):** "below Octokit" named a
+> dependency Reprove does not have. The GitHub client is `node:crypto` and an **injected `fetch`**,
+> so the interception point is that `fetch` - one `Request` in, one `Response` out. The requirement
+> is unchanged and is if anything stricter: the App JWT is signed, the installation-token exchange
+> is issued, the request shape is asserted and the response is parsed, all for real. A live App against a fixture repository
 was rejected: it needs credentials in CI and a public ingress URL, it is nondeterministic, and it
 cannot inject the `403`, `429` and contention cases whose typed classification ADR 0013 fixed.
 

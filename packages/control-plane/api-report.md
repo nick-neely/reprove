@@ -182,10 +182,6 @@ export interface ControlPlaneGitHubConfig {
     readonly runProfile: Phase0RunProfile;
     /** The largest delivery body to accept, in bytes. */
     readonly maximumDeliveryBytes?: number;
-    /** GitHub's REST root. Defaults to `https://api.github.com`. */
-    readonly apiUrl?: string;
-    /** The per-request timeout, in milliseconds. */
-    readonly requestTimeoutMs?: number;
     /**
      * The transport. Defaults to the global `fetch`, and exists as configuration
      * because ADR 0016's acceptance scenario substitutes GitHub "only at the
@@ -1185,27 +1181,37 @@ export type IngressState = (typeof INGRESS_STATES)[number];
  * each is a conclusion about the delivery rather than about a Run:
  *
  * ```text
+ * concluded from the delivery alone            -> inert
  * canonical state ineligible - closed, draft   -> ineligible
  * a Run already exists at the canonical head   -> duplicate_head
+ * canonical state needed nothing done          -> unchanged
  * grant definitively gone                      -> grant_gone
- * the delivery is not one that acts            -> inert
  * ```
  *
- * `inert` is ADR 0013's own word for the last row of its trigger table -
- * "everything else | inert" - promoted to a disposition because the ledger has
- * to say something about a delivery it concluded on, and every alternative
- * misreports it. `done` claims a Run was created, `ineligible` claims canonical
- * state was read and refused the pull request, and leaving the row `received`
- * hands a re-drive work that will reach the same answer forever. An `edited`
- * delivery, or one of the three events GitHub delivers to every App
- * unconditionally, is concluded the moment its event and action are read: no
- * lock is taken and no canonical fetch is made.
+ * `inert` and `unchanged` are the pair worth keeping apart, because collapsing
+ * them would make the ledger lie about what a delivery cost.
  *
- * It needs no migration. `disposition` is a `text` column and ADR 0008 keeps
+ * **`inert` means concluded from the delivery alone** - no advisory lock taken
+ * and no request issued to GitHub. It is ADR 0013's own word for the last row of
+ * its trigger table, "everything else | inert", and it covers two shapes: an
+ * event or action that is not a trigger, which is every `edited` delivery and
+ * each of the three events GitHub delivers to every App unconditionally; and an
+ * acting delivery that names no repository or pull request to act on, which no
+ * later attempt can supply. Both are decided by reading the envelope.
+ *
+ * **`unchanged` means the work was done and nothing needed doing.** The lock was
+ * taken and canonical state was read, and it disagreed with the delivery: a
+ * stale `closed` for a pull request that has since reopened is ADR 0013's own
+ * example, and cancelling on it is exactly what the canonical fetch exists to
+ * prevent. Recording that as `inert` would claim no request was made, and
+ * recording it as `ineligible` would claim canonical state refused the pull
+ * request when it did the opposite.
+ *
+ * Neither needs a migration. `disposition` is a `text` column and ADR 0008 keeps
  * the state machines in the application rather than in a Postgres `ENUM`, which
  * is exactly the case this is.
  */
-export declare const INGRESS_DISPOSITIONS: readonly ["ineligible", "duplicate_head", "grant_gone", "inert"];
+export declare const INGRESS_DISPOSITIONS: readonly ["inert", "ineligible", "duplicate_head", "unchanged", "grant_gone"];
 export type IngressDisposition = (typeof INGRESS_DISPOSITIONS)[number];
 /**
  * `ingress_delivery.retry_class`, on a nonterminal `received`.
@@ -3656,6 +3662,7 @@ export declare const verification: import("drizzle-orm/pg-core").PgTableWithColu
 ## dist/github/app-auth.d.ts
 
 ```ts
+import type { ParsedBody } from "./json.js";
 /**
  * How far the `iat` claim is backdated. GitHub rejects a JWT whose `iat` is in
  * *its* future, and the two clocks are not the same clock; a minute is GitHub's
@@ -3689,13 +3696,9 @@ export interface AppCredentials {
  */
 export declare const appJwt: (credentials: AppCredentials, issuedAt: Date) => string;
 /** An installation token, or the reason this response carried none. */
-export type IssuedInstallationToken = {
-    readonly kind: "token";
-    readonly token: string;
-} | {
-    readonly kind: "unreadable";
-    readonly reason: string;
-};
+export type IssuedInstallationToken = ParsedBody<{
+    token: string;
+}>;
 /**
  * Reads `POST /app/installations/{id}/access_tokens`'s body.
  *
@@ -3821,7 +3824,7 @@ export declare const readPullRequest: (body: string) => ParsedPullRequest;
  */
 import type { AppCredentials } from "./app-auth.js";
 import type { CanonicalPullRequest } from "./canonical.js";
-/** GitHub's REST root. Overridden only by a test or by GitHub Enterprise. */
+/** GitHub's REST root. */
 export declare const GITHUB_API_URL = "https://api.github.com";
 /**
  * The hard client timeout ADR 0013 requires, per request.
@@ -3832,19 +3835,18 @@ export declare const GITHUB_API_URL = "https://api.github.com";
  * timeout` set higher, "so application code normally aborts cleanly before
  * Postgres kills the session". Two requests at this budget still fit inside
  * that backstop.
+ *
+ * A constant rather than a configuration field, because the number is only
+ * correct in relation to that backstop: a deployment free to raise it could
+ * raise it past the timeout that exists to catch it, and no caller has ever
+ * needed to.
  */
-export declare const DEFAULT_REQUEST_TIMEOUT_MS = 5000;
+export declare const REQUEST_TIMEOUT_MS = 5000;
 /** The injected transport. One `Request` in, one `Response` out. */
 export type GitHubFetch = (request: Request) => Promise<Response>;
 /** What the client is composed over. No value here is read from anywhere. */
 export interface GitHubClientConfig extends AppCredentials {
     readonly fetch: GitHubFetch;
-    /** Defaults to {@link GITHUB_API_URL}. */
-    readonly baseUrl?: string;
-    /** Defaults to {@link DEFAULT_REQUEST_TIMEOUT_MS}. */
-    readonly timeoutMs?: number;
-    /** The clock the App JWT is dated from. Defaults to the system clock. */
-    readonly now?: () => Date;
 }
 /** Which pull request, reached through which grant. */
 export interface CanonicalRequest {
@@ -3951,7 +3953,16 @@ export interface DeliveryToProcess {
 }
 /** What one processing attempt concluded, and whether the ledger took it. */
 export interface ProcessedDelivery {
-    readonly outcome: IngressOutcome;
+    /**
+     * What this attempt concluded, or `null` where it concluded nothing because
+     * the delivery was already terminal when the lock was taken.
+     *
+     * Nullable rather than folded into a disposition, because a disposition is a
+     * statement about work that was done. Every value of it would misreport this:
+     * the attempt read the ledger, found the question already answered, and left
+     * without fetching, writing or settling anything.
+     */
+    readonly outcome: IngressOutcome | null;
     /**
      * `false` when the row was already terminal, or belongs to another Owner.
      * ADR 0013's stateful GUID rule is what makes that expected rather than
@@ -4011,6 +4022,57 @@ export interface ReceivedDelivery {
  * @returns The envelope, or the reason there is none.
  */
 export declare const normalizeDelivery: (delivery: ReceivedDelivery) => NormalizedDelivery;
+```
+
+## dist/github/json.d.ts
+
+```ts
+/**
+ * JSON at a boundary: the value type it arrives as, and the one parse every
+ * reader of a GitHub response performs.
+ *
+ * Both halves exist because the same three-step shape - decode the bytes,
+ * validate the result, say why not - was being written once per endpoint, and a
+ * response reader that differs between two endpoints differs in what it accepts
+ * as well as in how it reports. The [ADR
+ * 0013](../../../../docs/adr/0013-github-ingress-and-run-creation-idempotency.md)
+ * reason it matters is that both readers feed a Run's immutable spec: a field
+ * that merely looked right at the property access that read it is a permanent
+ * wrong answer, so the parse is the boundary rather than a convenience.
+ *
+ * The rejected alternative is a reader per endpoint holding its own `try` around
+ * `JSON.parse`, which is what this replaced. It reads as harmless duplication
+ * and is not: the two copies had already diverged on what they said about a body
+ * that was not JSON at all.
+ */
+import type { z } from "zod";
+/**
+ * JSON, as a value rather than as `unknown`.
+ *
+ * A configuration is JSON before it is a `ResolvedConfig` - today from a
+ * literal, and from `.reprove.yml` once
+ * [#21](https://github.com/nick-neely/reprove/issues/21) reads one - so a parse
+ * over one takes the shape it actually arrives in.
+ */
+export type JsonValue = string | number | boolean | null | readonly JsonValue[] | {
+    readonly [key: string]: JsonValue;
+};
+/** A parsed body, or the reason these bytes could not become one. */
+export type ParsedBody<Value> = {
+    readonly kind: "parsed";
+    readonly value: Value;
+} | {
+    readonly kind: "unreadable";
+    readonly reason: string;
+};
+/**
+ * Decodes one response body and validates it against a schema.
+ *
+ * @param body The raw response body.
+ * @param schema The shape the caller requires of it.
+ * @returns The parsed value, or why there is none.
+ */
+export declare const parseBody: <Schema extends z.ZodType>(body: string, schema: Schema) => ParsedBody<z.infer<Schema>>;
 ```
 
 ## dist/github/ledger.d.ts
@@ -4225,6 +4287,7 @@ export declare const createDeliveryProcessor: (config: DeliveryProcessorConfig) 
 
 ```ts
 import type { ResolvedConfig, RunSpec } from "@reprove/protocol/v1";
+import type { JsonValue } from "./json.js";
 /** ADR 0014's Phase 0 unclaimed window, which ADR 0016 restates as a fixture. */
 export declare const PHASE_0_CLAIMABLE_FOR_MS: number;
 /**
@@ -4246,16 +4309,6 @@ export interface Phase0RunProfile {
     /** How long a created Run stays claimable. Written into the spec. */
     readonly claimableForMs: number;
 }
-/**
- * JSON, as a value rather than as `unknown`.
- *
- * A configuration is JSON before it is a `ResolvedConfig` - today from a
- * literal, and from `.reprove.yml` once [#21](https://github.com/nick-neely/reprove/issues/21)
- * reads one - so the parse below takes the shape it actually arrives in.
- */
-export type JsonValue = string | number | boolean | null | readonly JsonValue[] | {
-    readonly [key: string]: JsonValue;
-};
 /**
  * The digest of one resolved configuration.
  *
@@ -4372,6 +4425,13 @@ export interface PullRequestLocator extends CanonicalRequest {
     readonly ownerId: number;
     readonly repositoryId: number;
 }
+/** One ledger row's worth of work: what to act on, and on whose behalf. */
+export interface DeliveryUnderLock {
+    /** The ledger row, which is re-read under the lock before anything moves. */
+    readonly deliveryId: string;
+    readonly locator: PullRequestLocator;
+    readonly intent: Exclude<DeliveryIntent, "inert">;
+}
 /** What the critical section is composed over. */
 export interface RunCreationConfig {
     readonly canonicalPullRequest: (request: CanonicalRequest) => Promise<CanonicalOutcome>;
@@ -4406,7 +4466,14 @@ export type RunDecision =
 }
 /** A cancelling delivery whose pull request is, canonically, still open. */
  | {
-    readonly kind: "no_action";
+    readonly kind: "unchanged";
+}
+/**
+ * The ledger row is no longer `received`, so this attempt has nothing to do
+ * and must do nothing. Nothing was fetched and nothing was written.
+ */
+ | {
+    readonly kind: "already_concluded";
 }
 /** Another processor holds this pull request. Nothing was read or written. */
  | {
@@ -4431,11 +4498,10 @@ export type RunDecision =
  *
  * @param tx A tenant transaction already scoped to the delivery's Owner.
  * @param config The canonical fetch, the injected profile and the clock.
- * @param locator Which pull request, reached through which grant.
- * @param intent What the delivery is asking for.
+ * @param delivery The ledger row, the pull request it names and what it asks.
  * @returns What was decided, and what it did to existing Runs.
  */
-export declare const settlePullRequest: (tx: TenantTransaction, config: RunCreationConfig, locator: PullRequestLocator, intent: Exclude<DeliveryIntent, "inert">) => Promise<RunDecision>;
+export declare const settlePullRequest: (tx: TenantTransaction, config: RunCreationConfig, delivery: DeliveryUnderLock) => Promise<RunDecision>;
 ```
 
 ## dist/github/signature.d.ts
@@ -4651,7 +4717,7 @@ export type { DeliveryToProcess, IngressOutcome, ProcessedDelivery, } from "./gi
 export type { IngressEnvelope } from "./github/envelope.js";
 export type { GitHubAppManifest, ManifestOptions, ManifestPermission, } from "./github/manifest.js";
 export type { Phase0RunProfile } from "./github/profile.js";
-export { PHASE_0_CLAIMABLE_FOR_MS, PHASE_0_RUN_PROFILE, } from "./github/profile.js";
+export { PHASE_0_RUN_PROFILE } from "./github/profile.js";
 export { APP_EVENTS, APP_PERMISSIONS, githubAppManifest, WEBHOOK_PATH, } from "./github/manifest.js";
 export { WEBHOOK_STATUS } from "./github/webhook.js";
 export declare const packageName: "@reprove/control-plane";
