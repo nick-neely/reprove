@@ -28,12 +28,28 @@ export type IngressState = (typeof INGRESS_STATES)[number];
  * canonical state ineligible - closed, draft   -> ineligible
  * a Run already exists at the canonical head   -> duplicate_head
  * grant definitively gone                      -> grant_gone
+ * the delivery is not one that acts            -> inert
  * ```
+ *
+ * `inert` is ADR 0013's own word for the last row of its trigger table -
+ * "everything else | inert" - promoted to a disposition because the ledger has
+ * to say something about a delivery it concluded on, and every alternative
+ * misreports it. `done` claims a Run was created, `ineligible` claims canonical
+ * state was read and refused the pull request, and leaving the row `received`
+ * hands a re-drive work that will reach the same answer forever. An `edited`
+ * delivery, or one of the three events GitHub delivers to every App
+ * unconditionally, is concluded the moment its event and action are read: no
+ * lock is taken and no canonical fetch is made.
+ *
+ * It needs no migration. `disposition` is a `text` column and ADR 0008 keeps
+ * the state machines in the application rather than in a Postgres `ENUM`, which
+ * is exactly the case this is.
  */
 export const INGRESS_DISPOSITIONS = [
   "ineligible",
   "duplicate_head",
   "grant_gone",
+  "inert",
 ] as const;
 export type IngressDisposition = (typeof INGRESS_DISPOSITIONS)[number];
 

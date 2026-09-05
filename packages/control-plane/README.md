@@ -66,6 +66,8 @@ The effective state is then a walk of the journal in order: `0001 FORCE` followe
 
 `0002` adds `account.issuer` as `NOT NULL` with no default and no backfill, which is drizzle-kit's own output and is left as generated. It is safe because it cannot meet a row: nothing wrote to `account` before `createAuth()` existed, so every database at `0001` has it empty. It is also the behaviour to want if that were ever untrue - a default would invent an issuer for accounts nobody can attribute, and mis-key them under the `(issuer, account_id)` unique index beside it, where the bare `NOT NULL` stops the migration and says so.
 
+`0003` completes ADR 0013's Run spec and is drizzle-kit's own output too. It adds `resolved_config` and `allow_hosted_fallback` as `NOT NULL` with no default, tightens `claimable_until` to `NOT NULL`, and adds the conditional unique index behind the automatic-trigger no-op. The same argument makes all four safe: nothing created a Run before #49, so every database at `0002` has `run` empty. The two new columns are ADR 0013's own words - "`Phase0RunProfile`'s config must persist" and "`claimableUntil` lives in immutable `spec`, so it is written at creation" - and a nullable deadline would let a `queued` Run exist that nothing ever moves off `queued`.
+
 All of it is ordinary Vitest - `declared.test.ts`, `force.test.ts`, `force-generate.test.ts` - beside `tools/verify-migrations.mjs`, which is the Git-aware half that proves history was only appended to. None of it sees a database: what actually deployed is `createRuntimeDb()`'s seven checks, and that division is ADR 0017's, not an omission.
 
 ## GitHub ingress

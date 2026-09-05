@@ -57,7 +57,10 @@ const seed = async (tx: TenantTransaction, ownerId: number): Promise<void> => {
     strategy: "single",
     autonomy: "verify",
     placement: "hosted",
+    allowHostedFallback: false,
+    resolvedConfig: { schemaVersion: 1 },
     configDigest: `sha256:${ownerId}`,
+    claimableUntil: new Date("2026-01-01T00:00:00.000Z"),
   });
 };
 
