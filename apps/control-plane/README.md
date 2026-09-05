@@ -44,5 +44,15 @@ the relative base becomes the bundle's location and the files are not beside it.
 `packages/control-plane`, where that pattern never matches. The per-import opt-out is what is left,
 and it is narrower anyway.
 
+**The kick after the acknowledgement is not a durability mechanism, and this deployment target is
+why it must not be mistaken for one.** The route answers `200` as soon as the envelope is committed
+and starts processing without awaiting it, which is
+[ADR 0013](../../docs/adr/0013-github-ingress-and-run-creation-idempotency.md)'s order; on a
+serverless platform the invocation may be frozen before that work finishes. That is survivable
+precisely because it is not what recovers the delivery: the ledger row is still `received`, and the
+automatic re-drive of `contended` and `transient` dispositions is
+[#38](https://github.com/nick-neely/reprove/issues/38)'s durable step retry, driving the
+`processDelivery` the control plane exposes.
+
 Beyond that route this is still a shell - one layout and one page - and carries no product
 behaviour.
