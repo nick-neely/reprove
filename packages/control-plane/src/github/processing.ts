@@ -67,10 +67,63 @@ export interface DeliveryProcessorConfig {
  */
 const NO_SCHEDULE = null;
 
-const outcomeFor = (decision: RunDecision): IngressOutcome => {
+/**
+ * SQLSTATE classes a failed transaction can be retried out of.
+ *
+ * `23505` is a concurrent writer and the next attempt re-reads state; class
+ * `08` is a connection that went away, `40` a serialization failure or a
+ * deadlock, `53` an exhausted resource, `57` an operator cancelling a statement,
+ * and `25P03` is ADR 0013's own `idle_in_transaction_session_timeout` backstop
+ * firing. Every one of them describes the attempt rather than the delivery.
+ *
+ * Everything else is `operator_attention`, deliberately. A constraint the code
+ * did not expect, or a column it wrote wrongly, reaches the same failure on
+ * every attempt, and ADR 0013 is explicit that classifying by cause rather than
+ * by convenience is what stops a retry loop nobody can see.
+ */
+const TRANSIENT_SQLSTATES: ReadonlySet<string> = new Set(["23505", "25P03"]);
+const TRANSIENT_SQLSTATE_CLASSES: ReadonlySet<string> = new Set([
+  "08",
+  "40",
+  "53",
+  "57",
+]);
+
+/**
+ * The SQLSTATE a rejection carries, dug out of Drizzle's wrapper. Drizzle
+ * re-throws a `Failed query:` error and hangs the driver's own error off
+ * `cause`, so the code is never on the error the caller catches.
+ */
+const sqlStateOf = (error: Error): string | undefined => {
+  const raised = error.cause instanceof Error ? error.cause : error;
+  // SAFETY: `code` is node-postgres's own field on a driver error. A rejection
+  // from anywhere else simply has none, and is classified as needing a person.
+  return (raised as { code?: string }).code;
+};
+
+const outcomeForFailure = (error: Error): IngressOutcome => {
+  const state = sqlStateOf(error) ?? "";
+  const transient =
+    TRANSIENT_SQLSTATES.has(state) ||
+    TRANSIENT_SQLSTATE_CLASSES.has(state.slice(0, 2));
+  return {
+    state: "received",
+    retryClass: transient ? "transient" : "operator_attention",
+    nextAttemptAt: NO_SCHEDULE,
+  };
+};
+
+const outcomeFor = (decision: RunDecision): IngressOutcome | null => {
   switch (decision.kind) {
     case "created": {
       return { state: "done" };
+    }
+    case "already_concluded": {
+      // Nothing to record. The row that concluded it already says what
+      // happened, and `settleDelivery()` would decline this anyway - it is
+      // returned so the caller can skip the settle rather than depend on it
+      // declining.
+      return null;
     }
     case "ineligible": {
       return { state: "discarded", disposition: "ineligible" };
@@ -78,8 +131,8 @@ const outcomeFor = (decision: RunDecision): IngressOutcome => {
     case "duplicate_head": {
       return { state: "discarded", disposition: "duplicate_head" };
     }
-    case "no_action": {
-      return { state: "discarded", disposition: "inert" };
+    case "unchanged": {
+      return { state: "discarded", disposition: "unchanged" };
     }
     case "grant_gone": {
       return { state: "discarded", disposition: "grant_gone" };
@@ -109,14 +162,17 @@ const outcomeFor = (decision: RunDecision): IngressOutcome => {
 };
 
 /**
- * The locator an acting delivery needs, or the outcome that stands in for it.
+ * The locator an acting delivery needs, or the disposition that stands in for
+ * it. Both answers are reached from the envelope alone, which is what makes
+ * them honest: no lock is taken and GitHub is not asked.
  *
- * An acting `pull_request` delivery that names no Installation is
- * `grant_gone` rather than an error: there is no authority to fetch canonical
- * state with, which is the same conclusion the fetch itself would reach and the
- * one ADR 0013 wants for a revoked grant. A delivery missing a repository or a
- * pull request number is `inert`, because there is nothing to act on and no
- * later attempt can supply it.
+ * An acting `pull_request` delivery that names no Installation is `grant_gone`
+ * rather than an error: there is no authority to fetch canonical state with,
+ * which is the same conclusion the fetch itself would reach and the one ADR
+ * 0013 wants for a revoked grant. A delivery naming no repository or no pull
+ * request number is `inert` under that word's own definition - concluded from
+ * the delivery alone - because there is nothing to act on and no later attempt
+ * can supply it.
  */
 const locate = (envelope: IngressEnvelope) => {
   if (
@@ -192,32 +248,44 @@ export const createDeliveryProcessor = (
       );
     }
 
-    const { decision, settled } = await config.withOwner(
-      envelope.ownerId,
-      async (tx) => {
-        const made = await settlePullRequest(
-          tx,
-          runCreation,
-          located.locator,
-          intent
-        );
-        return {
-          decision: made,
-          // Same transaction as the decision, so the Run and the conclusion
-          // about the delivery that created it commit together or not at all.
-          settled: await settleDelivery(
-            tx,
-            delivery.deliveryId,
-            outcomeFor(made)
-          ),
-        };
-      }
-    );
-
-    return {
-      outcome: outcomeFor(decision),
-      settled,
-      runId: decision.kind === "created" ? decision.runId : null,
-    };
+    try {
+      const { outcome, runId, settled } = await config.withOwner(
+        envelope.ownerId,
+        async (tx) => {
+          const decision = await settlePullRequest(tx, runCreation, {
+            deliveryId: delivery.deliveryId,
+            locator: located.locator,
+            intent,
+          });
+          const made = outcomeFor(decision);
+          return {
+            outcome: made,
+            runId: decision.kind === "created" ? decision.runId : null,
+            // Same transaction as the decision, so the Run and the conclusion
+            // about the delivery that created it commit together or not at all.
+            settled:
+              made !== null &&
+              (await settleDelivery(tx, delivery.deliveryId, made)),
+          };
+        }
+      );
+      return { outcome, settled, runId };
+    } catch (error) {
+      // The transaction rolled back, so there is no Run and the ledger row is
+      // exactly as it was - `received`, with no attempt counted and no class
+      // saying why. Left there it is a delivery nothing will ever pick up,
+      // because ADR 0013's re-drive reads the retry class; the whole point of
+      // committing the envelope before acknowledging is that this case is
+      // recoverable, and it is only recoverable if it is recorded.
+      //
+      // A fresh transaction, necessarily: the one that failed cannot write.
+      return await settle(
+        delivery,
+        outcomeForFailure(
+          error instanceof Error ? error : new Error(String(error))
+        ),
+        null
+      );
+    }
   };
 };

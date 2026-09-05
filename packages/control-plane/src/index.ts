@@ -46,10 +46,7 @@ export type {
   ManifestPermission,
 } from "./github/manifest.js";
 export type { Phase0RunProfile } from "./github/profile.js";
-export {
-  PHASE_0_CLAIMABLE_FOR_MS,
-  PHASE_0_RUN_PROFILE,
-} from "./github/profile.js";
+export { PHASE_0_RUN_PROFILE } from "./github/profile.js";
 export {
   APP_EVENTS,
   APP_PERMISSIONS,

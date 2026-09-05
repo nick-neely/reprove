@@ -60,7 +60,16 @@ export interface DeliveryToProcess {
 
 /** What one processing attempt concluded, and whether the ledger took it. */
 export interface ProcessedDelivery {
-  readonly outcome: IngressOutcome;
+  /**
+   * What this attempt concluded, or `null` where it concluded nothing because
+   * the delivery was already terminal when the lock was taken.
+   *
+   * Nullable rather than folded into a disposition, because a disposition is a
+   * statement about work that was done. Every value of it would misreport this:
+   * the attempt read the ledger, found the question already answered, and left
+   * without fetching, writing or settling anything.
+   */
+  readonly outcome: IngressOutcome | null;
   /**
    * `false` when the row was already terminal, or belongs to another Owner.
    * ADR 0013's stateful GUID rule is what makes that expected rather than

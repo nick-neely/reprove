@@ -67,6 +67,14 @@ export interface PullRequestLocator extends CanonicalRequest {
   readonly repositoryId: number;
 }
 
+/** One ledger row's worth of work: what to act on, and on whose behalf. */
+export interface DeliveryUnderLock {
+  /** The ledger row, which is re-read under the lock before anything moves. */
+  readonly deliveryId: string;
+  readonly locator: PullRequestLocator;
+  readonly intent: Exclude<DeliveryIntent, "inert">;
+}
+
 /** What the critical section is composed over. */
 export interface RunCreationConfig {
   readonly canonicalPullRequest: (
@@ -103,7 +111,12 @@ export type RunDecision =
       readonly supersededRunId: string | null;
     }
   /** A cancelling delivery whose pull request is, canonically, still open. */
-  | { readonly kind: "no_action" }
+  | { readonly kind: "unchanged" }
+  /**
+   * The ledger row is no longer `received`, so this attempt has nothing to do
+   * and must do nothing. Nothing was fetched and nothing was written.
+   */
+  | { readonly kind: "already_concluded" }
   /** Another processor holds this pull request. Nothing was read or written. */
   | { readonly kind: "contended" }
   | { readonly kind: "grant_gone"; readonly reason: string }
@@ -146,6 +159,35 @@ const acquire = async (
     sql`select pg_try_advisory_xact_lock(${lockKey(locator)}) as locked`
   );
   return held.rows[0]?.locked === true;
+};
+
+/**
+ * Whether this delivery is still the one that decides.
+ *
+ * Read **under the lock and before the fetch**, and it is the difference
+ * between a re-drive and a second Run. `settleDelivery()` already refuses to
+ * reopen a terminal row, but it runs *after* the decision, so by the time it
+ * declined the work was done: a `done` delivery driven again - by
+ * [#38](https://github.com/nick-neely/reprove/issues/38)'s step retry, or by a
+ * manual GitHub redelivery, which reuses `X-GitHub-Delivery` and which the
+ * ledger's deliberately non-unique index accepts a second row for - would take
+ * the lock, observe a head that has since moved, supersede the live Run and
+ * insert a replacement that no ledger row records. Checking first makes the
+ * ledger state a precondition of acting rather than a comment on having acted.
+ *
+ * Missing reads as concluded, which is the safe direction: a row this tenant
+ * cannot see is not one it may act for.
+ */
+const stillReceived = async (
+  tx: TenantTransaction,
+  deliveryId: string
+): Promise<boolean> => {
+  const [row] = await tx
+    .select({ state: schema.ingressDelivery.state })
+    .from(schema.ingressDelivery)
+    .where(eq(schema.ingressDelivery.id, deliveryId))
+    .limit(1);
+  return row?.state === "received";
 };
 
 /**
@@ -330,20 +372,25 @@ const decideEligible = async (
  *
  * @param tx A tenant transaction already scoped to the delivery's Owner.
  * @param config The canonical fetch, the injected profile and the clock.
- * @param locator Which pull request, reached through which grant.
- * @param intent What the delivery is asking for.
+ * @param delivery The ledger row, the pull request it names and what it asks.
  * @returns What was decided, and what it did to existing Runs.
  */
 export const settlePullRequest = async (
   tx: TenantTransaction,
   config: RunCreationConfig,
-  locator: PullRequestLocator,
-  intent: Exclude<DeliveryIntent, "inert">
+  delivery: DeliveryUnderLock
 ): Promise<RunDecision> => {
+  const { intent, locator } = delivery;
+
   if (!(await acquire(tx, locator))) {
     // Nothing is read and nothing is written. The envelope is already durable,
     // so abandoning the attempt costs only the re-drive #38 owns.
     return { kind: "contended" };
+  }
+
+  // Under the lock, and before the network call it would otherwise pay for.
+  if (!(await stillReceived(tx, delivery.deliveryId))) {
+    return { kind: "already_concluded" };
   }
 
   const outcome = await config.canonicalPullRequest(locator);
@@ -376,8 +423,9 @@ export const settlePullRequest = async (
 
   if (intent === "cancel") {
     // A `closed` or `converted_to_draft` delivery whose pull request is, right
-    // now, open and ready. ADR 0013 gives these actions no power to create.
-    return { kind: "no_action" };
+    // now, open and ready. ADR 0013 gives these actions no power to create, and
+    // the canonical fetch exists precisely so that a stale one cancels nothing.
+    return { kind: "unchanged" };
   }
 
   return await decideEligible(tx, config, locator, pullRequest);

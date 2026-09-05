@@ -49,6 +49,7 @@ const NEXT_HEAD = "c".repeat(40);
 
 const NOW = new Date("2026-02-01T12:00:00.000Z");
 const UNIQUE_VIOLATION = "23505";
+const FOREIGN_KEY_VIOLATION = "23503";
 
 let database: TestDatabase;
 let runtime: RuntimeDb;
@@ -134,6 +135,15 @@ const sequentially = async <Item, Result>(
   }
   const result = await step(first);
   return [result, ...(await sequentially(rest, step))];
+};
+
+/** The disposition an attempt reached, named so a case can compare on it. */
+const dispositionOf = (processed: ProcessedDelivery): string => {
+  const { outcome } = processed;
+  if (outcome === null) {
+    return "already concluded";
+  }
+  return outcome.state === "discarded" ? outcome.disposition : outcome.state;
 };
 
 const runs = () =>
@@ -377,9 +387,7 @@ describe("Run creation", () => {
 
         const second = await deliver("synchronize", canonical());
         await expect(runs()).resolves.toHaveLength(1);
-        return second.outcome.state === "discarded"
-          ? second.outcome.disposition
-          : second.outcome.state;
+        return dispositionOf(second);
       });
 
       expect(dispositions).toStrictEqual(statuses.map(() => "duplicate_head"));
@@ -473,9 +481,11 @@ describe("Run creation", () => {
 
       const stale = await deliver("closed", canonical());
 
+      // `unchanged`, not `inert`: the lock was taken and GitHub was asked, and
+      // the answer is what made the delivery a no-op.
       expect(stale.outcome).toStrictEqual({
         state: "discarded",
-        disposition: "inert",
+        disposition: "unchanged",
       });
       await expect(runs()).resolves.toMatchObject([
         { id: opened.runId, status: "queued" },
@@ -700,6 +710,161 @@ describe("Run creation", () => {
 
       expect(processed.outcome).toStrictEqual({ state: "done" });
       await expect(runs()).resolves.toHaveLength(2);
+    });
+  });
+
+  describe("a receipt driven a second time", () => {
+    it("does not act again once the delivery is terminal, even at a moved head", async () => {
+      // The redelivery case ADR 0013 leaves open: `X-GitHub-Delivery` is reused
+      // on a manual redelivery and the ledger's index is deliberately not
+      // unique, so the same receipt genuinely can be processed twice. Without a
+      // ledger read under the lock, the second pass would take the lock,
+      // observe the moved head, supersede the live Run and insert a
+      // replacement that no ledger row records.
+      const envelope = envelopeFor("synchronize");
+      const deliveryId = await runtime.withOwner(ACME, (tx) =>
+        recordDelivery(tx, envelope)
+      );
+      const processorAt = (headSha: string) =>
+        createDeliveryProcessor({
+          withOwner: runtime.withOwner,
+          canonicalPullRequest: () => Promise.resolve(canonical({ headSha })),
+          profile: PHASE_0_RUN_PROFILE,
+          now: () => NOW,
+        });
+
+      const first = await processorAt(HEAD)({ deliveryId, envelope });
+      const again = await processorAt(NEXT_HEAD)({ deliveryId, envelope });
+
+      expect(first.outcome).toStrictEqual({ state: "done" });
+      expect(again.outcome).toBeNull();
+      expect(again.settled).toBeFalsy();
+      const all = await runs();
+      expect(all).toMatchObject([{ id: first.runId, status: "queued" }]);
+    });
+
+    it("still acts on a delivery an earlier attempt left received", async () => {
+      // The mirror of the case above, and the reason the guard reads the state
+      // rather than the attempt count: a `contended` or `transient` attempt
+      // leaves the row `received`, which is exactly what #38's re-drive picks
+      // up and must be allowed to finish.
+      const envelope = envelopeFor("opened");
+      const deliveryId = await runtime.withOwner(ACME, (tx) =>
+        recordDelivery(tx, envelope)
+      );
+      const failing = createDeliveryProcessor({
+        withOwner: runtime.withOwner,
+        canonicalPullRequest: () =>
+          Promise.resolve({ kind: "transient", reason: "ECONNRESET" } as const),
+        profile: PHASE_0_RUN_PROFILE,
+        now: () => NOW,
+      });
+      const succeeding = createDeliveryProcessor({
+        withOwner: runtime.withOwner,
+        canonicalPullRequest: () => Promise.resolve(canonical()),
+        profile: PHASE_0_RUN_PROFILE,
+        now: () => NOW,
+      });
+
+      await failing({ deliveryId, envelope });
+      const redriven = await succeeding({ deliveryId, envelope });
+
+      expect(redriven.outcome).toStrictEqual({ state: "done" });
+      await expect(runs()).resolves.toHaveLength(1);
+      await expect(ledger()).resolves.toMatchObject([
+        { state: "done", attemptCount: 2 },
+      ]);
+    });
+  });
+
+  describe("a transaction that could not commit", () => {
+    /** Processes a delivery whose critical section is guaranteed to throw. */
+    const deliverInto = async (broken: () => Promise<never>) => {
+      const envelope = envelopeFor("opened");
+      const deliveryId = await runtime.withOwner(ACME, (tx) =>
+        recordDelivery(tx, envelope)
+      );
+      const process = createDeliveryProcessor({
+        withOwner: runtime.withOwner,
+        canonicalPullRequest: broken,
+        profile: PHASE_0_RUN_PROFILE,
+        now: () => NOW,
+      });
+      return await process({ deliveryId, envelope });
+    };
+
+    it("records the attempt rather than leaving the delivery unrecoverable", async () => {
+      // The settlement shares the failed transaction, so a throw takes it down
+      // too. Left as it was, the row is `received` with no retry class and no
+      // attempt counted - a delivery ADR 0013's re-drive reads the class of and
+      // therefore never picks up.
+      const processed = await deliverInto(() =>
+        Promise.reject(new Error("the connection went away"))
+      );
+
+      expect(processed.outcome).toStrictEqual({
+        state: "received",
+        retryClass: "operator_attention",
+        nextAttemptAt: null,
+      });
+      expect(processed.settled).toBeTruthy();
+      await expect(ledger()).resolves.toMatchObject([
+        {
+          state: "received",
+          retryClass: "operator_attention",
+          attemptCount: 1,
+        },
+      ]);
+      await expect(runs()).resolves.toHaveLength(0);
+    });
+
+    it("classifies a failure the next attempt can get past as transient", async () => {
+      const deadlock = Object.assign(new Error("Failed query"), {
+        cause: Object.assign(new Error("deadlock detected"), {
+          code: "40P01",
+        }),
+      });
+
+      const processed = await deliverInto(() => Promise.reject(deadlock));
+
+      expect(processed.outcome).toMatchObject({
+        state: "received",
+        retryClass: "transient",
+      });
+    });
+  });
+
+  describe("a repository that changed hands", () => {
+    it("cannot have a Run created under the Owner that does not hold it", async () => {
+      // Both Run indexes are global and every probe in front of them runs
+      // inside `withOwner`, so scoping the indexes to the Owner is what makes
+      // what they enforce the same thing the code can see. Today the composite
+      // foreign key gets there first, and that is worth measuring rather than
+      // assuming: a repository id is globally unique and belongs to one Owner
+      // at a time, so a Run for a repository still recorded under Owner A is
+      // refused for Owner B before any index is consulted. Reconciling a
+      // transfer needs authority over both Owners, which no tenant transaction
+      // has.
+      const globex = 2002;
+      await deliver("opened", canonical());
+      await database.admin(
+        `insert into owner (id, login, type) values (${globex}, 'globex', 'organization')`
+      );
+
+      const refused = await driverFailure(
+        database.admin(
+          `insert into run (owner_id, repository_id, pull_request_number, base_sha, head_sha,
+                            provenance, provenance_basis, trigger, harness, model, strategy,
+                            autonomy, placement, allow_hosted_fallback, resolved_config,
+                            config_digest, claimable_until, status)
+           values (${globex}, ${REPOSITORY}, ${PULL_REQUEST}, '${BASE}', '${NEXT_HEAD}',
+                   'internal', '{}'::jsonb, 'automatic', 'codex', 'gpt-5', 'standard',
+                   'verify', 'hosted', false, '{}'::jsonb, 'sha256:1', now(), 'queued')`
+        )
+      );
+
+      expect(refused.code).toBe(FOREIGN_KEY_VIOLATION);
+      await expect(runs()).resolves.toHaveLength(1);
     });
   });
 });
