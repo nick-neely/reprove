@@ -25,14 +25,41 @@ export type IngressState = (typeof INGRESS_STATES)[number];
  * each is a conclusion about the delivery rather than about a Run:
  *
  * ```text
+ * concluded from the delivery alone            -> inert
  * canonical state ineligible - closed, draft   -> ineligible
  * a Run already exists at the canonical head   -> duplicate_head
+ * canonical state needed nothing done          -> unchanged
  * grant definitively gone                      -> grant_gone
  * ```
+ *
+ * `inert` and `unchanged` are the pair worth keeping apart, because collapsing
+ * them would make the ledger lie about what a delivery cost.
+ *
+ * **`inert` means concluded from the delivery alone** - no advisory lock taken
+ * and no request issued to GitHub. It is ADR 0013's own word for the last row of
+ * its trigger table, "everything else | inert", and it covers two shapes: an
+ * event or action that is not a trigger, which is every `edited` delivery and
+ * each of the three events GitHub delivers to every App unconditionally; and an
+ * acting delivery that names no repository or pull request to act on, which no
+ * later attempt can supply. Both are decided by reading the envelope.
+ *
+ * **`unchanged` means the work was done and nothing needed doing.** The lock was
+ * taken and canonical state was read, and it disagreed with the delivery: a
+ * stale `closed` for a pull request that has since reopened is ADR 0013's own
+ * example, and cancelling on it is exactly what the canonical fetch exists to
+ * prevent. Recording that as `inert` would claim no request was made, and
+ * recording it as `ineligible` would claim canonical state refused the pull
+ * request when it did the opposite.
+ *
+ * Neither needs a migration. `disposition` is a `text` column and ADR 0008 keeps
+ * the state machines in the application rather than in a Postgres `ENUM`, which
+ * is exactly the case this is.
  */
 export const INGRESS_DISPOSITIONS = [
+  "inert",
   "ineligible",
   "duplicate_head",
+  "unchanged",
   "grant_gone",
 ] as const;
 export type IngressDisposition = (typeof INGRESS_DISPOSITIONS)[number];
@@ -61,3 +88,57 @@ export const INGRESS_RETRY_CLASSES = [
   "contended",
 ] as const;
 export type IngressRetryClass = (typeof INGRESS_RETRY_CLASSES)[number];
+
+/**
+ * `run.status`. ADR 0007's machine: `queued` -> `claimed` -> `executing`,
+ * terminating in one of the six below.
+ */
+export const RUN_STATUSES = [
+  "queued",
+  "claimed",
+  "executing",
+  "completed",
+  "incomplete",
+  "failed",
+  "superseded",
+  "cancelled",
+  "unscheduled",
+] as const;
+export type RunStatus = (typeof RUN_STATUSES)[number];
+
+/**
+ * The statuses ADR 0013 calls **live**, and the ones the partial unique index
+ * `run_one_live_per_pull_request` is predicated on:
+ *
+ * ```sql
+ * UNIQUE (owner_id, repository_id, pull_request_number)
+ *   WHERE status IN ('queued', 'claimed', 'executing')
+ * ```
+ *
+ * The index spells them again rather than importing this list, because a
+ * migration is a text artifact that has already run in databases this list
+ * cannot reach. `run-creation.test.ts` measures the two against each other by
+ * inserting a second live Run at each status rather than by comparing strings.
+ */
+export const LIVE_RUN_STATUSES = [
+  "queued",
+  "claimed",
+  "executing",
+] as const satisfies readonly RunStatus[];
+export type LiveRunStatus = (typeof LIVE_RUN_STATUSES)[number];
+
+/**
+ * `run.cancellation_reason`, on `cancelled`.
+ *
+ * Both come from ADR 0013's trigger table - "`closed` | cancel the live Run;
+ * create none" and "`converted_to_draft` | cancel the live Run; create none" -
+ * and both are decided from **canonical state** rather than from the action
+ * that arrived, so a stale `closed` for a pull request that has since reopened
+ * cancels nothing. `superseded` is deliberately not here: it is a status of its
+ * own, and recording it twice would let the two disagree.
+ */
+export const RUN_CANCELLATION_REASONS = [
+  "pull_request_closed",
+  "pull_request_drafted",
+] as const;
+export type RunCancellationReason = (typeof RUN_CANCELLATION_REASONS)[number];

@@ -21,7 +21,7 @@
  * hashing a re-serialization of it.
  *
  * Nothing in here is trusted as authority for a Run. It is a locator and a
- * trigger, and #49's canonical fetch is what a Run is built from.
+ * trigger, and the canonical fetch in `client.ts` is what a Run is built from.
  */
 import { z } from "zod";
 

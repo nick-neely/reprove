@@ -366,9 +366,11 @@ describe("boot refuses to serve", () => {
     await database.admin(
       `insert into run (owner_id, repository_id, pull_request_number, base_sha, head_sha,
                         provenance, provenance_basis, trigger, harness, model, strategy,
-                        autonomy, placement, config_digest)
+                        autonomy, placement, allow_hosted_fallback, resolved_config,
+                        config_digest, claimable_until)
        values (1001, 10, 7, 'a', 'b', 'internal', '{}'::jsonb, 'automatic', 'codex',
-               'gpt-5', 'single', 'verify', 'hosted', 'sha256:1')`
+               'gpt-5', 'single', 'verify', 'hosted', false, '{}'::jsonb, 'sha256:1',
+               now())`
     );
     await database.admin("create view run_every_owner as select * from run");
     await database.admin(`grant select on run_every_owner to ${RUNTIME_ROLE}`);

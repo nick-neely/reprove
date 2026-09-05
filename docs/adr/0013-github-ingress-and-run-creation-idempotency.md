@@ -437,3 +437,103 @@ from it, not a placeholder, so the prototype exercises the true Run shape.
 - Implementation notes that follow from the above rather than being decided by it: verify the
   signature against the exact received bytes and never a re-serialized parse; use a
   timing-safe comparison; reject an unsigned or oversized body before hashing it.
+
+## Amended by [#49](https://github.com/nick-neely/reprove/issues/49)
+
+Building Run creation settled five things this ADR left underspecified. Each is recorded here
+rather than only in code, because each changes what a reader of the sections above would
+otherwise conclude.
+
+### The any-status no-op gains a structural half, and it has to be conditional
+
+"What makes a Run unique" states the application rule - an automatic trigger whose canonical head
+already has *any* Run for that pull request is a no-op - and gives it no index, having rejected
+"unique on `(repository, pull_request, head_sha)`" because ADR 0007 states that "a new push **or a
+retry** produces a new Run" and that index forbids the retry.
+
+The objection holds only against the *unconditional* index. The retry this ADR leaves open is "an
+explicit manual act or a later scheduler policy", and `Run.spec.trigger` already distinguishes it:
+
+```sql
+UNIQUE (owner_id, repository_id, pull_request_number, head_sha)
+  WHERE trigger = 'automatic'
+```
+
+Ingress creates only `automatic` Runs, so the index binds exactly the rule the application enforces
+and is silent about every `manual` one. The application rule stays primary - it is what produces
+`duplicate_head` rather than a constraint violation - and this is defence in depth beside it, on the
+same footing as `run_one_live_per_pull_request`.
+
+### Both Run indexes are keyed on the Owner
+
+An index is global and sees no policy; every probe in front of one runs inside `withOwner` and sees
+one. A repository id is unique across GitHub and **survives a transfer between accounts**, which
+this ADR already treats as a live hazard for identity, so an index scoped to the repository alone is
+scoped differently from the code that checks it - and the failure would be a bare unique violation
+from inside an insert, over a row the writer cannot select, supersede or explain.
+
+`owner_id` therefore leads both indexes. A repository belongs to one Owner at a time, so the
+invariants are unweakened for whoever holds it. The composite foreign key from `run` to
+`repository (owner_id, id)` currently refuses such an insert before any index is consulted, so this
+is a boundary being made consistent rather than a reachable collision being closed.
+
+### The ledger state is a precondition of acting, not a comment on having acted
+
+`settleDelivery()` refuses to reopen a terminal row, and that was taken to be sufficient. It is not,
+because it runs *after* the decision: a `done` delivery driven again - by
+[#38](https://github.com/nick-neely/reprove/issues/38)'s step retry, or by a manual GitHub
+redelivery, which reuses `X-GitHub-Delivery` and which the deliberately non-unique ledger index
+accepts a second row for - would take the lock, observe a head that had since moved, supersede the
+live Run and insert a replacement that no ledger row records.
+
+The critical section therefore re-reads the delivery's state **under the lock and before the
+canonical fetch**, and proceeds only while it is `received`:
+
+```text
+pg_try_advisory_xact_lock(...)
+  -> still `received`?  no -> stop, having written nothing
+  -> fetch canonical state
+```
+
+### Two dispositions this ADR's table did not name
+
+The disposition list here has three values, and the trigger table's "everything else | inert" row
+has no disposition at all. Implementation found two conclusions with nowhere honest to land:
+
+```text
+inert       concluded from the delivery alone - no lock taken, nothing fetched
+unchanged   the lock was taken, canonical state was read, and nothing needed doing
+```
+
+`inert` covers an event or action that is not a trigger, and an acting delivery that names no
+repository or pull request number, which no later attempt can supply. `unchanged` is this ADR's own
+stale-`closed`-on-a-reopened-pull-request case: recording it as `inert` would claim GitHub was never
+asked, and recording it as `ineligible` would claim canonical state refused the pull request when it
+did the opposite.
+
+A delivery naming no Installation is `grant_gone` rather than an error - there is no authority to
+fetch with, which is the conclusion the fetch itself would reach - and so is a repository that has
+moved out of the grant, because under installation authority a repository outside it, a deleted
+repository and a deleted installation are all `404`.
+
+### A transaction that cannot commit must still be recorded
+
+Settling in the same transaction as the decision is what makes a Run and the conclusion about the
+delivery that created it a single fact. Its cost is that a transaction which cannot commit takes the
+settlement down with it, leaving the row `received` with no attempt counted and no retry class -
+which is a delivery the re-drive above reads the class of and therefore never picks up. Durable
+receipt that only a human can recover is not durability, so a failed transaction is settled in a
+fresh one, classified by SQLSTATE rather than by convenience: a concurrent writer, a lost
+connection, a deadlock or the `idle_in_transaction_session_timeout` backstop are `transient`, and
+everything else is `operator_attention`, because a constraint the code did not expect reaches the
+same failure on every attempt.
+
+### `baseSha` comes from `pulls.base.sha`, under the two-permission grant
+
+"`baseSha` is the base branch tip" fixes the meaning and not the source. It is read from `base.sha`
+on the canonical `GET /repos/{owner}/{repo}/pulls/{number}` response, which the already-required
+`Pull requests: read` covers, so nothing about the base widens the grant this ADR fixed. The caveat
+is restated rather than buried: `base.sha` is the tip **as GitHub reported it during that fetch**,
+and a Run's recorded base is an honest statement of what the base branch was when the delivery was
+processed. A push to the base branch fires no `pull_request` event, so a Run's base never moves
+after creation, and the merge base is still derived where `.git` already is.

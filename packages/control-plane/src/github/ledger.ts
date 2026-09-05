@@ -16,41 +16,9 @@
 import { and, eq, sql } from "drizzle-orm";
 
 import type { TenantTransaction } from "../db/runtime.js";
-import type {
-  IngressDisposition,
-  IngressRetryClass,
-} from "../db/schema-values.js";
 import * as schema from "../db/schema.js";
+import type { IngressOutcome } from "./delivery.js";
 import type { IngressEnvelope } from "./envelope.js";
-
-/**
- * How a processing attempt ended, as the ledger holds it.
- *
- * A union rather than three nullable columns a caller fills in, because the
- * combinations the columns permit are mostly nonsense: a `done` row carrying a
- * retry class, or a `discarded` row with a next attempt, is a delivery a
- * re-drive sweeper would pick up and redo. Here the state names its own
- * evidence and there is no fourth shape.
- */
-export type IngressOutcome =
-  /** A Run was created. Terminal. */
-  | { readonly state: "done" }
-  /** Terminal, and the disposition says which conclusion was reached. */
-  | {
-      readonly state: "discarded";
-      readonly disposition: IngressDisposition;
-    }
-  /**
-   * Nonterminal: the delivery stays `received` and the retry class says what
-   * kind of recovery it needs. ADR 0013 makes an automatic re-drive path for
-   * `transient` and `contended` a Phase 0 exit condition rather than deferred
-   * work, and #38 chooses the mechanism.
-   */
-  | {
-      readonly state: "received";
-      readonly retryClass: IngressRetryClass;
-      readonly nextAttemptAt: Date | null;
-    };
 
 /**
  * The Repository identity row, written as an Owner-scoped update and only then
@@ -73,7 +41,7 @@ export type IngressOutcome =
  * cache, the ledger row is the durable record, and `ingress_delivery`
  * references `owner` alone - so nothing about the envelope's durability depends
  * on this row existing. Reconciling a transfer needs authority over both
- * Owners, which no tenant transaction has and #49's canonical fetch does.
+ * Owners, which no tenant transaction has and the canonical fetch does.
  */
 const upsertRepository = async (
   tx: TenantTransaction,

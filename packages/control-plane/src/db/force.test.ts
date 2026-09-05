@@ -53,6 +53,15 @@ describe("the committed migration history", () => {
       // `password`; the tables were already classified, so the generator had
       // nothing to append after it.
       ["0002_better_auth_account_model", "drizzle"],
+      // ADR 0013's Run spec, completed at creation: the two spec columns that
+      // were missing, `claimable_until` tightened to NOT NULL, and the
+      // conditional unique index behind the automatic-trigger no-op. It
+      // classifies nothing, so the generator had nothing to append after it.
+      ["0003_run_spec_complete_at_creation", "drizzle"],
+      // Both Run indexes gain `owner_id`, so what they enforce is what a query
+      // inside `withOwner` can see. Classification is untouched, so the
+      // generator had nothing to append after it either.
+      ["0004_owner_scoped_run_indexes", "drizzle"],
     ]);
   });
 

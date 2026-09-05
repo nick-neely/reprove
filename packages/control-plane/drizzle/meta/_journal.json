@@ -22,6 +22,20 @@
       "when": 1788621133563,
       "tag": "0002_better_auth_account_model",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1788628826616,
+      "tag": "0003_run_spec_complete_at_creation",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788631422922,
+      "tag": "0004_owner_scoped_run_indexes",
+      "breakpoints": true
     }
   ]
 }

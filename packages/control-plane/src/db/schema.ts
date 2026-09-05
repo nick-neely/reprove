@@ -273,7 +273,7 @@ export const ingressDelivery = pgTable(
     pullRequestNumber: integer("pull_request_number"),
     /** received | done | discarded */
     state: text("state").notNull().default("received"),
-    /** ineligible | duplicate_head | grant_gone, on `discarded` */
+    /** inert | ineligible | duplicate_head | unchanged | grant_gone */
     disposition: text("disposition"),
     /** transient | operator_attention | contended, on nonterminal `received` */
     retryClass: text("retry_class"),
@@ -323,12 +323,35 @@ export const run = pgTable(
     strategy: text("strategy").notNull(),
     autonomy: text("autonomy").notNull(),
     placement: text("placement").notNull(),
+    allowHostedFallback: boolean("allow_hosted_fallback").notNull(),
+    /**
+     * The bounded normalized configuration that governed this Run, and the
+     * digest computed from it. ADR 0013 requires the `Phase0RunProfile`'s
+     * config to persist and requires the digest to be "an honest digest
+     * computed from it, not a placeholder", which is only checkable if the
+     * config the digest was taken over is here beside it.
+     */
+    resolvedConfig: jsonb("resolved_config").notNull(),
     configDigest: text("config_digest").notNull(),
 
     // state
+    /**
+     * queued | claimed | executing | completed | incomplete | failed |
+     * superseded | cancelled | unscheduled
+     */
     status: text("status").notNull().default("queued"),
+    /** pull_request_closed | pull_request_drafted, on `cancelled` */
     cancellationReason: text("cancellation_reason"),
-    claimableUntil: timestamp("claimable_until", { withTimezone: true }),
+    /**
+     * Not nullable, because ADR 0013 puts it in the immutable `spec`: "no field
+     * is left null or filled in later", and it is written at creation from the
+     * profile's claimable-deadline policy. A nullable column would let a Run
+     * exist with no deadline at all, which is an unclaimed Run nothing ever
+     * moves off `queued`.
+     */
+    claimableUntil: timestamp("claimable_until", {
+      withTimezone: true,
+    }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -341,14 +364,39 @@ export const run = pgTable(
     tenantPolicy("run_tenant", t.ownerId),
     index("run_owner_idx").on(t.ownerId),
     // ADR 0013's duplicate-live-Run invariant. Defense in depth, not the
-    // ordering primitive: ordering comes from `pg_try_advisory_xact_lock(
-    // repositoryId, pullRequestNumber)` on the ingress path, which #48 and #49
-    // build. Nothing in this package takes that lock yet. Deliberately not
-    // unique on `head_sha`, because ADR 0007 allows a retry to produce a new
-    // Run at the same head.
+    // ordering primitive: ordering comes from the per-pull-request advisory
+    // lock `src/github/run-creation.ts` takes. Deliberately not unique on
+    // `head_sha`, because ADR 0007 allows a retry to produce a new Run at the
+    // same head.
+    //
+    // `owner_id` leads both of these indexes, and that is not decoration. An
+    // index is global and sees no policy, while every probe in front of it runs
+    // inside `withOwner` and sees one. A repository id survives a **transfer
+    // between accounts**, so the new Owner's first Run for a pull request would
+    // collide with the old Owner's Run - a row the writer cannot select, cannot
+    // supersede and has no branch for, surfacing as a bare `23505` from inside
+    // an insert every check said was safe. Scoping the index to the Owner makes
+    // what it enforces the same thing the code can see. A repository belongs to
+    // one Owner at a time, so the live invariant is unweakened for whoever
+    // holds it now.
     uniqueIndex("run_one_live_per_pull_request")
-      .on(t.repositoryId, t.pullRequestNumber)
+      .on(t.ownerId, t.repositoryId, t.pullRequestNumber)
       .where(sql`${t.status} in ('queued', 'claimed', 'executing')`),
+    // ADR 0013's other Run-creation rule, the one about heads rather than
+    // liveness: "an automatic trigger whose canonical head already has *any*
+    // Run for that pull request is a no-op. Any status, with no carve-outs."
+    // The application decides that inside the advisory lock and this index is
+    // what makes it structural as well.
+    //
+    // `WHERE trigger = 'automatic'` is what reconciles it with ADR 0007's "a
+    // new push **or a retry** produces a new Run": the retry ADR 0013 leaves
+    // open is "an explicit manual act or a later scheduler policy", which
+    // carries `trigger = 'manual'` and is outside this index entirely. Without
+    // the predicate the index would forbid the retry, which is the reason ADR
+    // 0013 rejected the unconditional version of it.
+    uniqueIndex("run_one_automatic_per_head")
+      .on(t.ownerId, t.repositoryId, t.pullRequestNumber, t.headSha)
+      .where(sql`${t.trigger} = 'automatic'`),
     unique("run_owner_scoped_id").on(t.ownerId, t.id),
     foreignKey({
       name: "run_repository_owner_scoped_fk",
