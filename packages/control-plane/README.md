@@ -128,7 +128,9 @@ resumes - and #49 owns it. The ledger's states, the three terminal dispositions 
 `duplicate_head`, `grant_gone`) and the three retry classes (`transient`, `operator_attention`,
 `contended`) are named in [`src/db/schema-values.ts`](src/db/schema-values.ts) and settled through
 `settleDelivery()`, which counts the attempt in SQL so two processors cannot both write the count
-they each read.
+they each read. It settles a `received` row and only a `received` row, and returns whether it did:
+`done` and `discarded` are terminal, so the contended attempt that finishes after the one that won
+the lock cannot reopen a concluded delivery and hand a re-drive work that must never be redone.
 
 A verified payload establishes **identity** and not scope: `recordDelivery()` upserts Owner,
 Installation and Repository rows in front of the ledger insert, because `ingress_delivery`

@@ -244,21 +244,46 @@ const columnsFor = (outcome: IngressOutcome) => {
  * back, so two processors that reached the same delivery cannot both write the
  * count they each read.
  *
+ * Only a `received` row is settled. `done` and `discarded` are terminal in ADR
+ * 0013, and the state is what the stateful GUID rule reads - same GUID plus a
+ * terminal state is a duplicate - so a late attempt that reopened one would put
+ * a retry class and a next attempt back on a delivery whose work is finished,
+ * and hand a re-drive something that must never be redone. That is reachable
+ * without any second processor writing at the same instant: the contended
+ * attempt that lost the advisory lock settles after the attempt that won it.
+ * Repeating a still-`received` row is the one repeat that does land, because
+ * that is exactly what a re-drive is.
+ *
+ * Settling nothing is silent, for both reasons it can happen. Across the tenant
+ * boundary the update matches nothing, and raising there would tell the wrong
+ * Owner the row exists; on a terminal row the settlement is simply stale, and
+ * the caller has nothing left to do about a delivery that is already concluded.
+ * The return value is what distinguishes either from a settlement that landed.
+ *
  * @param tx A tenant transaction already scoped to the delivery's Owner.
  * @param deliveryId The ledger row returned by {@link recordDelivery}.
  * @param outcome How the attempt ended.
+ * @returns Whether this attempt was recorded - `false` when the row is already
+ *   terminal, or belongs to another Owner.
  */
 export const settleDelivery = async (
   tx: TenantTransaction,
   deliveryId: string,
   outcome: IngressOutcome
-): Promise<void> => {
-  await tx
+): Promise<boolean> => {
+  const settled = await tx
     .update(schema.ingressDelivery)
     .set({
       ...columnsFor(outcome),
       attemptCount: sql`${schema.ingressDelivery.attemptCount} + 1`,
       lastAttemptAt: new Date(),
     })
-    .where(eq(schema.ingressDelivery.id, deliveryId));
+    .where(
+      and(
+        eq(schema.ingressDelivery.id, deliveryId),
+        eq(schema.ingressDelivery.state, "received")
+      )
+    )
+    .returning({ id: schema.ingressDelivery.id });
+  return settled.length > 0;
 };

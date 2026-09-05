@@ -391,9 +391,15 @@ describe("the ingress ledger against real Postgres", () => {
             nextAttemptAt: new Date(Date.now() + 1000),
           })
         );
-      await attempt("transient")();
-      await attempt("transient")();
-      await attempt("transient")();
+      // A re-drive of a still-`received` delivery is the one repeat the ledger
+      // is meant to accept, so each of these has to land rather than read as a
+      // settlement that arrived too late.
+      const settled = [
+        await attempt("transient")(),
+        await attempt("transient")(),
+        await attempt("transient")(),
+      ];
+      expect(settled).toStrictEqual([true, true, true]);
 
       const [row] = await runtime.withOwner(ACME, (tx) =>
         tx
@@ -404,6 +410,84 @@ describe("the ingress ledger against real Postgres", () => {
       expect(row?.attemptCount).toBe(3);
     });
 
+    it.each([
+      [
+        "done",
+        { state: "done" } as const,
+        { state: "done", disposition: null },
+      ],
+      [
+        "discarded",
+        { state: "discarded", disposition: "ineligible" } as const,
+        { state: "discarded", disposition: "ineligible" },
+      ],
+    ])(
+      "leaves a delivery already %s exactly as it is, and says the settlement was stale",
+      async (name, terminal, expected) => {
+        // `done` and `discarded` are terminal in ADR 0013, and the state is
+        // what the stateful GUID rule reads: a redelivery of a GUID whose row
+        // is terminal is a duplicate. A late attempt that reopened the row -
+        // the contended processor that lost the race, finishing after the one
+        // that won - would put a next attempt back on a delivery whose Run
+        // already exists, and a re-drive would redo it.
+        const id = await runtime.withOwner(ACME, (tx) =>
+          recordDelivery(tx, envelopeFor({ deliveryGuid: `already-${name}` }))
+        );
+        await runtime.withOwner(ACME, (tx) => settleDelivery(tx, id, terminal));
+
+        const settled = await runtime.withOwner(ACME, (tx) =>
+          settleDelivery(tx, id, {
+            state: "received",
+            retryClass: "transient",
+            nextAttemptAt: new Date(Date.now() + 30_000),
+          })
+        );
+
+        expect(settled).toBeFalsy();
+        const [row] = await runtime.withOwner(ACME, (tx) =>
+          tx
+            .select()
+            .from(schema.ingressDelivery)
+            .where(eq(schema.ingressDelivery.id, id))
+        );
+        expect(row).toMatchObject({
+          ...expected,
+          retryClass: null,
+          // The stale attempt is not counted either: it never became one.
+          attemptCount: 1,
+        });
+        expect(row?.nextAttemptAt).toBeNull();
+      }
+    );
+
+    it("does not let one terminal state overwrite another", async () => {
+      const id = await runtime.withOwner(ACME, (tx) =>
+        recordDelivery(tx, envelopeFor({ deliveryGuid: "discarded-then-done" }))
+      );
+      await runtime.withOwner(ACME, (tx) =>
+        settleDelivery(tx, id, {
+          state: "discarded",
+          disposition: "duplicate_head",
+        })
+      );
+
+      const settled = await runtime.withOwner(ACME, (tx) =>
+        settleDelivery(tx, id, { state: "done" })
+      );
+
+      expect(settled).toBeFalsy();
+      const [row] = await runtime.withOwner(ACME, (tx) =>
+        tx
+          .select()
+          .from(schema.ingressDelivery)
+          .where(eq(schema.ingressDelivery.id, id))
+      );
+      expect(row).toMatchObject({
+        state: "discarded",
+        disposition: "duplicate_head",
+      });
+    });
+
     it("settles nothing belonging to another Owner", async () => {
       const id = await runtime.withOwner(ACME, (tx) =>
         recordDelivery(
@@ -412,13 +496,17 @@ describe("the ingress ledger against real Postgres", () => {
         )
       );
 
-      await runtime.withOwner(GLOBEX, (tx) =>
+      const settled = await runtime.withOwner(GLOBEX, (tx) =>
         settleDelivery(tx, id, {
           state: "discarded",
           disposition: "ineligible",
         })
       );
 
+      // Silently, still: the boundary is the update matching nothing, not a
+      // raise that would tell the wrong Owner the row exists. The `false` says
+      // only that this caller settled nothing.
+      expect(settled).toBeFalsy();
       const [row] = await runtime.withOwner(ACME, (tx) =>
         tx
           .select()
