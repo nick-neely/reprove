@@ -213,6 +213,15 @@ forced rather than chosen. With Drizzle it also does not manage its own migratio
 emits a schema file the app owns, so Better Auth's tables and Reprove's share one migration
 history.
 
+**Sharing the history makes Better Auth's model a dependency of Reprove's schema.** The Drizzle
+adapter resolves each field against the schema object it is handed and throws only when a write
+reaches a field that is not there, so a column Better Auth's model has and Reprove's file does
+not is a failed sign-in in production rather than anything visible at authoring time. The
+adopted tables therefore mirror the model exactly - every field and index it declares, including
+the ones a GitHub-only configuration never writes - and the two are compared field for field
+against `auth.$context.tables`, so an upgrade that adds a column fails on the pull request that
+bumps it.
+
 ## Authorization is answered by GitHub
 
 Reprove does not rebuild GitHub's permission graph. For a dashboard listing:
@@ -257,6 +266,13 @@ Two requirements follow, and the first is a code requirement rather than a docum
   settings page nobody re-reads is not a property.
 - **`account.encryptOAuthTokens = true`.** Better Auth stores OAuth tokens in plaintext by
   default; this gives AES-256-GCM. The refresh token is the six-month one.
+
+The first of those has a seam, and picking the wrong one makes it decorative. The assertion
+wraps the GitHub provider's `getUserInfo` and `refreshAccessToken`, which are the two points the
+grant is still the response GitHub sent. Better Auth's database hooks on `account` are the
+obvious alternative and would be silently weaker: on a repeat sign-in it filters `undefined` out
+of the update it writes, so the absent `accessTokenExpiresAt` that **is** the non-expiring
+condition never reaches a hook at all.
 
 The exact negative-response semantics of the fallback endpoint - whether a user without access
 yields `200` with `permission: "none"` or a `404` - are **not** foundation-locked. GitHub

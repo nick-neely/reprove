@@ -22,12 +22,13 @@ describe("the committed migrations", () => {
     expect(MIGRATIONS_FOLDER).toBe(path.join(packageRoot, "drizzle"));
   });
 
-  it("are the drizzle-kit generation followed by the generated FORCE delta", () => {
+  it("are the drizzle-kit generations and the generated FORCE delta, in order", () => {
     const committed = readCommittedMigrations();
 
     expect(committed.map((migration) => migration.tag)).toStrictEqual([
       "0000_initial_schema",
       "0001_force_row_level_security",
+      "0002_better_auth_account_model",
     ]);
     // The hash is `sha256(entire raw .sql file)`, which is what `migrate()`
     // writes as the ledger's `hash` and what check six joins against.

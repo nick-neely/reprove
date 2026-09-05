@@ -75,6 +75,22 @@ describe("a database bootstrapped and migrated from clean", () => {
     ).toStrictEqual(tableNames(CLASSIFICATION.tenant));
   });
 
+  it("puts no policy at all on the four Better Auth tables", async () => {
+    // The other half of "classified non-tenant rather than exempted": an
+    // exemption would be silent here, because a table nobody wrote a policy for
+    // and a table deliberately outside Owner tenancy look identical in the
+    // catalog. What distinguishes them is that the boot assertion **measured**
+    // these four and required emptiness, which is `checkPolicies`'s
+    // non-tenant clause and is why the boot above returned a client at all.
+    const rows = await database.admin<{ tablename: string }>(
+      `select tablename from pg_policies
+        where schemaname = 'public'
+          and tablename in ('user', 'session', 'account', 'verification')`
+    );
+
+    expect(rows).toStrictEqual([]);
+  });
+
   it("leaves nothing pending, so a second migrate applies nothing", async () => {
     await expect(
       migrate({ connectionString: database.adminUrl })

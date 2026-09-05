@@ -1,5 +1,6 @@
 import {
   cpSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -8,7 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   apiReport,
@@ -17,8 +18,10 @@ import {
   consumerIdentifier,
   exportSubpaths,
   forbiddenUpstreamTypes,
+  installedResolutions,
   patternExportKeys,
   pinExternals,
+  resolvableDependencies,
 } from "./verify-packages.mjs";
 import { publishableWorkspaces } from "./workspaces.mjs";
 
@@ -29,6 +32,16 @@ interface Manifest {
   exports?: Record<string, Record<string, string>>;
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
+}
+
+/** The slice of an *installed* `package.json` the resolution walk reads. */
+interface InstalledManifest {
+  name: string;
+  version: string;
+  dependencies?: Record<string, string>;
+  optionalDependencies?: Record<string, string>;
+  peerDependencies?: Record<string, string>;
+  peerDependenciesMeta?: Record<string, { optional?: boolean }>;
 }
 
 /** The compiler options the generated consumer fixture must settle. */
@@ -252,6 +265,113 @@ describe(pinExternals, () => {
   });
 });
 
+describe(resolvableDependencies, () => {
+  it("counts a dependency, an optional dependency and a required peer", () => {
+    expect(
+      resolvableDependencies({
+        dependencies: { jose: "^6.1.0" },
+        optionalDependencies: { pg: "^8.23.0" },
+        peerDependencies: { zod: "^4.5.4" },
+      }).toSorted()
+    ).toStrictEqual(["jose", "pg", "zod"]);
+  });
+
+  it("drops an optional peer, which no consumer install resolves", () => {
+    // `drizzle-orm` declares optional peers on Next.js and React. Pinning them
+    // would describe an install nobody performs.
+    expect(
+      resolvableDependencies({
+        peerDependencies: { next: "*", zod: "^4.5.4" },
+        peerDependenciesMeta: { next: { optional: true } },
+      })
+    ).toStrictEqual(["zod"]);
+  });
+});
+
+/** One installed package on disk, in the layout the resolution walk reads. */
+const writePackage = (dir: string, manifest: InstalledManifest): void => {
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    path.join(dir, "package.json"),
+    `${JSON.stringify(manifest, null, 2)}\n`
+  );
+};
+
+describe(installedResolutions, () => {
+  let root = "";
+
+  beforeEach(() => {
+    root = mkdtempSync(path.join(tmpdir(), "reprove-resolutions-"));
+    const rootModules = path.join(root, "node_modules");
+    const workspaceModules = path.join(root, "packages/thing/node_modules");
+
+    writePackage(path.join(rootModules, "@types/node"), {
+      name: "@types/node",
+      version: "26.4.0",
+      dependencies: { "undici-types": "~8.3.0" },
+    });
+    writePackage(path.join(rootModules, "undici-types"), {
+      name: "undici-types",
+      version: "8.3.0",
+    });
+    writePackage(path.join(workspaceModules, "alpha"), {
+      name: "alpha",
+      version: "1.0.0",
+      dependencies: { beta: "^2.0.0" },
+      peerDependencies: { gamma: "*" },
+      peerDependenciesMeta: { gamma: { optional: true } },
+    });
+    writePackage(path.join(workspaceModules, "beta"), {
+      name: "beta",
+      version: "2.1.0",
+    });
+    writePackage(path.join(workspaceModules, "gamma"), {
+      name: "gamma",
+      version: "3.0.0",
+    });
+  });
+
+  afterEach(() => {
+    rmSync(root, { force: true, recursive: true });
+  });
+
+  const resolutions = (): { parent: string; dependency: string }[] =>
+    installedResolutions({
+      rootDir: root,
+      packages: [
+        {
+          manifest: {
+            name: "@reprove/thing",
+            dependencies: { alpha: "^1.0.0", "@reprove/other": "0.0.0" },
+          },
+          source: { dir: path.join(root, "packages/thing") },
+        },
+      ],
+    });
+
+  it("reads a transitive edge as the workspace resolved it", () => {
+    // `^2.0.0` is what the manifest says; 2.1.0 is what is on disk, and the
+    // second is the only one the store is guaranteed to hold.
+    expect(resolutions()).toContainEqual({
+      parent: "alpha@1.0.0",
+      dependency: "beta",
+      version: "2.1.0",
+    });
+  });
+
+  it("walks @types/node too, which every consumer declares", () => {
+    expect(resolutions()).toContainEqual({
+      parent: "@types/node@26.4.0",
+      dependency: "undici-types",
+      version: "8.3.0",
+    });
+  });
+
+  it("leaves an optional peer out, present or not", () => {
+    expect(resolutions().map((edge) => edge.dependency)).not.toContain("gamma");
+  });
+});
+
 describe(consumerIdentifier, () => {
   it("camel-cases a hyphenated package name without its scope", () => {
     expect(consumerIdentifier("@reprove/control-plane-workflow")).toBe(
@@ -303,6 +423,19 @@ describe(consumerFixture, () => {
   const fixture = consumerFixture({
     packages,
     externals: { zod: "4.5.4" },
+    resolutions: [
+      { parent: "better-auth@1.7.2", dependency: "jose", version: "6.2.11" },
+      {
+        parent: "better-auth@1.7.2",
+        dependency: "@better-auth/utils",
+        version: "0.4.2",
+      },
+      {
+        parent: "better-call@1.4.0",
+        dependency: "@better-auth/utils",
+        version: "0.5.0",
+      },
+    ],
     nodeTypes: "26.4.0",
   });
   const workspace = fixture["pnpm-workspace.yaml"] ?? "";
@@ -359,6 +492,25 @@ describe(consumerFixture, () => {
 
   it("pins every external to the version the workspace installed", () => {
     expect(workspace).toContain('"zod": "4.5.4"');
+  });
+
+  it("pins every transitive edge, which is what `--offline` needs", () => {
+    // `--offline` restricts the tarballs pnpm may use, not the versions it may
+    // pick. An unpinned transitive range re-resolves here and can name a
+    // release published after the lockfile was written, which no root install
+    // ever put in the store.
+    expect(workspace).toContain('"better-auth@1.7.2>jose": "6.2.11"');
+  });
+
+  it("keeps both versions of a package the workspace holds twice", () => {
+    // The key names the parent, so a flat pin cannot flatten two legitimate
+    // copies into one graph no consumer would ever install.
+    expect(workspace).toContain(
+      '"better-auth@1.7.2>@better-auth/utils": "0.4.2"'
+    );
+    expect(workspace).toContain(
+      '"better-call@1.4.0>@better-auth/utils": "0.5.0"'
+    );
   });
 
   it("imports only its own package's subpaths, and uses each import", () => {

@@ -3,6 +3,141 @@
 
 # @reprove/control-plane
 
+## dist/auth/auth.d.ts
+
+```ts
+import type { GithubOptions } from "better-auth/social-providers";
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import * as schema from "../db/schema.js";
+/** The GitHub App's OAuth credentials. Not read from the environment. */
+export interface GitHubAppCredentials {
+    readonly clientId: string;
+    readonly clientSecret: string;
+}
+/**
+ * What `createAuth()` composes over. No value here is read from the
+ * environment, and every one of them is checked before an instance exists -
+ * Better Auth would otherwise fall back to `BETTER_AUTH_SECRET` and
+ * `BETTER_AUTH_URL`, which is the ambient resolution this package refuses for
+ * the same reason `pg` may not resolve a connection string from `PGHOST`.
+ */
+export interface AuthConfig {
+    /**
+     * The Drizzle client the four tables are reached through. It is **not** a
+     * tenant transaction: these tables carry no Owner policy, and `withOwner`
+     * would be asserting a tenancy the authentication model does not have.
+     */
+    readonly database: NodePgDatabase<typeof schema>;
+    /**
+     * The signing secret, which is also what the OAuth token encryption key is
+     * derived from. Rotating it invalidates every stored token.
+     */
+    readonly secret: string;
+    /** The origin Better Auth builds its callback URLs from. */
+    readonly baseURL: string;
+    readonly github: GitHubAppCredentials;
+}
+/** The composed instance. */
+export type Auth = ReturnType<typeof createAuth>;
+/**
+ * Composes Better Auth against Reprove's adopted tables.
+ *
+ * @param config The database client and the credentials, passed in rather than
+ *   read from anywhere.
+ * @returns The Better Auth instance.
+ * @throws {TypeError} Naming the field, when a credential or the secret is
+ *   absent, null or empty.
+ */
+export declare const createAuth: (config: AuthConfig) => import("better-auth").Auth<{
+    secret: string;
+    baseURL: string;
+    database: (options: import("better-auth").BetterAuthOptions) => import("better-auth").DBAdapter<import("better-auth").BetterAuthOptions>;
+    account: {
+        encryptOAuthTokens: true;
+    };
+    socialProviders: {
+        github: GithubOptions;
+    };
+    telemetry: {
+        enabled: false;
+    };
+}>;
+```
+
+## dist/auth/token-grant.d.ts
+
+```ts
+/**
+ * The check [ADR
+ * 0008](../../../../docs/adr/0008-persistence-tenancy-and-retention.md) states
+ * as a code requirement rather than a documented intention:
+ *
+ * > Reprove verifies at authentication and refresh time that GitHub issued an
+ * > expiring access token and a refresh token, and refuses or fails
+ * > configuration loudly otherwise.
+ *
+ * The reasoning it rests on: a GitHub App user access token expires in eight
+ * hours and is backed by a six-month refresh token, which is what makes keeping
+ * a person's credential in Reprove's database defensible at all. Both halves
+ * come from the App's **"Expire user authorization tokens"** setting. It is
+ * default-on for a new App and it is still a toggle, and opting out changes
+ * nothing observable at sign-in: the flow succeeds, a token is stored, and it
+ * is a permanent one. That is the failure that succeeds quietly, which ADR 0004
+ * bans outright.
+ *
+ * A pure function over the grant, deliberately: the condition is a property of
+ * a value, so it is falsifiable from a literal with no network and no App.
+ */
+/**
+ * The part of an OAuth grant this assertion is about.
+ *
+ * Structurally compatible with Better Auth's `OAuth2Tokens` without naming it,
+ * so the check is measurable from a literal and holds no opinion about where
+ * the grant came from. Better Auth maps GitHub's `expires_in` to
+ * `accessTokenExpiresAt` and leaves it `undefined` when the field is absent,
+ * which is exactly the non-expiring case.
+ */
+export interface GitHubTokenGrant {
+    readonly accessToken?: string | undefined;
+    readonly refreshToken?: string | undefined;
+    readonly accessTokenExpiresAt?: Date | undefined;
+}
+/**
+ * What `createAuth()`'s GitHub seam throws instead of storing the grant.
+ *
+ * `CONTEXT.md`'s noun is **Refusal**; the `Error` suffix is the JavaScript
+ * convention for a throwable and is not a second domain word. It is not a
+ * `BootRefusalError`, because this is not the boot assertion: it refuses one
+ * sign-in or one refresh, at the moment GitHub answered, rather than refusing
+ * to return a database client.
+ */
+export declare class GitHubTokenGrantError extends Error {
+    /** Every condition the grant broke, in the order they are checked. */
+    readonly conditions: readonly string[];
+    constructor(conditions: readonly string[]);
+}
+/**
+ * Every condition the grant breaks, empty when it is the grant ADR 0008
+ * assumes.
+ *
+ * `no access token` is separate from `non-expiring access token` rather than
+ * absorbed by it, because the two send a reader to different places: one is a
+ * broken exchange, the other is the App setting.
+ *
+ * @param grant The token response, as Better Auth mapped it.
+ * @returns One condition per broken clause.
+ */
+export declare const gitHubTokenGrantConditions: (grant: GitHubTokenGrant) => string[];
+/**
+ * Loudly, and before the grant is written anywhere.
+ *
+ * @param grant The token response, as Better Auth mapped it.
+ * @throws {GitHubTokenGrantError} Naming every condition the grant broke and
+ *   the App setting that produces them.
+ */
+export declare const assertGitHubTokenGrant: (grant: GitHubTokenGrant) => void;
+```
+
 ## dist/bin.d.ts
 
 ```ts
@@ -2983,6 +3118,23 @@ export declare const account: import("drizzle-orm/pg-core").PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
+        issuer: import("drizzle-orm/pg-core").PgColumn<{
+            name: "issuer";
+            tableName: "account";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
         accountId: import("drizzle-orm/pg-core").PgColumn<{
             name: "account_id";
             tableName: "account";
@@ -3070,6 +3222,40 @@ export declare const account: import("drizzle-orm/pg-core").PgTableWithColumns<{
         }, {}, {}>;
         scope: import("drizzle-orm/pg-core").PgColumn<{
             name: "scope";
+            tableName: "account";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        idToken: import("drizzle-orm/pg-core").PgColumn<{
+            name: "id_token";
+            tableName: "account";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        password: import("drizzle-orm/pg-core").PgColumn<{
+            name: "password";
             tableName: "account";
             dataType: "string";
             columnType: "PgText";
