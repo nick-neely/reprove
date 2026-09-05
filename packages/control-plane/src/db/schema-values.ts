@@ -25,31 +25,42 @@ export type IngressState = (typeof INGRESS_STATES)[number];
  * each is a conclusion about the delivery rather than about a Run:
  *
  * ```text
+ * concluded from the delivery alone            -> inert
  * canonical state ineligible - closed, draft   -> ineligible
  * a Run already exists at the canonical head   -> duplicate_head
+ * canonical state needed nothing done          -> unchanged
  * grant definitively gone                      -> grant_gone
- * the delivery is not one that acts            -> inert
  * ```
  *
- * `inert` is ADR 0013's own word for the last row of its trigger table -
- * "everything else | inert" - promoted to a disposition because the ledger has
- * to say something about a delivery it concluded on, and every alternative
- * misreports it. `done` claims a Run was created, `ineligible` claims canonical
- * state was read and refused the pull request, and leaving the row `received`
- * hands a re-drive work that will reach the same answer forever. An `edited`
- * delivery, or one of the three events GitHub delivers to every App
- * unconditionally, is concluded the moment its event and action are read: no
- * lock is taken and no canonical fetch is made.
+ * `inert` and `unchanged` are the pair worth keeping apart, because collapsing
+ * them would make the ledger lie about what a delivery cost.
  *
- * It needs no migration. `disposition` is a `text` column and ADR 0008 keeps
+ * **`inert` means concluded from the delivery alone** - no advisory lock taken
+ * and no request issued to GitHub. It is ADR 0013's own word for the last row of
+ * its trigger table, "everything else | inert", and it covers two shapes: an
+ * event or action that is not a trigger, which is every `edited` delivery and
+ * each of the three events GitHub delivers to every App unconditionally; and an
+ * acting delivery that names no repository or pull request to act on, which no
+ * later attempt can supply. Both are decided by reading the envelope.
+ *
+ * **`unchanged` means the work was done and nothing needed doing.** The lock was
+ * taken and canonical state was read, and it disagreed with the delivery: a
+ * stale `closed` for a pull request that has since reopened is ADR 0013's own
+ * example, and cancelling on it is exactly what the canonical fetch exists to
+ * prevent. Recording that as `inert` would claim no request was made, and
+ * recording it as `ineligible` would claim canonical state refused the pull
+ * request when it did the opposite.
+ *
+ * Neither needs a migration. `disposition` is a `text` column and ADR 0008 keeps
  * the state machines in the application rather than in a Postgres `ENUM`, which
  * is exactly the case this is.
  */
 export const INGRESS_DISPOSITIONS = [
+  "inert",
   "ineligible",
   "duplicate_head",
+  "unchanged",
   "grant_gone",
-  "inert",
 ] as const;
 export type IngressDisposition = (typeof INGRESS_DISPOSITIONS)[number];
 

@@ -273,7 +273,7 @@ export const ingressDelivery = pgTable(
     pullRequestNumber: integer("pull_request_number"),
     /** received | done | discarded */
     state: text("state").notNull().default("received"),
-    /** ineligible | duplicate_head | grant_gone | inert, on `discarded` */
+    /** inert | ineligible | duplicate_head | unchanged | grant_gone */
     disposition: text("disposition"),
     /** transient | operator_attention | contended, on nonterminal `received` */
     retryClass: text("retry_class"),
@@ -368,8 +368,19 @@ export const run = pgTable(
     // lock `src/github/run-creation.ts` takes. Deliberately not unique on
     // `head_sha`, because ADR 0007 allows a retry to produce a new Run at the
     // same head.
+    //
+    // `owner_id` leads both of these indexes, and that is not decoration. An
+    // index is global and sees no policy, while every probe in front of it runs
+    // inside `withOwner` and sees one. A repository id survives a **transfer
+    // between accounts**, so the new Owner's first Run for a pull request would
+    // collide with the old Owner's Run - a row the writer cannot select, cannot
+    // supersede and has no branch for, surfacing as a bare `23505` from inside
+    // an insert every check said was safe. Scoping the index to the Owner makes
+    // what it enforces the same thing the code can see. A repository belongs to
+    // one Owner at a time, so the live invariant is unweakened for whoever
+    // holds it now.
     uniqueIndex("run_one_live_per_pull_request")
-      .on(t.repositoryId, t.pullRequestNumber)
+      .on(t.ownerId, t.repositoryId, t.pullRequestNumber)
       .where(sql`${t.status} in ('queued', 'claimed', 'executing')`),
     // ADR 0013's other Run-creation rule, the one about heads rather than
     // liveness: "an automatic trigger whose canonical head already has *any*
@@ -384,7 +395,7 @@ export const run = pgTable(
     // the predicate the index would forbid the retry, which is the reason ADR
     // 0013 rejected the unconditional version of it.
     uniqueIndex("run_one_automatic_per_head")
-      .on(t.repositoryId, t.pullRequestNumber, t.headSha)
+      .on(t.ownerId, t.repositoryId, t.pullRequestNumber, t.headSha)
       .where(sql`${t.trigger} = 'automatic'`),
     unique("run_owner_scoped_id").on(t.ownerId, t.id),
     foreignKey({
