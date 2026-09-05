@@ -145,6 +145,61 @@ export declare const assertGitHubTokenGrant: (grant: GitHubTokenGrant) => void;
 export {};
 ```
 
+## dist/control-plane.d.ts
+
+```ts
+import type { CheckOutcome } from "./db/refusal.js";
+/** The database connection, as configuration rather than as a client. */
+export interface ControlPlaneDatabaseConfig {
+    /**
+     * The **pooled** endpoint, as the restricted runtime role. Never the admin
+     * credential and never the direct endpoint.
+     */
+    readonly connectionString: string;
+    /** Client connections the pool may hold open. */
+    readonly poolSize?: number;
+    /** Called when the pool's connection fails while idle. */
+    readonly onConnectionError?: (error: Error) => void;
+}
+/** The App's webhook seam. */
+export interface ControlPlaneGitHubConfig {
+    /** The webhook secret the App was registered with. */
+    readonly webhookSecret: string;
+    /** The largest delivery body to accept, in bytes. */
+    readonly maximumDeliveryBytes?: number;
+}
+/** Everything the control plane is composed over. */
+export interface ControlPlaneConfig {
+    readonly database: ControlPlaneDatabaseConfig;
+    readonly github: ControlPlaneGitHubConfig;
+}
+/** The composed control plane, as the app holds it. */
+export interface ControlPlane {
+    /** Every boot check's outcome, kept so a deployment can log what it proved. */
+    readonly checks: readonly CheckOutcome[];
+    /** `POST /api/github/webhook`. */
+    readonly handleGitHubWebhook: (request: Request) => Promise<Response>;
+    /** Drains the connection pool. */
+    readonly close: () => Promise<void>;
+}
+/**
+ * Opens the runtime connection, proves the tenant boundary, and composes the
+ * routes over it.
+ *
+ * The webhook's commit port is bound to a `withOwner` transaction here, and
+ * that binding is what makes ADR 0013's ordering true end to end: the handler
+ * awaits a call that resolves only once the transaction has committed, so the
+ * acknowledgement cannot precede the row.
+ *
+ * @param config The pooled connection and the App's webhook secret.
+ * @returns The composed control plane.
+ * @throws {TypeError} Naming the field, when a required value is absent or empty.
+ * @throws {import("./db/refusal.js").BootRefusalError} Naming every tenancy
+ *   assertion that failed.
+ */
+export declare const createControlPlane: (config: ControlPlaneConfig) => Promise<ControlPlane>;
+```
+
 ## dist/db/bootstrap.d.ts
 
 ```ts
@@ -1061,6 +1116,62 @@ export interface RuntimeDb {
  */
 export declare const createRuntimeDb: (config: RuntimeDbConfig) => Promise<RuntimeDb>;
 export {};
+```
+
+## dist/db/schema-values.d.ts
+
+```ts
+/**
+ * The closed value sets the schema's `text` columns hold, as types.
+ *
+ * `src/db/schema.ts` documents each of these in a comment beside its column and
+ * cannot express them: a Postgres `ENUM` is a type whose values are altered by
+ * migration rather than by a diff, and ADR 0008 keeps the state machines in the
+ * application. This module is what stops the comment being the only statement -
+ * it names no Drizzle type, so it is reachable from anywhere in the package and
+ * from its published surface alike.
+ */
+/** `owner.type`. */
+export type OwnerType = "user" | "organization";
+/**
+ * `ingress_delivery.state`. ADR 0013: none of these is Refusal or Failure
+ * vocabulary, because nothing was refused and nothing executed. They are
+ * ingress machinery before execution.
+ */
+export declare const INGRESS_STATES: readonly ["received", "done", "discarded"];
+export type IngressState = (typeof INGRESS_STATES)[number];
+/**
+ * `ingress_delivery.disposition`, on `discarded`. Each one is terminal, and
+ * each is a conclusion about the delivery rather than about a Run:
+ *
+ * ```text
+ * canonical state ineligible - closed, draft   -> ineligible
+ * a Run already exists at the canonical head   -> duplicate_head
+ * grant definitively gone                      -> grant_gone
+ * ```
+ */
+export declare const INGRESS_DISPOSITIONS: readonly ["ineligible", "duplicate_head", "grant_gone"];
+export type IngressDisposition = (typeof INGRESS_DISPOSITIONS)[number];
+/**
+ * `ingress_delivery.retry_class`, on a nonterminal `received`.
+ *
+ * ADR 0013 classifies retryability **by typed cause, never by HTTP status**,
+ * because `403 Resource not accessible by integration`, a missing permission, a
+ * revoked grant and a misconfigured App are all permanent and "all 401/403
+ * retry with backoff" produces an invisible loop:
+ *
+ * ```text
+ * network failure, 5xx, 429, secondary rate limiting  -> transient
+ * auth or App configuration cannot establish access   -> operator_attention
+ * advisory lock contention                            -> contended
+ * ```
+ *
+ * `transient` and `contended` are the two ADR 0013 makes a Phase 0 exit
+ * condition: every nonterminal `received` caused by either must have an
+ * automatic re-drive path, which #38 chooses the mechanism for.
+ */
+export declare const INGRESS_RETRY_CLASSES: readonly ["transient", "operator_attention", "contended"];
+export type IngressRetryClass = (typeof INGRESS_RETRY_CLASSES)[number];
 ```
 
 ## dist/db/schema.d.ts
@@ -3419,6 +3530,367 @@ export declare const verification: import("drizzle-orm/pg-core").PgTableWithColu
 }>;
 ```
 
+## dist/github/body.d.ts
+
+```ts
+/**
+ * Reading a delivery body under a hard cap, which is what runs in front of the
+ * hash.
+ *
+ * [ADR
+ * 0013](../../../../docs/adr/0013-github-ingress-and-run-creation-idempotency.md)
+ * asks for an oversized body to be rejected *before* hashing it, and that is a
+ * statement about the bytes rather than about the status: `await
+ * request.arrayBuffer()` followed by a length check has already accumulated
+ * whatever was sent, so the cap it enforces is on what the handler proceeds
+ * with rather than on what the process holds.
+ *
+ * So the body is read as a stream and abandoned the moment it passes the cap.
+ * The declared `content-length` is consulted first because a sender that
+ * describes an oversized body has already said enough, and it is never trusted
+ * on its own, because a stream that lies about its length is exactly the shape
+ * the cap exists for.
+ */
+/** A body that fitted, or the cap it broke. */
+export type BoundedBody = {
+    readonly kind: "bytes";
+    readonly bytes: Uint8Array;
+} | {
+    readonly kind: "oversized";
+    readonly limit: number;
+};
+/**
+ * Reads at most `limit` bytes of a request body.
+ *
+ * @param request The delivery, unread.
+ * @param limit The largest body in bytes that may be accumulated.
+ * @returns The exact bytes received, or the cap they broke.
+ */
+export declare const readBoundedBody: (request: Request, limit: number) => Promise<BoundedBody>;
+```
+
+## dist/github/envelope.d.ts
+
+```ts
+import type { OwnerType } from "../db/schema-values.js";
+/**
+ * The row's worth of facts, and the exact set of them. Everything nullable here
+ * is nullable in the ledger for the same reason: a lifecycle delivery carries
+ * only the bounded ids the removal needs and has no one repository to locate.
+ */
+export interface IngressEnvelope {
+    /** `X-GitHub-Delivery`. Reused on a manual redelivery, so never a key. */
+    readonly deliveryGuid: string;
+    /** `X-GitHub-Event`. */
+    readonly event: string;
+    readonly action: string | null;
+    /** GitHub's durable numeric Owner id, which is the tenant key itself. */
+    readonly ownerId: number;
+    readonly ownerLogin: string;
+    readonly ownerType: OwnerType;
+    readonly installationId: number | null;
+    readonly repositoryId: number | null;
+    /** The `owner/name` locator **as the delivery carried it**. */
+    readonly repositoryNameWithOwner: string | null;
+    readonly pullRequestNumber: number | null;
+}
+/** An envelope, or the reason these bytes could not become one. */
+export type NormalizedDelivery = {
+    readonly kind: "envelope";
+    readonly envelope: IngressEnvelope;
+} | {
+    readonly kind: "malformed";
+    readonly reason: string;
+};
+/** A signature-verified delivery, still unparsed. */
+export interface ReceivedDelivery {
+    readonly event: string;
+    readonly deliveryGuid: string;
+    /** The exact bytes, which the signature has already been checked against. */
+    readonly body: Uint8Array;
+}
+/**
+ * Reads a verified delivery into the envelope the ledger commits.
+ *
+ * @param delivery The event, the delivery GUID and the verified bytes.
+ * @returns The envelope, or the reason there is none.
+ */
+export declare const normalizeDelivery: (delivery: ReceivedDelivery) => NormalizedDelivery;
+```
+
+## dist/github/ledger.d.ts
+
+```ts
+import type { TenantTransaction } from "../db/runtime.js";
+import type { IngressDisposition, IngressRetryClass } from "../db/schema-values.js";
+import type { IngressEnvelope } from "./envelope.js";
+/**
+ * How a processing attempt ended, as the ledger holds it.
+ *
+ * A union rather than three nullable columns a caller fills in, because the
+ * combinations the columns permit are mostly nonsense: a `done` row carrying a
+ * retry class, or a `discarded` row with a next attempt, is a delivery a
+ * re-drive sweeper would pick up and redo. Here the state names its own
+ * evidence and there is no fourth shape.
+ */
+export type IngressOutcome =
+/** A Run was created. Terminal. */
+{
+    readonly state: "done";
+}
+/** Terminal, and the disposition says which conclusion was reached. */
+ | {
+    readonly state: "discarded";
+    readonly disposition: IngressDisposition;
+}
+/**
+ * Nonterminal: the delivery stays `received` and the retry class says what
+ * kind of recovery it needs. ADR 0013 makes an automatic re-drive path for
+ * `transient` and `contended` a Phase 0 exit condition rather than deferred
+ * work, and #38 chooses the mechanism.
+ */
+ | {
+    readonly state: "received";
+    readonly retryClass: IngressRetryClass;
+    readonly nextAttemptAt: Date | null;
+};
+/**
+ * Commits one envelope, with the identity rows it depends on, inside the
+ * caller's tenant transaction.
+ *
+ * The transaction is the caller's on purpose: "committed before the
+ * acknowledgement" is a property of the call the handler awaits, and a function
+ * that opened a transaction of its own would let a caller acknowledge while the
+ * commit was still in flight.
+ *
+ * @param tx A tenant transaction already scoped to the envelope's Owner.
+ * @param envelope The bounded normalized envelope.
+ * @returns The ledger row's id, which is what later processing resumes from.
+ */
+export declare const recordDelivery: (tx: TenantTransaction, envelope: IngressEnvelope) => Promise<string>;
+/**
+ * Records how one processing attempt ended, and counts it.
+ *
+ * The attempt bookkeeping is incremented in SQL rather than read and written
+ * back, so two processors that reached the same delivery cannot both write the
+ * count they each read.
+ *
+ * Only a `received` row is settled. `done` and `discarded` are terminal in ADR
+ * 0013, and the state is what the stateful GUID rule reads - same GUID plus a
+ * terminal state is a duplicate - so a late attempt that reopened one would put
+ * a retry class and a next attempt back on a delivery whose work is finished,
+ * and hand a re-drive something that must never be redone. That is reachable
+ * without any second processor writing at the same instant: the contended
+ * attempt that lost the advisory lock settles after the attempt that won it.
+ * Repeating a still-`received` row is the one repeat that does land, because
+ * that is exactly what a re-drive is.
+ *
+ * Settling nothing is silent, for both reasons it can happen. Across the tenant
+ * boundary the update matches nothing, and raising there would tell the wrong
+ * Owner the row exists; on a terminal row the settlement is simply stale, and
+ * the caller has nothing left to do about a delivery that is already concluded.
+ * The return value is what distinguishes either from a settlement that landed.
+ *
+ * @param tx A tenant transaction already scoped to the delivery's Owner.
+ * @param deliveryId The ledger row returned by {@link recordDelivery}.
+ * @param outcome How the attempt ended.
+ * @returns Whether this attempt was recorded - `false` when the row is already
+ *   terminal, or belongs to another Owner.
+ */
+export declare const settleDelivery: (tx: TenantTransaction, deliveryId: string, outcome: IngressOutcome) => Promise<boolean>;
+```
+
+## dist/github/manifest.d.ts
+
+```ts
+/**
+ * The GitHub App registration, as the manifest GitHub creates one from.
+ *
+ * [ADR
+ * 0013](../../../../docs/adr/0013-github-ingress-and-run-creation-idempotency.md)
+ * fixes the grant and the reason it is this small:
+ *
+ * ```text
+ * Metadata: read          mandatory for every App
+ * Pull requests: read     gates delivery of the pull_request event
+ * ```
+ *
+ * That is the complete grant. `Contents: read`, `Pull requests: write` and
+ * `Checks: write` are **not** pre-declared, and the asymmetry that tempts the
+ * opposite choice is understood rather than overlooked: adding a *permission*
+ * later requires every existing installation to approve it and the App keeps
+ * operating under the old grant until they do, whereas adding an *event
+ * subscription* later is free once the gating permission is held. It does not
+ * apply because Phase 0 has no third-party installations, so the migration cost
+ * is currently zero and will be paid exactly once, deliberately, before Phase 1
+ * launches. Pre-declaring write authority buys nothing today and costs an
+ * install consent screen that overstates what the App can do, on a product whose
+ * central claim is credential minimalism.
+ *
+ * **No Check is published**, and that is recorded rather than omitted.
+ * `CONTEXT.md` requires every Refusal to be visible on a Check, which looks like
+ * it forces `Checks: write` into the grant; it does not, because no Refusal is
+ * reachable in Phase 0 - a control-plane Refusal arises from configuration that
+ * is invalid or cannot be resolved, and Phase 0 Runs are built from fixed inputs
+ * with no repository configuration, while a Worker-side Refusal needs a Worker.
+ * The Check lands with the first phase that can actually produce a Refusal, and
+ * must land at the same time as it.
+ *
+ * The App subscribes to exactly `pull_request`. GitHub additionally delivers
+ * `installation`, `installation_repositories` and `github_app_authorization` to
+ * every App by default and **they cannot be subscribed to or unsubscribed
+ * from**, so they are absent here and still recorded: the handler normalizes
+ * whatever event it is sent rather than assuming an unsubscribed one never
+ * arrives, and the event name is a column on the ledger row so #49 can dispatch
+ * on it.
+ */
+/** The permission levels GitHub accepts in a manifest. */
+export type ManifestPermission = "read" | "write" | "admin";
+/**
+ * The complete grant, and the only place it is written. It is a value rather
+ * than prose in a runbook so that a test can hold it to ADR 0013 and a widening
+ * shows up as a diff beside the decision that forbids it.
+ */
+export declare const APP_PERMISSIONS: {
+    readonly metadata: "read";
+    readonly pull_requests: "read";
+};
+/** The one explicit subscription. The other three arrive unconditionally. */
+export declare const APP_EVENTS: readonly ["pull_request"];
+/** The webhook path the App's single hook URL points at. */
+export declare const WEBHOOK_PATH = "/api/github/webhook";
+/** The deployment-specific facts a manifest needs and this package cannot know. */
+export interface ManifestOptions {
+    /** The App's display name. */
+    readonly name: string;
+    /** The origin the control plane is deployed at, with no trailing slash. */
+    readonly baseUrl: string;
+    /** Whether the App may be installed by accounts other than its owner. */
+    readonly public?: boolean;
+}
+/**
+ * A GitHub App manifest, in the shape `POST /app-manifests/{code}/conversions`
+ * is reached through.
+ */
+export interface GitHubAppManifest {
+    readonly name: string;
+    readonly url: string;
+    readonly hook_attributes: {
+        readonly url: string;
+        readonly active: true;
+    };
+    readonly redirect_url: string;
+    readonly public: boolean;
+    readonly default_events: readonly string[];
+    readonly default_permissions: Readonly<Record<string, ManifestPermission>>;
+}
+/**
+ * Builds the manifest a registration is created from.
+ *
+ * @param options The App name and the origin it is deployed at.
+ * @returns The manifest, carrying exactly ADR 0013's grant.
+ */
+export declare const githubAppManifest: (options: ManifestOptions) => GitHubAppManifest;
+```
+
+## dist/github/signature.d.ts
+
+```ts
+/**
+ * The header GitHub carries the signature on, lower-cased because that is how
+ * `Headers.get` normalizes it and how every comparison here is written.
+ */
+export declare const SIGNATURE_HEADER = "x-hub-signature-256";
+/**
+ * The algorithm prefix GitHub prepends to the digest. It is part of the signed
+ * comparison rather than something to strip and discard: leaving it in is what
+ * makes `sha1=...`, the retired scheme GitHub still sends on
+ * `X-Hub-Signature`, fail here rather than being read as a bare digest.
+ */
+export declare const SIGNATURE_PREFIX = "sha256=";
+/** The header value GitHub computes for a body, in full. */
+export declare const signDelivery: (secret: string, body: Uint8Array) => string;
+/** A delivery's raw bytes and the signature offered for them. */
+export interface OfferedSignature {
+    /** The webhook secret the App was registered with. */
+    readonly secret: string;
+    /** The exact bytes received, before any parse. */
+    readonly body: Uint8Array;
+    /** The `X-Hub-Signature-256` header as it arrived, or null when absent. */
+    readonly signature: string | null;
+}
+/**
+ * Whether the offered signature is the one this secret produces over these
+ * bytes.
+ *
+ * Every malformed shape - an absent header, an empty one, a bare digest, the
+ * retired `sha1` scheme, a truncated digest - is a `false` rather than a throw,
+ * because the caller turns this into a status and has nothing to do with an
+ * exception.
+ *
+ * @param offered The bytes received and the signature offered for them.
+ * @returns True only when the signature matches the bytes exactly.
+ */
+export declare const isSignatureValid: (offered: OfferedSignature) => boolean;
+```
+
+## dist/github/webhook.d.ts
+
+```ts
+import type { IngressEnvelope } from "./envelope.js";
+export declare const EVENT_HEADER = "x-github-event";
+export declare const DELIVERY_HEADER = "x-github-delivery";
+/**
+ * GitHub's own documented cap on a webhook payload. The default is that number
+ * rather than a smaller guess so the bound is a backstop against a body GitHub
+ * could not have sent, never a reason a legitimate delivery is turned away.
+ */
+export declare const MAXIMUM_DELIVERY_BYTES: number;
+/**
+ * One status per reason, because ADR 0013's recovery story is different for
+ * each of them and a single `400` would collapse the three.
+ *
+ * `notCommitted` is the one that matters most and is the counterintuitive half
+ * of the decision: it is a failure Reprove *wants* GitHub to see, so the
+ * delivery stays manually redeliverable. The other three are rejections of
+ * something Reprove will never be able to use, and re-sending them would only
+ * produce the same answer.
+ */
+export declare const WEBHOOK_STATUS: {
+    /** The envelope is durable. Processing has not necessarily started. */
+    readonly acknowledged: 200;
+    /** No valid signature over these exact bytes. */
+    readonly unsigned: 401;
+    /** Over the cap, and refused before being hashed. */
+    readonly oversized: 413;
+    /** Signed, and still not something an envelope can be built from. */
+    readonly unusable: 422;
+    /** The envelope could not be committed, so nothing may be acknowledged. */
+    readonly notCommitted: 503;
+};
+/**
+ * What durably commits an envelope. It resolves only once the row is committed,
+ * and rejects otherwise; there is no third answer, because the handler turns
+ * the distinction straight into an acknowledgement or the absence of one.
+ */
+export type CommitEnvelope = (envelope: IngressEnvelope) => Promise<void>;
+/** What the handler is composed over. No value here is read from anywhere. */
+export interface WebhookConfig {
+    /** The webhook secret the App was registered with. */
+    readonly secret: string;
+    /** The largest body to accept. Defaults to {@link MAXIMUM_DELIVERY_BYTES}. */
+    readonly maximumBytes?: number;
+    readonly commit: CommitEnvelope;
+}
+/**
+ * Builds the handler.
+ *
+ * @param config The webhook secret, the body cap and the commit port.
+ * @returns A function from a delivery to its acknowledgement or rejection.
+ */
+export declare const createGitHubWebhookHandler: (config: WebhookConfig) => ((request: Request) => Promise<Response>);
+```
+
 ## dist/index.d.ts
 
 ```ts
@@ -3439,6 +3911,8 @@ export { protocolSchemas as workerProtocolSchemas } from "@reprove/protocol/v1";
  * configuration the app parsed - not as a Drizzle handle the app assembles for
  * itself.
  */
+export type { ControlPlane, ControlPlaneConfig, ControlPlaneDatabaseConfig, ControlPlaneGitHubConfig, } from "./control-plane.js";
+export { createControlPlane } from "./control-plane.js";
 export type { BootstrapConfig } from "./db/bootstrap.js";
 export { bootstrap } from "./db/bootstrap.js";
 export type { MigrateConfig } from "./db/migrate.js";
@@ -3448,6 +3922,9 @@ export { MIGRATIONS_FOLDER, readCommittedMigrations } from "./db/migrations.js";
 export type { CheckName, CheckOutcome } from "./db/refusal.js";
 export { BootRefusalError } from "./db/refusal.js";
 export { RUNTIME_ROLE } from "./db/roles.js";
+export type { GitHubAppManifest, ManifestOptions, ManifestPermission, } from "./github/manifest.js";
+export { APP_EVENTS, APP_PERMISSIONS, githubAppManifest, WEBHOOK_PATH, } from "./github/manifest.js";
+export { WEBHOOK_STATUS } from "./github/webhook.js";
 export declare const packageName: "@reprove/control-plane";
 /**
  * Shell. The control plane validates every Worker submission against the same

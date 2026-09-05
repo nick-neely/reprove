@@ -194,6 +194,10 @@ const WORKSPACES = {
       "pg",
       "@types/pg",
       "drizzle-kit",
+      // ADR 0007 puts the zod-and-Drizzle boundary here: zod is what enforces a
+      // Run spec's immutability and what parses the least trusted input the
+      // system takes - a webhook body - at the seam it arrives on.
+      "zod",
     ],
     // ADR 0014 removed `workflow` from this row.
     forbidden: [

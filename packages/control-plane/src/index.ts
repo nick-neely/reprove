@@ -18,6 +18,13 @@ export { protocolSchemas as workerProtocolSchemas } from "@reprove/protocol/v1";
  * configuration the app parsed - not as a Drizzle handle the app assembles for
  * itself.
  */
+export type {
+  ControlPlane,
+  ControlPlaneConfig,
+  ControlPlaneDatabaseConfig,
+  ControlPlaneGitHubConfig,
+} from "./control-plane.js";
+export { createControlPlane } from "./control-plane.js";
 export type { BootstrapConfig } from "./db/bootstrap.js";
 export { bootstrap } from "./db/bootstrap.js";
 export type { MigrateConfig } from "./db/migrate.js";
@@ -27,6 +34,18 @@ export { MIGRATIONS_FOLDER, readCommittedMigrations } from "./db/migrations.js";
 export type { CheckName, CheckOutcome } from "./db/refusal.js";
 export { BootRefusalError } from "./db/refusal.js";
 export { RUNTIME_ROLE } from "./db/roles.js";
+export type {
+  GitHubAppManifest,
+  ManifestOptions,
+  ManifestPermission,
+} from "./github/manifest.js";
+export {
+  APP_EVENTS,
+  APP_PERMISSIONS,
+  githubAppManifest,
+  WEBHOOK_PATH,
+} from "./github/manifest.js";
+export { WEBHOOK_STATUS } from "./github/webhook.js";
 
 export const packageName = "@reprove/control-plane" as const;
 

@@ -56,9 +56,23 @@ Permitted dependencies, which are also the CI matrix:
 | `worker-core` | `protocol`, `adapters`, `sandbox-container` | `workflow`, `drizzle-orm`, `octokit` |
 | `worker` | `worker-core`, `protocol` | `@ai-sdk/*` directly |
 | `worker-hosted` | `worker-core`, `protocol`, `workflow` | `@ai-sdk/*` directly |
-| `control-plane` | `protocol`, `drizzle-orm`, `octokit`, `better-auth` | `worker-core`, `adapters`, `sandbox-container`, `@ai-sdk/*`, **`workflow`** |
+| `control-plane` | `protocol`, `drizzle-orm`, `octokit`, `better-auth`, `zod` | `worker-core`, `adapters`, `sandbox-container`, `@ai-sdk/*`, **`workflow`** |
 | `control-plane-workflow` | `protocol`, `control-plane`, `workflow` | `worker-core`, `adapters`, `sandbox-container`, `@ai-sdk/*` |
 | `apps/control-plane` | `@reprove/control-plane`, `@reprove/control-plane-workflow`, `@reprove/worker-hosted`, `next`, `react` | `drizzle-orm`, Postgres drivers, `octokit`, `better-auth`, `@ai-sdk/*`, `@reprove/{adapters,worker-core,sandbox-container}` |
+
+> **Amended by [#48](https://github.com/nick-neely/reprove/issues/48).** `zod` joins the
+> `control-plane` row. It is not a new boundary so much as a boundary that was already decided
+> elsewhere and never written into this table: [ADR
+> 0007](0007-run-result-and-finding.md) puts the zod-and-Drizzle split in this package - "zod owns
+> the wire, Drizzle owns the table" - and [ADR 0008](0008-persistence-tenancy-and-retention.md)
+> states that a Run spec's immutability "is enforced in zod and the data-access layer". GitHub
+> ingress is what first needed it: a webhook body is the least trusted input the system takes, and
+> parsing it at the seam is the difference between a tenant locator that was validated and one that
+> merely looked right at the property access that read it.
+>
+> It changes nothing about the open-core boundary. `zod` is already the `protocol` row's only
+> dependency, it names no upstream type ADR 0005 forbids, and the published surface of
+> `control-plane` gains nothing from it - the parsed envelope stays inside the package.
 
 Three rows carry most of the weight.
 

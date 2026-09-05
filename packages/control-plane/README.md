@@ -68,6 +68,112 @@ The effective state is then a walk of the journal in order: `0001 FORCE` followe
 
 All of it is ordinary Vitest - `declared.test.ts`, `force.test.ts`, `force-generate.test.ts` - beside `tools/verify-migrations.mjs`, which is the Git-aware half that proves history was only appended to. None of it sees a database: what actually deployed is `createRuntimeDb()`'s seven checks, and that division is ADR 0017's, not an omission.
 
+## GitHub ingress
+
+`POST /api/github/webhook` is composed in [`src/github/`](src/github) and reaches the app as
+`createControlPlane(config)`. [ADR 0013](../../docs/adr/0013-github-ingress-and-run-creation-idempotency.md)
+fixes the order and makes it the whole decision:
+
+```text
+verify HMAC-SHA256 over the raw bytes
+  -> normalize a bounded ingress envelope
+  -> commit it with its processing state
+  -> return 200
+  -> kick asynchronous processing        (#49)
+```
+
+**Durability comes before the acknowledgement**, because GitHub does not automatically redeliver:
+redelivery is manual, from the App's delivery UI or the deliveries API, and only within three days.
+A `200` returned before anything is persisted is therefore the one genuinely unrecoverable outcome
+in the system, and **a failure to commit is a non-2xx on purpose** - it buys the only recovery
+GitHub offers. Once the envelope is committed the opposite holds: a failed asynchronous kick still
+returns `200`, because Reprove now holds the intent and the ledger is what recovers it.
+
+The commit is a **port** rather than a database call, and that is what makes the ordering testable
+rather than merely intended. A handler that answered first and persisted afterwards passes every
+assertion about status codes; `webhook.test.ts` watches where the commit lands relative to the
+answer instead. `createControlPlane()` binds the port to a `withOwner` transaction, and
+`control-plane.test.ts` measures the whole path against the real database - including that a
+rejected delivery leaves the table empty, which a stub commit cannot say.
+
+Each rejection carries a status of its own, because the recovery story differs for each:
+
+| | | |
+| --- | --- | --- |
+| `200` | acknowledged | the envelope is durable |
+| `401` | unsigned | no valid signature over these exact bytes |
+| `413` | oversized | over the cap, refused **before** being hashed |
+| `422` | unusable | signed, and still not something an envelope can be built from |
+| `503` | not committed | nothing was stored, so nothing is acknowledged |
+
+Three things are Reprove's own code rather than a dependency's, and each is one line of ADR 0013's
+closing implementation notes. The signature is verified against the **exact received bytes**, never
+a re-serialized parse - `JSON.parse` followed by `JSON.stringify` moves key order, whitespace,
+unicode escapes and the digits of a number, so a handler hashing its own re-serialization would
+accept bodies GitHub never signed. The comparison is `timingSafeEqual`. And the body is read under
+a cap as a stream rather than buffered and measured afterwards, because "before hashing it" is a
+claim about the bytes rather than about the status.
+
+**The envelope is bounded and normalized, never the raw body.** It carries durable locator and
+trigger facts only - Owner, Installation and Repository ids, the repository locator, pull request
+number, event, action, delivery GUID - because the pull request's actual state is fetched
+canonically later and persisting the raw body would durably duplicate narrative and other
+repository-derived content into a retention surface [ADR 0008](../../docs/adr/0008-persistence-tenancy-and-retention.md)
+would then have to govern.
+
+**The delivery GUID is indexed and deliberately not unique.** GitHub reuses `X-GitHub-Delivery` on a
+manual redelivery, so a unique constraint would swallow the only recovery GitHub offers. The rule is
+stateful instead - same GUID plus a terminal state is a duplicate, same GUID plus a nonterminal one
+resumes - and #49 owns it. The ledger's states, the three terminal dispositions (`ineligible`,
+`duplicate_head`, `grant_gone`) and the three retry classes (`transient`, `operator_attention`,
+`contended`) are named in [`src/db/schema-values.ts`](src/db/schema-values.ts) and settled through
+`settleDelivery()`, which counts the attempt in SQL so two processors cannot both write the count
+they each read. It settles a `received` row and only a `received` row, and returns whether it did:
+`done` and `discarded` are terminal, so the contended attempt that finishes after the one that won
+the lock cannot reopen a concluded delivery and hand a re-drive work that must never be redone.
+
+A verified payload establishes **identity** and not scope: `recordDelivery()` upserts Owner,
+Installation and Repository rows in front of the ledger insert, because `ingress_delivery`
+references `owner` and a first-ever delivery would otherwise be a foreign-key violation. No path may
+require that `installation.created` arrived first - GitHub never auto-redelivers, so one dropped
+lifecycle delivery would orphan an Owner permanently. Whether a repository is *in scope* stays with
+the canonical fetch under installation authority, which #49 builds.
+
+Identity is written so that it can never be what loses a delivery. A repository id is unique across
+GitHub and survives a **transfer between accounts**, so the id a delivery carries may already name a
+row belonging to another Owner; conflicting into an update there is a row-level security failure
+raised from inside the statement, which would fail the transaction and answer non-2xx for a delivery
+GitHub will never resend. So the Repository row is an Owner-scoped update and only then an insert
+that conflicts into `do nothing`: the foreign row is left as it is, the envelope still commits, and
+reconciling the transfer waits for authority over both Owners that no tenant transaction has. For
+the same reason an Installation the delivery did not name is left alone rather than cleared - a
+delivery that named none is not evidence that there is none.
+
+### The App requests two read permissions and publishes no Check
+
+`githubAppManifest()` is the registration, and the grant in it is the complete one:
+
+```text
+Metadata: read          mandatory for every App
+Pull requests: read     gates delivery of the pull_request event
+```
+
+`Contents: read`, `Pull requests: write` and `Checks: write` are **not** pre-declared. Adding a
+permission later requires every existing installation to approve it, which is a real cost and one
+Phase 0 does not pay, because it has no third-party installations; pre-declaring write authority
+buys nothing today and costs an install consent screen that overstates what the App can do.
+
+**No Check is published.** `CONTEXT.md` requires every Refusal to be visible on a Check, which looks
+like it forces `Checks: write` into the grant. It does not: no Refusal is reachable in Phase 0, so
+the Check lands with the first phase that can produce one and must land at the same time as it. A
+rejected delivery is not a Refusal - nothing was refused and nothing executed.
+
+The App subscribes to exactly `pull_request`. `installation`, `installation_repositories` and
+`github_app_authorization` arrive at every App unconditionally and cannot be unsubscribed from, so
+their absence from the manifest says nothing about whether they are recorded: the handler
+normalizes whatever event it is sent rather than assuming an unsubscribed one never arrives, and
+the event name is a column on the ledger row so #49 can dispatch on it.
+
 ## Authentication
 
 `createAuth(config)` in [`src/auth/`](src/auth) composes Better Auth over the four tables Reprove **adopted** rather than four it manages ([ADR 0008](../../docs/adr/0008-persistence-tenancy-and-retention.md)). `user`, `session`, `account` and `verification` are declared in `src/db/schema.ts` beside everything else, so they share the one migration history and Better Auth runs no migration tool of its own. The Drizzle adapter is handed those table objects directly, which is what makes the sharing real rather than coincidental: it resolves every field against the object it was given.
