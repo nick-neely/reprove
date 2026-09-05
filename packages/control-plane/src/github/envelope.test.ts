@@ -96,7 +96,8 @@ describe("normalizing a pull_request delivery", () => {
 
 describe("normalizing a lifecycle delivery", () => {
   // GitHub delivers these to every App and they cannot be unsubscribed from, so
-  // the handler switches explicitly rather than assuming they never arrive.
+  // the envelope has to be readable from one rather than assuming they never
+  // arrive.
   it("locates the Owner through the installation account", () => {
     const removed = {
       action: "deleted",

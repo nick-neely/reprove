@@ -34,9 +34,10 @@
  * The App subscribes to exactly `pull_request`. GitHub additionally delivers
  * `installation`, `installation_repositories` and `github_app_authorization` to
  * every App by default and **they cannot be subscribed to or unsubscribed
- * from**, so they are absent here and still handled: the handler switches
- * explicitly on event type rather than assuming an unsubscribed event never
- * arrives.
+ * from**, so they are absent here and still recorded: the handler normalizes
+ * whatever event it is sent rather than assuming an unsubscribed one never
+ * arrives, and the event name is a column on the ledger row so #49 can dispatch
+ * on it.
  */
 
 /** The permission levels GitHub accepts in a manifest. */

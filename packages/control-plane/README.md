@@ -168,8 +168,9 @@ rejected delivery is not a Refusal - nothing was refused and nothing executed.
 
 The App subscribes to exactly `pull_request`. `installation`, `installation_repositories` and
 `github_app_authorization` arrive at every App unconditionally and cannot be unsubscribed from, so
-their absence from the manifest says nothing about whether they are handled: the handler switches
-explicitly on event type rather than assuming an unsubscribed event never arrives.
+their absence from the manifest says nothing about whether they are recorded: the handler
+normalizes whatever event it is sent rather than assuming an unsubscribed one never arrives, and
+the event name is a column on the ledger row so #49 can dispatch on it.
 
 ## Authentication
 
