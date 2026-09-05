@@ -114,11 +114,52 @@ const untilRunExists = async (
   await untilRunExists(number, attemptsLeft - 1);
 };
 
-/** Every ledger row, read as the admin role so no tenant context filters it. */
-const ledger = () =>
-  database.admin<{ delivery_guid: string; state: string }>(
-    "select delivery_guid, state from ingress_delivery order by received_at"
+/**
+ * Every ledger row's GUID, read as the admin role so no tenant context filters
+ * it.
+ *
+ * The GUID and not the state, because the state is what the fire-and-forget
+ * kick moves: a case asserting that a rejected delivery reached no row would
+ * otherwise be measuring how far an unrelated delivery's processing had got.
+ */
+const ledgerGuids = () =>
+  database.admin<{ delivery_guid: string }>(
+    "select delivery_guid from ingress_delivery order by received_at"
   );
+
+/** Ledger rows no processing attempt has counted itself against yet. */
+const unattempted = async (): Promise<number> => {
+  const [row] = await database.admin<{ count: string }>(
+    "select count(*)::text as count from ingress_delivery where attempt_count = 0"
+  );
+  return Number(row?.count ?? "0");
+};
+
+/**
+ * Waits for every kick this file started to finish.
+ *
+ * The route answers before processing finishes - that is ADR 0013's order and
+ * the point of several cases below - so nothing about a `200` says the
+ * transaction behind it has committed. Left unawaited, those kicks outlive the
+ * case that started them: they move rows a later case is asserting about, and
+ * they are still holding connections when `afterAll` drops the database.
+ *
+ * The attempt count rather than a terminal state, because a delivery may
+ * legitimately settle back to `received` - `contended` is the expected answer
+ * when two kicks race for one pull request - and waiting for terminality would
+ * hang on exactly the case ADR 0013 designed for.
+ */
+const untilKicksLand = async (attemptsLeft = 100): Promise<void> => {
+  const outstanding = await unattempted();
+  if (outstanding === 0) {
+    return;
+  }
+  if (attemptsLeft === 0) {
+    throw new Error(`${outstanding} deliveries were never processed`);
+  }
+  await setTimeout(20);
+  await untilKicksLand(attemptsLeft - 1);
+};
 
 describe("the control plane's GitHub webhook, end to end", () => {
   beforeAll(async () => {
@@ -135,6 +176,9 @@ describe("the control plane's GitHub webhook, end to end", () => {
   });
 
   afterAll(async () => {
+    // Before the pool is drained and the database dropped, or a kick still in
+    // flight runs its transaction against neither.
+    await untilKicksLand();
     await controlPlane?.close();
     await database?.drop();
   });
@@ -155,9 +199,11 @@ describe("the control plane's GitHub webhook, end to end", () => {
     expect(response.status).toBe(WEBHOOK_STATUS.acknowledged);
     // Read after the response resolved, with no wait in between: if the commit
     // were kicked off rather than awaited, this is where it would be missing.
-    await expect(ledger()).resolves.toStrictEqual([
-      { delivery_guid: "committed-then-acknowledged", state: "received" },
+    await expect(ledgerGuids()).resolves.toStrictEqual([
+      { delivery_guid: "committed-then-acknowledged" },
     ]);
+
+    await untilKicksLand();
   });
 
   it("writes the Owner the delivery located, and nothing of anyone else", async () => {
@@ -169,7 +215,7 @@ describe("the control plane's GitHub webhook, end to end", () => {
   });
 
   it("leaves a tampered delivery out of the database entirely", async () => {
-    const before = await ledger();
+    const before = await ledgerGuids();
 
     const response = await controlPlane.handleGitHubWebhook(
       signedDelivery({
@@ -180,11 +226,11 @@ describe("the control plane's GitHub webhook, end to end", () => {
     );
 
     expect(response.status).toBe(WEBHOOK_STATUS.unsigned);
-    await expect(ledger()).resolves.toStrictEqual(before);
+    await expect(ledgerGuids()).resolves.toStrictEqual(before);
   });
 
   it("leaves an oversized delivery out of the database entirely", async () => {
-    const before = await ledger();
+    const before = await ledgerGuids();
     const bounded = await createControlPlane({
       database: { connectionString: database.runtimeUrl },
       github: { ...githubConfig, maximumDeliveryBytes: 32 },
@@ -196,7 +242,7 @@ describe("the control plane's GitHub webhook, end to end", () => {
       );
 
       expect(response.status).toBe(WEBHOOK_STATUS.oversized);
-      await expect(ledger()).resolves.toStrictEqual(before);
+      await expect(ledgerGuids()).resolves.toStrictEqual(before);
     } finally {
       await bounded.close();
     }
@@ -210,6 +256,8 @@ describe("the control plane's GitHub webhook, end to end", () => {
     await controlPlane.handleGitHubWebhook(
       signedDelivery({ deliveryGuid: guid })
     );
+
+    await untilKicksLand();
 
     const rows = await database.admin<{ count: string }>(
       `select count(*)::text as count from ingress_delivery where delivery_guid = '${guid}'`
