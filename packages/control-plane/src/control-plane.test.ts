@@ -12,6 +12,7 @@
  * does, and fails with instructions rather than skipping when it is down.
  */
 import { generateKeyPairSync } from "node:crypto";
+import { setTimeout } from "node:timers/promises";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -25,6 +26,8 @@ import {
 } from "./db/local-stack.test-support.js";
 import { migrate } from "./db/migrate.js";
 import {
+  deliveryBytes,
+  OPENED_PULL_REQUEST,
   openedPullRequestBytes,
   signedDelivery,
   WEBHOOK_SECRET,
@@ -59,7 +62,9 @@ const cannedGitHub = (request: Request): Promise<Response> =>
           { status: 201 }
         )
       : Response.json({
-          number: 7,
+          // Echoed from the path, so the canned body answers the request that
+          // was actually issued rather than a fixed one.
+          number: Number(request.url.split("/").at(-1)),
           state: "open",
           draft: false,
           head: { sha: HEAD, repo: { id: 3001 } },
@@ -79,6 +84,35 @@ const githubConfig = {
 
 let database: TestDatabase;
 let controlPlane: ControlPlane;
+
+/** The Runs for one pull request, as the admin role sees them. */
+const runsFor = (number: number) =>
+  database.admin<{ base_sha: string; head_sha: string; trigger: string }>(
+    `select base_sha, head_sha, trigger from run where pull_request_number = ${number}`
+  );
+
+/**
+ * Waits for the fire-and-forget kick to land.
+ *
+ * The route answers before processing finishes - that is ADR 0013's order and
+ * the point of the case - so the row is what says the work is done. Recursive
+ * rather than a loop, and bounded, so a kick that never lands fails here
+ * instead of hanging.
+ */
+const untilRunExists = async (
+  number: number,
+  attemptsLeft = 100
+): Promise<void> => {
+  const existing = await runsFor(number);
+  if (existing.length > 0) {
+    return;
+  }
+  if (attemptsLeft === 0) {
+    throw new Error(`no Run appeared for pull request ${number}`);
+  }
+  await setTimeout(20);
+  await untilRunExists(number, attemptsLeft - 1);
+};
 
 /** Every ledger row, read as the admin role so no tenant context filters it. */
 const ledger = () =>
@@ -214,15 +248,34 @@ describe("the control plane's GitHub webhook, end to end", () => {
   });
 
   it("produces exactly one Run at the canonical base and head", async () => {
+    // A pull request of this test's own. Every other case in this file posts
+    // `OPENED_PULL_REQUEST`, and each of those acknowledgements kicked
+    // processing for it; sharing the number would measure the interleaving of
+    // those kicks rather than what one delivery does.
+    const number = 11;
     const guid = "delivery-that-becomes-a-run";
+    const payload = {
+      ...OPENED_PULL_REQUEST,
+      number,
+      pull_request: { number },
+    };
+    const body = deliveryBytes(payload);
+
     const acknowledged = await controlPlane.handleGitHubWebhook(
-      signedDelivery({ deliveryGuid: guid })
+      signedDelivery({ deliveryGuid: guid, body })
     );
     expect(acknowledged.status).toBe(WEBHOOK_STATUS.acknowledged);
+
+    // The Run existing is what says the kick's transaction committed, which is
+    // also what says its advisory lock is released.
+    await untilRunExists(number);
 
     const [committed] = await database.admin<{ id: string }>(
       `select id from ingress_delivery where delivery_guid = '${guid}'`
     );
+    // The same delivery again, through the exposed entry point #38's re-drive
+    // uses. The kick above already ran it to a terminal state, so this settles
+    // nothing - which is the stateful GUID rule holding.
     const processed = await controlPlane.processDelivery({
       deliveryId: committed?.id ?? "",
       envelope: {
@@ -235,22 +288,12 @@ describe("the control plane's GitHub webhook, end to end", () => {
         installationId: 42,
         repositoryId: 3001,
         repositoryNameWithOwner: "acme/reprove",
-        pullRequestNumber: 7,
+        pullRequestNumber: number,
       },
     });
+    expect(processed.settled).toBeFalsy();
 
-    // `done` or `duplicate_head`: the fire-and-forget kick from the
-    // acknowledgement above may have created the Run already, and either answer
-    // means exactly one Run exists at the canonical head - which is the claim.
-    expect(["done", "discarded"]).toContain(processed.outcome.state);
-    const created = await database.admin<{
-      base_sha: string;
-      head_sha: string;
-      trigger: string;
-    }>(
-      "select base_sha, head_sha, trigger from run where pull_request_number = 7"
-    );
-    expect(created).toStrictEqual([
+    await expect(runsFor(number)).resolves.toStrictEqual([
       { base_sha: BASE, head_sha: HEAD, trigger: "automatic" },
     ]);
   });
