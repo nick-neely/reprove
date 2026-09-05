@@ -294,6 +294,47 @@ describe(checkMigrationGrammar, () => {
     );
   });
 
+  it("attributes a migration that changed only a column named id to drizzle-kit", () => {
+    // A snapshot nests column names as object keys, so stripping `id` at every
+    // depth would delete the changed column from both sides and read this as a
+    // migration that changed nothing - which would hold drizzle-kit's own
+    // output to a hand-authored file's rules.
+    const folder = buildMigrationFolder([
+      {
+        sql: 'CREATE TABLE "run" ("id" uuid PRIMARY KEY);\n',
+        tables: { "public.run": { columns: { id: { type: "uuid" } } } },
+      },
+      {
+        sql: 'ALTER TABLE "run" ALTER COLUMN "id" SET DATA TYPE text;\n',
+        tables: { "public.run": { columns: { id: { type: "text" } } } },
+      },
+    ]);
+
+    expect(
+      readMigrationSources(folder).map((migration) => migration.kind)
+    ).toStrictEqual(["drizzle", "drizzle"]);
+    expect(checkMigrationGrammar(folder)).toStrictEqual([]);
+  });
+
+  it("still reads a snapshot that changed nothing at all as custom", () => {
+    // The other side of the same rule: identity aside, an unchanged snapshot is
+    // what makes a migration a custom one.
+    const folder = buildMigrationFolder([
+      {
+        sql: 'CREATE TABLE "run" ("id" uuid PRIMARY KEY);\n',
+        tables: { "public.run": { columns: { id: { type: "uuid" } } } },
+      },
+      {
+        sql: 'UPDATE "run" SET "id" = "id";\n',
+        tables: { "public.run": { columns: { id: { type: "uuid" } } } },
+      },
+    ]);
+
+    expect(
+      readMigrationSources(folder).map((migration) => migration.kind)
+    ).toStrictEqual(["drizzle", "hand-authored"]);
+  });
+
   it("rejects a FORCE hand-edited into a drizzle-kit generated migration", () => {
     // drizzle-kit cannot emit `FORCE ROW LEVEL SECURITY` - the measurement ADR
     // 0017 rests on - so finding one in a generated file means the file was

@@ -8,8 +8,8 @@
  * is `declared.ts`'s to check, and `declared.test.ts` is where a malformed
  * declaration is shown to fail; this file is about the sets.
  */
-import { getTableConfig } from "drizzle-orm/pg-core";
-import type { PgTable } from "drizzle-orm/pg-core";
+import { is } from "drizzle-orm";
+import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -83,15 +83,30 @@ describe("the tenancy classification", () => {
   });
 
   it("enumerates the universe from the schema module, not from the two sets", () => {
-    // Identity, not names. This is what stops "every managed table is
-    // classified" from being the tautology ADR 0014 left behind: every managed
-    // table is an object the schema module exported, so a table added there and
-    // named in neither set is the failure above rather than a table nobody
-    // measured.
-    const exported = new Set<unknown>(Object.values(schema));
+    // Identity, not names, and in both directions. This is what stops "every
+    // managed table is classified" from being the tautology ADR 0014 left
+    // behind, and each direction refuses a different mistake: a managed table
+    // the schema module never exported means the universe was written by hand,
+    // and an exported table the universe omits means a table the classification
+    // is never measured over.
+    //
+    // The second direction is unreachable while `MANAGED_TABLES` is a filter
+    // over `Object.values(schema)`, which is exactly what it is here for: the
+    // derivation is the property, and a hand-maintained list that happened to be
+    // complete on the day it was written would pass every other test in this
+    // file.
+    // Widened to `unknown[]` first, the way `classification.ts` does it: the
+    // namespace's own type is a union of fourteen specific table types, which a
+    // `PgTable` predicate is not assignable to.
+    const schemaExports: unknown[] = Object.values(schema);
+    const exported = schemaExports.filter((entity): entity is PgTable =>
+      is(entity, PgTable)
+    );
+    const managed = new Set<unknown>(MANAGED_TABLES);
 
     expect(
-      MANAGED_TABLES.filter((table) => !exported.has(table))
+      MANAGED_TABLES.filter((table) => !exported.includes(table))
     ).toStrictEqual([]);
+    expect(exported.filter((table) => !managed.has(table))).toStrictEqual([]);
   });
 });

@@ -10,11 +10,28 @@ import path from "node:path";
 
 import { afterEach } from "vitest";
 
+/** A column as a snapshot holds it, in as much detail as a fixture needs. */
+interface SnapshotColumn {
+  readonly type?: string;
+  readonly default?: string;
+}
+
+/** A table as a snapshot holds it, with its columns keyed by name. */
+interface SnapshotTable {
+  readonly columns?: Record<string, SnapshotColumn>;
+}
+
 /** One migration as a fixture writes it: its text, and whether it is custom. */
 export interface Fixture {
   readonly sql: string;
   /** A custom migration shares its parent's snapshot; a generated one does not. */
   readonly custom?: boolean;
+  /**
+   * The snapshot's `tables`, spelled out. Only a fixture that cares what
+   * *changed* inside the snapshot needs this; every other one lets `custom`
+   * decide whether the snapshot advances.
+   */
+  readonly tables?: Record<string, SnapshotTable>;
 }
 
 const temporaryFolders: string[] = [];
@@ -38,10 +55,10 @@ export const buildMigrationFolder = (fixtures: readonly Fixture[]): string => {
     breakpoints: true,
   }));
 
-  let tables = 0;
+  let generations = 0;
   for (const [idx, fixture] of fixtures.entries()) {
     if (!fixture.custom) {
-      tables += 1;
+      generations += 1;
     }
     writeFileSync(path.join(folder, `${entries[idx]?.tag}.sql`), fixture.sql);
     writeFileSync(
@@ -55,9 +72,11 @@ export const buildMigrationFolder = (fixtures: readonly Fixture[]): string => {
         prevId: `id-${idx - 1}`,
         version: "7",
         dialect: "postgresql",
-        tables: Object.fromEntries(
-          Array.from({ length: tables }, (_, n) => [`public.t${n}`, {}])
-        ),
+        tables:
+          fixture.tables ??
+          Object.fromEntries(
+            Array.from({ length: generations }, (_, n) => [`public.t${n}`, {}])
+          ),
       })
     );
   }

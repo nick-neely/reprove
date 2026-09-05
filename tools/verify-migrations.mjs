@@ -175,6 +175,24 @@ export const resolveBaseline = (rootDir, env) => {
   };
 };
 
+/**
+ * One file's content with the line endings a checkout may have changed taken
+ * out of it.
+ *
+ * `git show` hands back the blob as the repository stores it, and `readFileSync`
+ * hands back the working tree as the checkout wrote it. Under
+ * `core.autocrlf=true` those differ on every line of an untouched file, and the
+ * comparison below would report every migration as edited.
+ *
+ * `.gitattributes` pins this folder to LF, which is the primary fix and the one
+ * that matters beyond this verifier: Drizzle's migration hash is `sha256` of the
+ * raw file text, so a CRLF working tree hashes differently from the checkout
+ * that applied the migration and the boot assertion's join fails. This
+ * normalisation is the belt beside that brace, for a clone that predates the
+ * attributes file.
+ */
+const withLineFeeds = (text) => text.replaceAll("\r\n", "\n");
+
 /** One file as of the baseline, or `null` where it did not exist. */
 const fileAt = (rootDir, commit, file) =>
   gitOrNull(rootDir, ["show", `${commit}:${file}`]);
@@ -260,7 +278,11 @@ const checkJournal = (directory, baseText, headText, add) => {
     }
   }
 
-  const newest = Math.max(0, ...before.map((entry) => entry.when));
+  // Advanced entry by entry, not fixed at the baseline: two migrations appended
+  // in one pull request have to be newer than each other as well as newer than
+  // the history, because Drizzle compares each against the newest `created_at`
+  // in the ledger at the moment it runs, not against the baseline.
+  let newest = Math.max(0, ...before.map((entry) => entry.when));
   for (const entry of after.slice(before.length)) {
     if (entry.when <= newest) {
       add(
@@ -268,6 +290,7 @@ const checkJournal = (directory, baseText, headText, add) => {
         `${directory}/${JOURNAL} appends ${entry.tag} at ${entry.when}, which is not later than the ${newest} already journaled. Drizzle applies only migrations newer than the newest applied one, so this would never run and would be reported as pending forever.`
       );
     }
+    newest = Math.max(newest, entry.when);
   }
 };
 
@@ -313,7 +336,7 @@ export const verifyMigrations = ({ rootDir, env = process.env }) => {
         );
         continue;
       }
-      if (headText !== baseText) {
+      if (withLineFeeds(headText) !== withLineFeeds(baseText ?? "")) {
         add(
           "migration-file",
           `${file} differs from ${baseline.source}. Drizzle writes a migration hash it never reads, so an edited applied migration is silently ignored and every existing database keeps the old DDL. Append a new migration instead.`

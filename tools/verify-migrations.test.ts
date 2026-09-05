@@ -210,6 +210,40 @@ describe(verifyMigrations, () => {
     ).toBeTruthy();
   });
 
+  it("rejects two appended entries that are out of order with each other", () => {
+    // Both are newer than the baseline, and the second would still never apply:
+    // Drizzle compares each migration against the newest `created_at` in the
+    // ledger at the moment it runs, which by then is the first of these two.
+    const root = buildRepository();
+    write(root, `${DIRECTORY}/0001_fixture.sql`, "-- appended\n");
+    write(root, `${DIRECTORY}/0002_fixture.sql`, "-- appended too\n");
+    writeJournal(root, [
+      entry(0, 1_700_000_000_000),
+      entry(1, 1_700_000_000_050),
+      entry(2, 1_700_000_000_010),
+    ]);
+    commit(root, "append two migrations out of order");
+
+    expect(
+      broke(
+        verifyMigrations({ rootDir: root, env: {} }),
+        "journal",
+        "which is not later than the 1700000000050 already journaled"
+      )
+    ).toBeTruthy();
+  });
+
+  it("accepts a working tree the checkout gave CRLF line endings", () => {
+    // `git show` returns the blob as the repository stores it and `readFileSync`
+    // returns the working tree as the checkout wrote it, so under
+    // `core.autocrlf=true` an untouched migration would otherwise differ on
+    // every line.
+    const root = buildRepository();
+    write(root, `${DIRECTORY}/0000_fixture.sql`, 'CREATE TABLE "run" ();\r\n');
+
+    expect(verifyMigrations({ rootDir: root, env: {} })).toStrictEqual([]);
+  });
+
   it("rejects a truncated journal", () => {
     const root = buildRepository();
     writeJournal(root, []);

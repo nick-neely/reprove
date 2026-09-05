@@ -108,8 +108,7 @@ type JsonValue =
  * Key order alone is not content: drizzle-kit's `generate --custom` path writes
  * the parent snapshot's own values back out with two top-level keys in a
  * different order, and a comparison over the raw text would read that as a
- * schema change. `id` and `prevId` go for the opposite reason - they differ by
- * construction on every snapshot, chained one to the next.
+ * schema change.
  */
 const canonical = (value: JsonValue): JsonValue => {
   if (Array.isArray(value)) {
@@ -121,7 +120,6 @@ const canonical = (value: JsonValue): JsonValue => {
   if (value instanceof Object) {
     return Object.fromEntries(
       Object.entries(value)
-        .filter(([key]) => key !== "id" && key !== "prevId")
         .toSorted(([a], [b]) => (a < b ? -1 : 1))
         .map(([key, nested]) => [key, canonical(nested)])
     );
@@ -129,13 +127,37 @@ const canonical = (value: JsonValue): JsonValue => {
   return value;
 };
 
+/** The two fields chained one snapshot to the next, and no two of them share. */
+const IDENTITY = new Set(["id", "prevId"]);
+
+/**
+ * A snapshot without its identity, which is the only part that differs by
+ * construction on every one of them.
+ *
+ * **Top level only, and that is the whole point of it being a separate step.**
+ * A snapshot nests column names as object keys - `tables["public.run"].columns
+ * .id` - so a filter applied at every depth would delete the `id` column from
+ * both sides of the comparison. A migration whose only change was to that column
+ * would then canonicalise equal to its parent, be attributed as custom, and be
+ * held to a hand-authored file's rules by a walk that never saw the change.
+ *
+ * @param snapshot One parsed snapshot.
+ * @returns Its content, with `id` and `prevId` removed from the root object.
+ */
+const withoutIdentity = (snapshot: JsonValue): JsonValue =>
+  snapshot instanceof Object && !Array.isArray(snapshot)
+    ? Object.fromEntries(
+        Object.entries(snapshot).filter(([key]) => !IDENTITY.has(key))
+      )
+    : snapshot;
+
 /** One snapshot file, reduced to what a comparison of two of them is about. */
 const readSnapshot = (file: string): string => {
   // SAFETY: the snapshot is drizzle-kit's own output, committed to this
   // repository. A malformed one throws here, which is a failed check rather
   // than a check that passed over nothing.
   const parsed = JSON.parse(readFileSync(file, "utf-8")) as JsonValue;
-  return JSON.stringify(canonical(parsed));
+  return JSON.stringify(canonical(withoutIdentity(parsed)));
 };
 
 /** Who a migration is held to the rules of, from what the folder says about it. */
