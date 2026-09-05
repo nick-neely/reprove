@@ -9,9 +9,11 @@ the requirement that `Result` have a transportable non-complete form. This ADR d
 shapes themselves, and the reconciliation rules PRD §32 left `[Undecided]`.
 
 The shapes were built as zod schemas first, in
-[`prototypes/13-run-result-finding/`](../../prototypes/13-run-result-finding/), because
+[the Run, Result and Finding prototype](https://github.com/nick-neely/reprove/tree/47a31e23c9368ba2acab18adab17de06aa2e83e3/prototypes/13-run-result-finding), because
 concrete types are far easier to argue with than prose. Several decisions below exist
-because running the prototype exposed something the ticket had not anticipated.
+because running the prototype exposed something the ticket had not anticipated. The
+throwaway source is preserved on branch `prototype/13-run-result-finding`, outside main;
+the link above pins the original source commit.
 
 ## Run
 
