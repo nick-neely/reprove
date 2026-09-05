@@ -453,6 +453,15 @@ export const publication = pgTable(
 // `owner` has no foreign key to any user, in either direction. That is what
 // makes "one person, a personal account and an organization, two tenants"
 // structural rather than careful.
+//
+// Because Reprove owns the file and Better Auth owns the definition, these four
+// mirror Better Auth's model exactly - every field and every index it declares,
+// including the ones a GitHub-only configuration never writes. A column Better
+// Auth's model has and this file does not is not a smaller table: the Drizzle
+// adapter resolves each field against the schema object at write time and
+// throws `The field "x" does not exist in the "y" Drizzle schema`, so a
+// divergence here is a runtime failure on a sign-in rather than a design
+// choice. `src/auth/schema.test.ts` measures the two against each other.
 
 export const user = pgTable("user", {
   id: text("id").primaryKey(),
@@ -468,62 +477,93 @@ export const user = pgTable("user", {
     .defaultNow(),
 });
 
-export const session = pgTable("session", {
-  id: text("id").primaryKey(),
-  userId: text("user_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-  token: text("token").notNull().unique(),
-  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-  ipAddress: text("ip_address"),
-  userAgent: text("user_agent"),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
+export const session = pgTable(
+  "session",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    token: text("token").notNull().unique(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    ipAddress: text("ip_address"),
+    userAgent: text("user_agent"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("session_user_idx").on(t.userId)]
+);
 
-export const account = pgTable("account", {
-  id: text("id").primaryKey(),
-  userId: text("user_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-  providerId: text("provider_id").notNull(),
-  /** The provider-side GitHub identity, kept as Better Auth data. */
-  accountId: text("account_id").notNull(),
-  // Ciphertext under `account.encryptOAuthTokens = true`; Better Auth stores
-  // these in plaintext by default.
-  accessToken: text("access_token"),
-  refreshToken: text("refresh_token"),
-  // ADR 0008 requires Reprove to verify that GitHub issued an *expiring* access
-  // token and a refresh token, and to fail loudly otherwise. A null here is the
-  // shape of that failure, so both are columns rather than assumptions.
-  accessTokenExpiresAt: timestamp("access_token_expires_at", {
-    withTimezone: true,
-  }),
-  refreshTokenExpiresAt: timestamp("refresh_token_expires_at", {
-    withTimezone: true,
-  }),
-  scope: text("scope"),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
+export const account = pgTable(
+  "account",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    providerId: text("provider_id").notNull(),
+    /**
+     * The issuer half of Better Auth's account key. GitHub is one issuer, but
+     * the model is not GitHub's: the key is `(issuer, account_id)`, which is
+     * what the unique index below carries.
+     */
+    issuer: text("issuer").notNull(),
+    /** The provider-side GitHub identity, kept as Better Auth data. */
+    accountId: text("account_id").notNull(),
+    // Ciphertext under `account.encryptOAuthTokens = true`; Better Auth stores
+    // these in plaintext by default.
+    accessToken: text("access_token"),
+    refreshToken: text("refresh_token"),
+    // ADR 0008 requires Reprove to verify that GitHub issued an *expiring*
+    // access token and a refresh token, and to fail loudly otherwise. A null
+    // here is the shape of that failure, so both are columns rather than
+    // assumptions.
+    accessTokenExpiresAt: timestamp("access_token_expires_at", {
+      withTimezone: true,
+    }),
+    refreshTokenExpiresAt: timestamp("refresh_token_expires_at", {
+      withTimezone: true,
+    }),
+    scope: text("scope"),
+    /** OIDC only. GitHub issues none, so Reprove never writes this. */
+    idToken: text("id_token"),
+    /**
+     * Better Auth's credential column, for the email-and-password provider
+     * Reprove does not enable. It is here because Better Auth's account model
+     * has it and the adapter resolves fields against this object, not because
+     * Reprove stores a password; nothing in this package writes it.
+     */
+    password: text("password"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("account_issuer_account_idx").on(t.issuer, t.accountId),
+    index("account_user_idx").on(t.userId),
+  ]
+);
 
-export const verification = pgTable("verification", {
-  id: text("id").primaryKey(),
-  identifier: text("identifier").notNull(),
-  value: text("value").notNull(),
-  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
+export const verification = pgTable(
+  "verification",
+  {
+    id: text("id").primaryKey(),
+    identifier: text("identifier").notNull(),
+    value: text("value").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("verification_identifier_idx").on(t.identifier)]
+);

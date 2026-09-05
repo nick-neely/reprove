@@ -13,12 +13,14 @@ import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
 
 import {
+  CLASSIFICATION,
   MANAGED_TABLES,
   NON_TENANT_TABLES,
   TENANT_TABLES,
   tableName,
   tableNames,
 } from "./classification.js";
+import { checkDeclaredTenancy } from "./declared.js";
 import { tenantKey } from "./policy.js";
 import * as schema from "./schema.js";
 
@@ -108,5 +110,53 @@ describe("the tenancy classification", () => {
       MANAGED_TABLES.filter((table) => !exported.includes(table))
     ).toStrictEqual([]);
     expect(exported.filter((table) => !managed.has(table))).toStrictEqual([]);
+  });
+});
+
+/**
+ * ADR 0008 rejected "a narrow system-identity lookup living outside Owner RLS"
+ * precisely because it would need **an allowlist of exempt tables**, and "an
+ * allowlist is precisely the thing that grows quietly". Better Auth's four sit
+ * outside Owner RLS on the other footing: they are classified, in the same
+ * declaration every other table is classified in, as tables that carry no Owner
+ * tenancy - not skipped, and not excused.
+ */
+describe("the four tables adopted from Better Auth", () => {
+  it("are part of the managed universe, not outside it", () => {
+    const managed = new Set<unknown>(MANAGED_TABLES);
+
+    expect(
+      NON_TENANT_TABLES.filter((table) => !managed.has(table))
+    ).toStrictEqual([]);
+  });
+
+  it("are classified non-tenant rather than exempted", () => {
+    // There is no third set. An exemption would have to be one, and the boot
+    // assertion reads exactly these three keys, so "exempt" has nowhere to
+    // live: a table is tenant, or it is non-tenant, or it refuses boot.
+    expect(Object.keys(CLASSIFICATION).toSorted()).toStrictEqual([
+      "managed",
+      "nonTenant",
+      "tenant",
+    ]);
+    expect(tableNames(CLASSIFICATION.nonTenant)).toStrictEqual([
+      "account",
+      "session",
+      "user",
+      "verification",
+    ]);
+  });
+
+  it("declare no Owner policy, which is what non-tenant has to mean", () => {
+    const declared = NON_TENANT_TABLES.flatMap((table) =>
+      getTableConfig(table).policies.map(
+        (policy) => `${tableName(table)}.${policy.name}`
+      )
+    );
+
+    expect(declared).toStrictEqual([]);
+    // And the authoring-time check agrees, over the committed classification
+    // rather than over this file's reading of it.
+    expect(checkDeclaredTenancy()).toStrictEqual([]);
   });
 });

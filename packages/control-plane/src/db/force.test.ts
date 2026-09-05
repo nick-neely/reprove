@@ -43,12 +43,16 @@ const classification: Classification = {
 };
 
 describe("the committed migration history", () => {
-  it("is one drizzle-kit generation followed by one generated FORCE delta", () => {
+  it("is drizzle-kit generations and the generated FORCE delta, in order", () => {
     expect(
       readMigrationSources().map((migration) => [migration.tag, migration.kind])
     ).toStrictEqual([
       ["0000_initial_schema", "drizzle"],
       ["0001_force_row_level_security", "generator"],
+      // Better Auth's `account` model gained `issuer`, `id_token` and
+      // `password`; the tables were already classified, so the generator had
+      // nothing to append after it.
+      ["0002_better_auth_account_model", "drizzle"],
     ]);
   });
 

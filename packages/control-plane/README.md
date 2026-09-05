@@ -43,7 +43,7 @@ The schema, the classification, `createRuntimeDb()` and its tenant transaction t
 
 `drizzle/` is in the package's `files` list and is resolved relative to the module rather than to `process.cwd()`, because the boot assertion joins the hashes Drizzle stored against the files that produced them ([ADR 0017](../../docs/adr/0017-authoring-time-tenancy-boundary.md)). Migration history is **append-only**: `PgDialect.migrate` writes a hash it never reads, so an edited applied migration is silently ignored and every existing database keeps the old DDL.
 
-`0000_initial_schema` is drizzle-kit generated from `src/db/schema.ts`. `0001_force_row_level_security` is a `generate --custom` migration carrying the one statement Drizzle cannot express, in a canonical grammar:
+`0000_initial_schema` and `0002_better_auth_account_model` are drizzle-kit generated from `src/db/schema.ts`. `0001_force_row_level_security` is a `generate --custom` migration carrying the one statement Drizzle cannot express, in a canonical grammar:
 
 ```sql
 -- reprove:force-row-level-security
@@ -64,7 +64,24 @@ snapshot unchanged, unmarked  hand-authored           may not touch the boundary
 
 The effective state is then a walk of the journal in order: `0001 FORCE` followed by `0002 NO FORCE` leaves the table unforced and fails, because effective final state is the property rather than textual occurrence. The walk covers all three of the boundary's facts - the FORCE state, the RLS enablement, and the policy set each table is left with - and it reads **every** migration whoever wrote it, which is what makes attribution safe. Attribution says a drizzle-generated file is *allowed* to carry `CREATE POLICY` and `ENABLE ROW LEVEL SECURITY`; it cannot say whether the statements in it are the ones the schema module asked for, so a `DROP POLICY` or a `DISABLE ROW LEVEL SECURITY` edited into one fails on the policy set it leaves behind rather than on the file it is in. A boundary statement the walk cannot parse is a failure, not a skip.
 
+`0002` adds `account.issuer` as `NOT NULL` with no default and no backfill, which is drizzle-kit's own output and is left as generated. It is safe because it cannot meet a row: nothing wrote to `account` before `createAuth()` existed, so every database at `0001` has it empty. It is also the behaviour to want if that were ever untrue - a default would invent an issuer for accounts nobody can attribute, and mis-key them under the `(issuer, account_id)` unique index beside it, where the bare `NOT NULL` stops the migration and says so.
+
 All of it is ordinary Vitest - `declared.test.ts`, `force.test.ts`, `force-generate.test.ts` - beside `tools/verify-migrations.mjs`, which is the Git-aware half that proves history was only appended to. None of it sees a database: what actually deployed is `createRuntimeDb()`'s seven checks, and that division is ADR 0017's, not an omission.
+
+## Authentication
+
+`createAuth(config)` in [`src/auth/`](src/auth) composes Better Auth over the four tables Reprove **adopted** rather than four it manages ([ADR 0008](../../docs/adr/0008-persistence-tenancy-and-retention.md)). `user`, `session`, `account` and `verification` are declared in `src/db/schema.ts` beside everything else, so they share the one migration history and Better Auth runs no migration tool of its own. The Drizzle adapter is handed those table objects directly, which is what makes the sharing real rather than coincidental: it resolves every field against the object it was given.
+
+The consequence is that Better Auth's model is a dependency of the schema, and a divergence is silent until a sign-in. `src/auth/schema.test.ts` therefore reads the expectation out of Better Auth - `auth.$context.tables`, the same model the adapter resolves against - and compares it field for field, so a version bump that adds a column fails on the pull request that bumps it rather than in production.
+
+**These four sit outside Owner RLS and carry no Owner policy.** A User can legitimately reach several Owners, so applying Owner tenancy to authentication tables would model the relationship incorrectly. They are **classified non-tenant**, not exempted: the classification has two sets and no third, and a table in neither refuses boot. `owner` has no foreign key to any user in either direction and Reprove adds no membership relation, so one person installing on a personal account and on an organization is simply two `owner` rows with nothing joining them - `src/db/owner-independence.test.ts` measures both halves of that.
+
+Two decisions are configuration that has to stay configured, so both are tested:
+
+- **`account.encryptOAuthTokens` is on.** Better Auth stores OAuth tokens in plaintext by default; enabling it gives AES-256-GCM keyed from the `secret` passed in. The refresh token it protects is the six-month one.
+- **A GitHub grant is asserted before it is stored.** ADR 0008 keeps a person's GitHub credential in the database on the strength of a token that expires in eight hours and a refresh token that renews it, and both come from the App's "Expire user authorization tokens" setting. Opting out changes nothing observable: the sign-in succeeds and the stored token is permanent. `assertGitHubTokenGrant()` is a pure function over the grant, wrapped around the provider's `getUserInfo` and `refreshAccessToken` - the two points a raw response from GitHub is still the response. The database hooks on `account` are the wrong seam for it, because Better Auth filters `undefined` out of the update it writes on a repeat sign-in, so the absent expiry that *is* the condition never reaches one.
+
+Like the database surface, none of this is exported from the package root: ADR 0010 forbids `apps/control-plane` from depending on `better-auth`, so a published signature returning the instance would hand the only consumer a type it may not import.
 
 ## Support tier
 
