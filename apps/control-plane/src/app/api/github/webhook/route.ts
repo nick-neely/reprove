@@ -54,12 +54,6 @@ export const runtime = "nodejs";
 /** Every delivery is a fresh write; nothing about this route is cacheable. */
 export const dynamic = "force-dynamic";
 
-/**
- * `WEBHOOK_STATUS.notCommitted`, spelled out because the package it comes from
- * is not imported for its values here - only for its types.
- */
-const NOT_COMMITTED = 503;
-
 let composed: Promise<ControlPlane> | undefined;
 
 /**
@@ -98,6 +92,11 @@ const controlPlane = async (): Promise<ControlPlane> => {
 };
 
 export const POST = async (request: Request): Promise<Response> => {
+  // Resolved from the package rather than spelled out here, so there is one
+  // statement of what a status means. The import is memoized by the module
+  // system and is not the part that can fail; composing over a database is.
+  const { WEBHOOK_STATUS } = await controlPlaneModule();
+
   let plane: ControlPlane;
   try {
     plane = await controlPlane();
@@ -107,8 +106,11 @@ export const POST = async (request: Request): Promise<Response> => {
     // which is ADR 0013's answer for a control plane that cannot store what it
     // was sent.
     return Response.json(
-      { status: NOT_COMMITTED, reason: "the control plane is not serving" },
-      { status: NOT_COMMITTED }
+      {
+        status: WEBHOOK_STATUS.notCommitted,
+        reason: "the control plane is not serving",
+      },
+      { status: WEBHOOK_STATUS.notCommitted }
     );
   }
   return await plane.handleGitHubWebhook(request);
