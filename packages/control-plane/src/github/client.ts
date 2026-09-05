@@ -166,15 +166,6 @@ const classify = (
   return { kind: "operator_attention", reason };
 };
 
-/** The response body as text, whatever it turned out to be. */
-const bodyOf = async (response: Response): Promise<string> => {
-  try {
-    return await response.text();
-  } catch (error) {
-    return error instanceof Error ? error.message : String(error);
-  }
-};
-
 /**
  * Composes the client over an App's credentials and a transport.
  *
@@ -226,7 +217,7 @@ export const createGitHubClient = (
       "POST",
       `Bearer ${assertion}`
     );
-    const body = await bodyOf(response);
+    const body = await response.text();
     if (!response.ok) {
       return classify(response, body, "the installation token exchange");
     }
@@ -262,7 +253,7 @@ export const createGitHubClient = (
         "GET",
         `Bearer ${authorized.token}`
       );
-      const body = await bodyOf(response);
+      const body = await response.text();
       if (!response.ok) {
         return classify(response, body, "the canonical pull request fetch");
       }
@@ -278,7 +269,7 @@ export const createGitHubClient = (
       }
       return { kind: "canonical", pullRequest: parsed.pullRequest };
     } catch (error) {
-      // A refused connection, a reset one, a body that is not JSON, and the
+      // A refused connection, a reset one, a failed response-body read, and the
       // abort the timeout above raises. Every one of them is a request that did
       // not complete, which is ADR 0013's `transient` however it failed.
       return {

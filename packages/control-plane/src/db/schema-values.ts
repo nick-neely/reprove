@@ -111,7 +111,7 @@ export type RunStatus = (typeof RUN_STATUSES)[number];
  * `run_one_live_per_pull_request` is predicated on:
  *
  * ```sql
- * UNIQUE (repository_id, pull_request_number)
+ * UNIQUE (owner_id, repository_id, pull_request_number)
  *   WHERE status IN ('queued', 'claimed', 'executing')
  * ```
  *

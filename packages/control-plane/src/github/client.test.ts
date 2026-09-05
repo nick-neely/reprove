@@ -281,6 +281,31 @@ describe("the canonical fetch", () => {
     });
   });
 
+  it.each(["token exchange", "pull request"])(
+    "classifies a failed %s response body as transient",
+    async (stage) => {
+      const failed = new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.error(new Error("ECONNRESET during response body"));
+          },
+        }),
+        { status: 200 }
+      );
+      const { client, issued } = clientOver(
+        ...(stage === "token exchange" ? [failed] : [tokenIssued(), failed])
+      );
+
+      await expect(client.canonicalPullRequest(REQUEST)).resolves.toStrictEqual(
+        {
+          kind: "transient",
+          reason: "ECONNRESET during response body",
+        }
+      );
+      expect(issued).toHaveLength(stage === "token exchange" ? 1 : 2);
+    }
+  );
+
   it("bounds the request with a signal rather than waiting on GitHub", async () => {
     const { client, issued } = clientOver(tokenIssued(), json(200, CANONICAL));
 

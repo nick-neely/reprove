@@ -66,7 +66,7 @@ const pullRequestResponseSchema = z.object({
   head: z.object({
     sha: shaSchema,
     /** `null` when the fork was deleted, which ADR 0013 classifies external. */
-    repo: refRepositorySchema.nullable().optional(),
+    repo: refRepositorySchema.nullable(),
   }),
   base: z.object({ sha: shaSchema, repo: refRepositorySchema }),
   /**

@@ -81,6 +81,12 @@ describe("canonical pull request state", () => {
     });
   });
 
+  it("refuses an omitted head repository instead of recording a deleted fork", () => {
+    expect(
+      unreadable({ ...RESPONSE, head: { sha: RESPONSE.head.sha } })
+    ).toContain("head.repo");
+  });
+
   it("refuses a head SHA that is not a full 40-character SHA", () => {
     expect(
       unreadable({ ...RESPONSE, head: { sha: "b1b2b3", repo: null } })

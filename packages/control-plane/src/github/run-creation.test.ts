@@ -27,7 +27,7 @@ import {
 import { migrate } from "../db/migrate.js";
 import type { RuntimeDb } from "../db/runtime.js";
 import { createRuntimeDb } from "../db/runtime.js";
-import { LIVE_RUN_STATUSES } from "../db/schema-values.js";
+import { LIVE_RUN_STATUSES, RUN_STATUSES } from "../db/schema-values.js";
 import * as schema from "../db/schema.js";
 import type { CanonicalPullRequest } from "./canonical.js";
 import type { CanonicalOutcome } from "./client.js";
@@ -365,15 +365,7 @@ describe("Run creation", () => {
   });
 
   describe("an automatic trigger at a head that already has a Run", () => {
-    const statuses = [
-      "queued",
-      "completed",
-      "incomplete",
-      "failed",
-      "superseded",
-      "cancelled",
-      "unscheduled",
-    ];
+    const statuses = RUN_STATUSES;
 
     it("is a no-op in any status, with no carve-outs", async () => {
       const dispositions = await sequentially(statuses, async (status) => {

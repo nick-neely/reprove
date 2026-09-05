@@ -321,11 +321,14 @@ describe("the control plane's GitHub webhook, end to end", () => {
     const [committed] = await database.admin<{ id: string }>(
       `select id from ingress_delivery where delivery_guid = '${guid}'`
     );
+    if (!committed) {
+      throw new Error(`no ledger row for delivery ${guid}`);
+    }
     // The same delivery again, through the exposed entry point #38's re-drive
     // uses. The kick above already ran it to a terminal state, so this settles
     // nothing - which is the stateful GUID rule holding.
     const processed = await controlPlane.processDelivery({
-      deliveryId: committed?.id ?? "",
+      deliveryId: committed.id,
       envelope: {
         deliveryGuid: guid,
         event: "pull_request",
