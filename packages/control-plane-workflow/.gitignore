@@ -1,0 +1,3 @@
+# Written by the Workflow builder for its SWC plugin cache. Committed so the
+# builder finds it and does not regenerate the file on every test run.
+/.swc

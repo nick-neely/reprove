@@ -4,5 +4,7 @@
   // pattern of its own: a test, and the support module a test imports. Both are
   // type-checked by `tsconfig.json` and neither is packed - a published package
   // ships no test, and no module that knows the address of a local Docker stack.
+  "compilerOptions": { "rootDir": "src" },
+  "include": ["src"],
   "exclude": ["src/**/*.test.ts", "src/**/*.test-support.ts"]
 }

@@ -10,7 +10,7 @@
     "verify:migrations": "node tools/verify-migrations.mjs",
     "verify:build": "turbo run build typecheck",
     "verify:packages": "node tools/verify-packages.mjs",
-    "verify:test": "vitest run",
+    "verify:test": "vitest run && pnpm --filter @reprove/control-plane-workflow run test",
     "verify:lint": "ultracite check .",
     "db:up": "docker compose -f tools/db/compose.yaml up -d --wait",
     "db:down": "docker compose -f tools/db/compose.yaml down -v",

@@ -19,15 +19,19 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
   },
   "dependencies": {
     "@reprove/control-plane": "workspace:*",
-    "@reprove/protocol": "workspace:*"
+    "@reprove/protocol": "workspace:*",
+    "workflow": "catalog:workflow"
   },
   "devDependencies": {
     "@types/node": "catalog:",
-    "typescript": "catalog:"
+    "@workflow/vitest": "catalog:workflow",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   },
   "engines": {
     "node": ">=22"

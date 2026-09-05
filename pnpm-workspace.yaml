@@ -5,19 +5,45 @@ packages:
   - apps/*
 
 # Shared versions live in the default catalog so one bump moves every workspace.
-# The AI SDK Harness family and the Workflow family get their own named catalogs
-# when their dependencies actually arrive (ADR 0010, issue #30).
+# The AI SDK Harness family gets its own named catalog when its dependencies
+# actually arrive (ADR 0010, issue #30).
 catalog:
   "@types/node": ^26.4.0
   typescript: ^7.0.2
   vitest: ^4.1.11
   zod: ^4.5.4
 
+# The Workflow family moves together, and it is pinned rather than ranged: the
+# build behaviour the orchestration seam depends on is undocumented and
+# version-specific (ADR 0014), so a version bump is a reviewed change that reruns
+# the real-builder gate rather than something a range lets in on its own.
+catalogs:
+  workflow:
+    workflow: 4.8.5
+    "@workflow/world-postgres": 4.3.5
+    "@workflow/vitest": 4.0.21
+
 # --- Package manager selection -------------------------------------------------
 # pnpm 11 removed `managePackageManagerVersions` and `packageManagerStrict`.
 # `pmOnFail: error` is the v11 spelling of "a mismatched running pnpm fails":
 # pnpm errors instead of downloading a different version or merely warning.
 pmOnFail: error
+
+# --- Hoisting ------------------------------------------------------------------
+# Strict layout by default, which ADR 0010 calls defence in depth: a workspace
+# resolves only what it declared. One package is hoisted to the root, for the
+# Workflow test builder rather than for any Reprove code. `@workflow/vitest`'s
+# step bundler resolves each bare specifier from the project root to decide
+# whether to keep it external, and under the strict layout `builtin-modules` -
+# reached through the SDK's own serde checker, which the bundler pulls into
+# every step bundle - resolves from nowhere but its importer. The bundler then
+# inlines the package and externalizes its JSON import as a relative path,
+# dropping the `with { type: "json" }` attribute Node requires, so every step
+# fails to load. Hoisted, it resolves from the package root and stays a bare
+# import that Node loads correctly. Measured against `workflow@4.8.5`; revisit
+# when the Workflow catalog moves.
+publicHoistPattern:
+  - builtin-modules
 
 # --- Supply chain (issue #30) --------------------------------------------------
 # A version must be 24h old before it may be installed.
@@ -37,6 +63,58 @@ trustPolicyExclude:
   # Revisit when `@types/node@22` moves off it.
   # review-by: 2026-12-01
   - undici-types@6.21.0
+  # `chokidar@4.0.3` is the transitive dependency of `workflow`'s CLI, which the
+  # SDK ships as a dependency. It was published in December 2024 by the package's
+  # long-standing maintainer without the provenance attestation `4.0.1` carried,
+  # which pnpm reports as a downgrade. It is a publishing gap rather than a
+  # takeover: the version is twenty months old, is what every Vite install
+  # resolves, and ships no install script. Revisit when `@workflow/cli` moves
+  # off it.
+  # review-by: 2027-03-01
+  - chokidar@4.0.3
+  # Four Vercel-published packages arrive under `@workflow/world-postgres`, through
+  # `@vercel/queue`, and one more under `workflow`'s CLI. Every one is published
+  # from Vercel's own GitHub Actions through npm's trusted-publisher flow - the
+  # registry records `npm-oidc-no-reply@github.com` as the publisher - and pnpm
+  # still reports a downgrade because an earlier version of each also carried a
+  # provenance attestation and these do not. That is the same publishing gap as
+  # above, on packages that ship no install script. Each is pinned; a bump is
+  # re-checked. Revisit when the Workflow catalog moves.
+  # review-by: 2027-03-01
+  - "@vercel/functions@3.9.5"
+  # review-by: 2027-03-01
+  - "@vercel/oidc@3.8.5"
+  # review-by: 2027-03-01
+  - "@vercel/cli-exec@1.0.1"
+  # review-by: 2027-03-01
+  - "@vercel/cli-config@0.2.4"
+  # `@swc/core@1.15.3` is a peer of `@workflow/nest`, which `workflow` carries for
+  # every framework it integrates with; its ten platform binaries are optional
+  # dependencies published in November 2025 without the attestation earlier
+  # builds carried. The binaries carry no install script (the `postinstall` is on
+  # `@swc/core` itself, denied under `allowBuilds` below) and the version is what
+  # every current swc consumer resolves. Ten entries because pnpm judges each
+  # platform package on its own. Revisit when the Workflow catalog moves.
+  # review-by: 2027-03-01
+  - "@swc/core-darwin-arm64@1.15.3"
+  # review-by: 2027-03-01
+  - "@swc/core-darwin-x64@1.15.3"
+  # review-by: 2027-03-01
+  - "@swc/core-linux-arm-gnueabihf@1.15.3"
+  # review-by: 2027-03-01
+  - "@swc/core-linux-arm64-gnu@1.15.3"
+  # review-by: 2027-03-01
+  - "@swc/core-linux-arm64-musl@1.15.3"
+  # review-by: 2027-03-01
+  - "@swc/core-linux-x64-gnu@1.15.3"
+  # review-by: 2027-03-01
+  - "@swc/core-linux-x64-musl@1.15.3"
+  # review-by: 2027-03-01
+  - "@swc/core-win32-arm64-msvc@1.15.3"
+  # review-by: 2027-03-01
+  - "@swc/core-win32-ia32-msvc@1.15.3"
+  # review-by: 2027-03-01
+  - "@swc/core-win32-x64-msvc@1.15.3"
 # Installation fails on an unreviewed lifecycle script rather than skipping it.
 strictDepBuilds: true
 dangerouslyAllowAllBuilds: false
@@ -53,6 +131,18 @@ allowBuilds:
   # network is the surface issue #30 closed, and denying it costs nothing here:
   # `drizzle-kit --version` and `drizzle-kit generate` both work with all three
   # denied. Each key pins an exact version, so a bump is reviewed again.
+  '@swc/core': set this to true or false
+  cbor-extract: set this to true or false
   esbuild@0.18.20: false
   esbuild@0.25.12: false
   esbuild@0.28.2: false
+  # Two more arrive with the Workflow family (issue #50). `@swc/core`'s
+  # `postinstall` re-checks that a native binding is present and would download
+  # one if not; pnpm has already installed the platform binary as an optional
+  # dependency, so the script is redundant here and denied for the same reason
+  # esbuild's is. `cbor-extract`'s `install` builds a native accelerator for
+  # `cbor-x`, which the Postgres World uses to encode messages and which falls
+  # back to its pure JavaScript path when the binding is absent - measured by the
+  # real-builder gate executing a workflow with the build denied.
+  "@swc/core@1.15.3": false
+  cbor-extract@2.2.2: false

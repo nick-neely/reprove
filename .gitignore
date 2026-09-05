@@ -39,3 +39,10 @@ prototypes/**/package-lock.json
 # Next.js
 .next/
 next-env.d.ts
+
+# Vercel Workflow: the routes `withWorkflow` generates into the app tree, the
+# bundles `@workflow/vitest` builds, and the local World's data directory.
+**/.well-known/workflow/
+.workflow-vitest/
+.workflow-data/
+.swc/
