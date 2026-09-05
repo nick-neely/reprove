@@ -66,6 +66,9 @@ The effective state is then a walk of the journal in order: `0001 FORCE` followe
 
 `0002` adds `account.issuer` as `NOT NULL` with no default and no backfill, which is drizzle-kit's own output and is left as generated. It is safe because it cannot meet a row: nothing wrote to `account` before `createAuth()` existed, so every database at `0001` has it empty. It is also the behaviour to want if that were ever untrue - a default would invent an issuer for accounts nobody can attribute, and mis-key them under the `(issuer, account_id)` unique index beside it, where the bare `NOT NULL` stops the migration and says so.
 
+`0004` puts `owner_id` at the front of both Run indexes, so an index that is global stops being
+scoped differently from the queries that check it. `0003` completes ADR 0013's Run spec and is drizzle-kit's own output too. It adds `resolved_config` and `allow_hosted_fallback` as `NOT NULL` with no default, tightens `claimable_until` to `NOT NULL`, and adds the conditional unique index behind the automatic-trigger no-op. The same argument makes all four safe: nothing created a Run before #49, so every database at `0002` has `run` empty. The two new columns are ADR 0013's own words - "`Phase0RunProfile`'s config must persist" and "`claimableUntil` lives in immutable `spec`, so it is written at creation" - and a nullable deadline would let a `queued` Run exist that nothing ever moves off `queued`.
+
 All of it is ordinary Vitest - `declared.test.ts`, `force.test.ts`, `force-generate.test.ts` - beside `tools/verify-migrations.mjs`, which is the Git-aware half that proves history was only appended to. None of it sees a database: what actually deployed is `createRuntimeDb()`'s seven checks, and that division is ADR 0017's, not an omission.
 
 ## GitHub ingress
@@ -79,7 +82,7 @@ verify HMAC-SHA256 over the raw bytes
   -> normalize a bounded ingress envelope
   -> commit it with its processing state
   -> return 200
-  -> kick asynchronous processing        (#49)
+  -> kick asynchronous processing
 ```
 
 **Durability comes before the acknowledgement**, because GitHub does not automatically redeliver:
@@ -124,20 +127,165 @@ would then have to govern.
 **The delivery GUID is indexed and deliberately not unique.** GitHub reuses `X-GitHub-Delivery` on a
 manual redelivery, so a unique constraint would swallow the only recovery GitHub offers. The rule is
 stateful instead - same GUID plus a terminal state is a duplicate, same GUID plus a nonterminal one
-resumes - and #49 owns it. The ledger's states, the three terminal dispositions (`ineligible`,
-`duplicate_head`, `grant_gone`) and the three retry classes (`transient`, `operator_attention`,
+resumes, and the critical section reads that state under the lock before it acts. The ledger's
+states, the five terminal dispositions (`inert`, `ineligible`, `duplicate_head`, `unchanged`,
+`grant_gone`) and the three retry classes (`transient`, `operator_attention`,
 `contended`) are named in [`src/db/schema-values.ts`](src/db/schema-values.ts) and settled through
 `settleDelivery()`, which counts the attempt in SQL so two processors cannot both write the count
 they each read. It settles a `received` row and only a `received` row, and returns whether it did:
 `done` and `discarded` are terminal, so the contended attempt that finishes after the one that won
 the lock cannot reopen a concluded delivery and hand a re-drive work that must never be redone.
 
+### What the kick reaches: one Run per pull request
+
+The kick is **fire-and-forget and synchronous**, so the acknowledgement is never held behind the
+advisory lock and the canonical fetch. `processDelivery` is also exposed on `createControlPlane()`'s
+return value, because ADR 0013 makes an automatic re-drive of `contended` and `transient`
+dispositions a Phase 0 exit condition and hands the *mechanism* to
+[#38](https://github.com/nick-neely/reprove/issues/38) - so the durable scheduler needs a way in
+that is not a webhook request. **There is no sweeper here**, deliberately: a second recovery system
+competing with the durable one is worse than none.
+
+`intentOf()` reads ADR 0013's trigger table. `opened`, `synchronize`, `reopened` and
+`ready_for_review` can produce a Run; `closed` and `converted_to_draft` can only end one;
+everything else - `edited` most of all, because ADR 0012 makes the title and description
+Author-controlled narrative and a re-triggering edit would be a free re-roll of the review - is
+`inert`. The per-action conditions in that table are deliberately not repeated in the switch,
+because each of them is a statement about canonical state rather than about the action.
+
+**`inert` means concluded from the delivery alone**: no lock taken and no request issued. It covers
+an event or action that is not a trigger, and an acting delivery naming no repository or pull
+request to act on, which no later attempt can supply. **`unchanged` is the opposite and is a
+separate disposition for that reason**: the lock was taken, GitHub was asked, and the answer made
+the delivery a no-op - a stale `closed` for a pull request that has since reopened. Calling that
+`inert` would claim no request was made, and calling it `ineligible` would claim canonical state
+refused the pull request when it did the opposite.
+
+Everything after that happens inside one `withOwner` transaction:
+
+```text
+pg_try_advisory_xact_lock(hash of repository id and pull request number)
+  -> is this ledger row still `received`?  no -> stop, having written nothing
+  -> GET /repos/{owner}/{repo}/pulls/{number}, under installation authority
+  -> supersede a live Run at a head the pull request no longer has
+  -> any Run at the canonical head, in any status  -> duplicate_head
+  -> otherwise insert the Run, complete
+  -> settle the ledger row
+```
+
+**The ledger read is under the lock and before the fetch**, and it is what separates a re-drive from
+a second Run. `settleDelivery()` already refuses to reopen a terminal row, but it runs *after* the
+decision, so by the time it declined the work was done: a `done` delivery driven again - by #38's
+step retry, or by a manual GitHub redelivery, which reuses `X-GitHub-Delivery` and which the
+ledger's deliberately non-unique index accepts a second row for - would take the lock, observe a
+head that had since moved, supersede the live Run and insert a replacement no ledger row records.
+
+**The fetch is inside the lock, not before it.** Resolving canonical state at the top of the
+asynchronous job leaves an interleaving where "one live Run" holds at every step and the *older*
+head wins: A reads H2, a push makes the head H3, B reads H3 and creates `Run(H3)`, then A commits,
+supersedes it and creates `Run(H2)`. SHAs carry no ordering, so nothing in the data marks A as
+stale. Inside the lock the second processor re-reads and sees H3. The rejected alternative was
+stamping each Run with a resolution instant, which depends on clock agreement across serverless
+instances. Contention takes the **try** variant and leaves the delivery `received` with
+`retryClass = contended`, because a serverless invocation must never queue behind a lock whose
+holder it cannot observe; a hung fetch is bounded by the client's own timeout, backstopped by a
+transaction-local `idle_in_transaction_session_timeout` set higher.
+
+**The settlement shares that transaction with the decision.** Settling afterwards would leave a
+window in which a Run exists and the delivery that created it still reads `received`, and a
+re-drive arriving in that window would take the lock, find its own Run at the canonical head, and
+conclude `duplicate_head` for a delivery that is actually `done`. The cost of sharing it is that a
+transaction which cannot commit takes the settlement down with it, leaving a row with no attempt
+counted and no retry class - which is a delivery ADR 0013's re-drive reads the class of and
+therefore never picks up. So a failed transaction is settled in a fresh one, classified by
+SQLSTATE: a concurrent writer, a lost connection, a deadlock or the
+`idle_in_transaction_session_timeout` backstop are `transient`, and everything else is
+`operator_attention`, because a constraint the code did not expect reaches the same failure on every
+attempt.
+
+Two indexes make the invariants structural as well. `run_one_live_per_pull_request` is ADR 0013's
+own partial unique index over `queued`, `claimed` and `executing`.
+`run_one_automatic_per_head`, on `(owner_id, repository_id, pull_request_number, head_sha)`
+`WHERE trigger = 'automatic'`, is the structural half of the any-status no-op; the predicate is what
+reconciles it with ADR 0007's "a new push **or a retry** produces a new Run", because the retry ADR
+0013 leaves open is an explicit manual act and carries `trigger = 'manual'`.
+
+**Both are keyed on `owner_id` first**, so what they enforce is the same thing the code can see. An
+index is global and sees no policy, while every probe in front of it runs inside `withOwner`. A
+repository id survives a transfer between accounts, so an index scoped to the repository alone would
+let the new Owner's insert collide with a row it cannot select, supersede or explain. Today the
+composite foreign key from `run` to `repository (owner_id, id)` reaches that case first and refuses
+it - `run-creation.test.ts` measures that rather than assuming it - so the Owner column is defence
+in depth against a boundary the two halves would otherwise disagree about, not a live collision
+being fixed. The application-level
+rule stays primary and has **no status allowlist**: a `failed` Run at a head is not automatically
+retried, and a pull request reviewed at H3, then closed and reopened at the same H3, gets no second
+Run. Both consequences are ADR 0013's and are documented rather than hidden.
+
+### The GitHub client is Reprove's own, and Octokit is the rejected alternative
+
+`src/github/app-auth.ts` mints the RS256 App JWT with `node:crypto`; `src/github/client.ts`
+exchanges it for an installation token and issues `GET /repos/{owner}/{repo}/pulls/{number}` through
+an **injected `fetch`**. That is ADR 0016's seam: GitHub is substituted "only at the transport", so
+the JWT, the exchange, the request shape and the response parse all execute for real.
+
+Octokit is rejected for what it does rather than for its size. Its app plugin brings a token cache,
+a retry plugin and a throttling plugin, and each contradicts a decision already made: ADR 0013
+classifies retryability **by typed cause, never by HTTP status**, and the fetch runs inside a
+transaction holding both an advisory lock and a pooled connection, where sleeping off a rate limit
+is the wrong behaviour. The classification is the reason it matters -
+`403 Resource not accessible by integration` is a missing permission and permanent, while a `403`
+carrying `retry-after` or an exhausted quota clears on its own, so "all 401/403 retry with backoff"
+retries the first forever and reports nothing.
+
+Canonical state is **parsed** into a domain record rather than read field by field, because a Run's
+`baseSha` and `headSha` are immutable once written. `baseSha` is `base.sha`, the base branch tip,
+and deliberately not the merge base: computing that needs the compare endpoint, which drags
+`Contents: read` into the grant, while ADR 0004 already keeps `.git` in the Workspace so it is
+derived where the object graph is. The caveat is stated rather than hidden - `base.sha` moves with
+the base branch, so the recorded value is what the tip was when the delivery was processed. A push
+to the base branch fires no `pull_request` event, so a Run's base never moves after creation.
+
+Provenance is computed from that response rather than taken from the payload, over **numeric
+repository ids** so a rename cannot flip a classification, and its basis persists the inputs rather
+than prose written against today's rule - which is why the basis carries a rule version. The live
+collaborator-permission endpoint would additionally distinguish a read-only collaborator from one
+who can push; it is not used, and ADR 0013 records that as an accepted consequence rather than a
+gap, because `CONTEXT.md` says collaborator and Provenance classifies risk rather than conferring
+safety.
+
+### The Run is complete at creation, from an injected profile
+
+`PHASE_0_RUN_PROFILE` carries the half of ADR 0007's immutable spec that no pull request can
+influence - harness, model, strategy, autonomy, placement, hosted-fallback, a real bounded
+normalized `resolvedConfig` parsed through `@reprove/protocol`'s own schema, and the
+claimable-deadline policy. `createControlPlane()` **requires** it and has no default: a value the
+package chose silently is exactly the "prototype wiring becoming product selection policy" the ADR
+built the profile to prevent. The digest sorts keys at every depth, so two configurations differing
+only in the order zod's defaults filled them in have the same digest - otherwise `configDigest`
+would identify a serialization rather than a config.
+
+### Repository scope is a cache, and its lifecycle revalidation is not here yet
+
+`in_scope` is written from whatever the canonical fetch established and read by nothing. That is
+ADR 0013's rule intact - "**Repository scope state is an operational cache. Current GitHub
+authorization is authoritative whenever scope would permit or terminate execution**" - so a
+repository whose cached scope says otherwise still gets a Run the moment the fetch succeeds.
+
+What is **not** built yet is the other half: ADR 0013 also asks a lifecycle removal to take the same
+per-pull-request critical section for each affected live Run and revalidate it against current
+GitHub state, so that revocation is prompt rather than waiting for the next pull request event.
+Until that lands, `installation` and `installation_repositories` deliveries are recorded and
+disposed `inert`, and revocation is observed by the next canonical fetch failing. ADR 0013 is
+explicit that this is a **liveness** property and that correctness comes from the fetch failing, so
+the gap delays a revocation rather than honouring a grant that is gone.
+
 A verified payload establishes **identity** and not scope: `recordDelivery()` upserts Owner,
 Installation and Repository rows in front of the ledger insert, because `ingress_delivery`
 references `owner` and a first-ever delivery would otherwise be a foreign-key violation. No path may
 require that `installation.created` arrived first - GitHub never auto-redelivers, so one dropped
 lifecycle delivery would orphan an Owner permanently. Whether a repository is *in scope* stays with
-the canonical fetch under installation authority, which #49 builds.
+the canonical fetch under installation authority, below.
 
 Identity is written so that it can never be what loses a delivery. A repository id is unique across
 GitHub and survives a **transfer between accounts**, so the id a delivery carries may already name a
@@ -172,7 +320,7 @@ The App subscribes to exactly `pull_request`. `installation`, `installation_repo
 `github_app_authorization` arrive at every App unconditionally and cannot be unsubscribed from, so
 their absence from the manifest says nothing about whether they are recorded: the handler
 normalizes whatever event it is sent rather than assuming an unsubscribed one never arrives, and
-the event name is a column on the ledger row so #49 can dispatch on it.
+`intentOf()` dispatches on the event name the ledger row carries.
 
 ## Authentication
 

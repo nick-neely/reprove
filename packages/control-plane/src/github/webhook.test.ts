@@ -34,19 +34,23 @@ import {
 } from "./delivery.test-support.js";
 import type { IngressEnvelope } from "./envelope.js";
 import { signDelivery } from "./signature.js";
-import type { CommitEnvelope } from "./webhook.js";
+import type { CommitEnvelope, KickProcessing } from "./webhook.js";
 import {
   createGitHubWebhookHandler,
   MAXIMUM_DELIVERY_BYTES,
   WEBHOOK_STATUS,
 } from "./webhook.js";
 
+/** The ledger row id a commit resolves with. */
+const DELIVERY_ROW = "5f0c2c8e-0000-4000-8000-000000000000";
+
 /** A commit port that records what it was handed and never fails. */
-const recordingCommit = () => vi.fn<CommitEnvelope>();
+const recordingCommit = () =>
+  vi.fn<CommitEnvelope>(() => Promise.resolve(DELIVERY_ROW));
 
 /** The handler, over whichever commit port a case wants to observe. */
-const handlerOver = (commit: CommitEnvelope) =>
-  createGitHubWebhookHandler({ secret: WEBHOOK_SECRET, commit });
+const handlerOver = (commit: CommitEnvelope, kick?: KickProcessing) =>
+  createGitHubWebhookHandler({ secret: WEBHOOK_SECRET, commit, kick });
 
 describe("a delivery that is what it claims to be", () => {
   it("acknowledges a valid signature over the exact received bytes", async () => {
@@ -110,6 +114,7 @@ describe("durability before the acknowledgement", () => {
     const handle = handlerOver(async () => {
       await delay(10);
       order.push("committed");
+      return DELIVERY_ROW;
     });
 
     let answered = false;
@@ -275,5 +280,52 @@ describe("a delivery that cannot become an envelope", () => {
         })
       )
     ).resolves.toBe(WEBHOOK_STATUS.unsigned);
+  });
+});
+
+describe("the kick after the acknowledgement", () => {
+  it("hands processing the committed row's id and the envelope it holds", async () => {
+    const kick = vi.fn<KickProcessing>();
+
+    await handlerOver(recordingCommit(), kick)(signedDelivery());
+
+    expect(kick).toHaveBeenCalledOnce();
+    expect(kick.mock.calls[0]?.[0].deliveryId).toBe(DELIVERY_ROW);
+    expect(kick.mock.calls[0]?.[0].envelope.deliveryGuid).toBe(DELIVERY_GUID);
+  });
+
+  it("does not kick a delivery that was never committed", async () => {
+    const kick = vi.fn<KickProcessing>();
+    const handle = handlerOver(() => Promise.reject(new Error("no")), kick);
+
+    const response = await handle(signedDelivery());
+
+    expect(response.status).toBe(WEBHOOK_STATUS.notCommitted);
+    expect(kick).not.toHaveBeenCalled();
+  });
+
+  it("still acknowledges when the kick throws on its way out", async () => {
+    // Once the envelope is committed Reprove holds the intent, and the ledger
+    // is what recovers it. A failed kick may not unmake the row, so it may not
+    // unmake the acknowledgement either.
+    const handle = handlerOver(recordingCommit(), () => {
+      throw new Error("the scheduler is unreachable");
+    });
+
+    const response = await handle(signedDelivery());
+
+    expect(response.status).toBe(WEBHOOK_STATUS.acknowledged);
+  });
+
+  it("acknowledges without waiting for what the kick started", async () => {
+    const finished = vi.fn<() => void>();
+    const handle = handlerOver(recordingCommit(), () => {
+      setTimeout(finished, 20);
+    });
+
+    const response = await handle(signedDelivery());
+
+    expect(response.status).toBe(WEBHOOK_STATUS.acknowledged);
+    expect(finished).not.toHaveBeenCalled();
   });
 });

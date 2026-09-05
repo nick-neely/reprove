@@ -149,6 +149,9 @@ export {};
 
 ```ts
 import type { CheckOutcome } from "./db/refusal.js";
+import type { GitHubFetch } from "./github/client.js";
+import type { DeliveryToProcess, ProcessedDelivery } from "./github/delivery.js";
+import type { Phase0RunProfile } from "./github/profile.js";
 /** The database connection, as configuration rather than as a client. */
 export interface ControlPlaneDatabaseConfig {
     /**
@@ -161,12 +164,31 @@ export interface ControlPlaneDatabaseConfig {
     /** Called when the pool's connection fails while idle. */
     readonly onConnectionError?: (error: Error) => void;
 }
-/** The App's webhook seam. */
+/** The App's webhook seam, and the authority it reads GitHub back with. */
 export interface ControlPlaneGitHubConfig {
     /** The webhook secret the App was registered with. */
     readonly webhookSecret: string;
+    /** GitHub's numeric App id, which is the App JWT's issuer. */
+    readonly appId: string;
+    /** The App's private key, PEM-encoded, in either PKCS#1 or PKCS#8. */
+    readonly privateKey: string;
+    /**
+     * ADR 0013's injected profile: the half of a Run's immutable spec no pull
+     * request can influence. There is deliberately no default - a value the
+     * package chose silently is exactly the "prototype wiring becoming product
+     * selection policy" the ADR built the profile to prevent - so the composition
+     * root passes `PHASE_0_RUN_PROFILE` or something of its own.
+     */
+    readonly runProfile: Phase0RunProfile;
     /** The largest delivery body to accept, in bytes. */
     readonly maximumDeliveryBytes?: number;
+    /**
+     * The transport. Defaults to the global `fetch`, and exists as configuration
+     * because ADR 0016's acceptance scenario substitutes GitHub "only at the
+     * transport" - so the JWT, the exchange, the request shape and the response
+     * parsing all execute for real against a canned body.
+     */
+    readonly fetch?: GitHubFetch;
 }
 /** Everything the control plane is composed over. */
 export interface ControlPlaneConfig {
@@ -179,6 +201,20 @@ export interface ControlPlane {
     readonly checks: readonly CheckOutcome[];
     /** `POST /api/github/webhook`. */
     readonly handleGitHubWebhook: (request: Request) => Promise<Response>;
+    /**
+     * Turns one committed delivery into its Run, or into the conclusion that
+     * there is none.
+     *
+     * The webhook kicks this and does not await it, which is ADR 0013's order.
+     * It is **also** exposed here on purpose: the ADR makes an automatic re-drive
+     * of `contended` and `transient` dispositions a Phase 0 exit condition and
+     * hands the mechanism to
+     * [#38](https://github.com/nick-neely/reprove/issues/38), so the durable
+     * scheduler needs a way in that is not a webhook request. Calling it twice
+     * for one delivery is safe: the second attempt settles nothing, because
+     * `done` and `discarded` are terminal.
+     */
+    readonly processDelivery: (delivery: DeliveryToProcess) => Promise<ProcessedDelivery>;
     /** Drains the connection pool. */
     readonly close: () => Promise<void>;
 }
@@ -1145,12 +1181,37 @@ export type IngressState = (typeof INGRESS_STATES)[number];
  * each is a conclusion about the delivery rather than about a Run:
  *
  * ```text
+ * concluded from the delivery alone            -> inert
  * canonical state ineligible - closed, draft   -> ineligible
  * a Run already exists at the canonical head   -> duplicate_head
+ * canonical state needed nothing done          -> unchanged
  * grant definitively gone                      -> grant_gone
  * ```
+ *
+ * `inert` and `unchanged` are the pair worth keeping apart, because collapsing
+ * them would make the ledger lie about what a delivery cost.
+ *
+ * **`inert` means concluded from the delivery alone** - no advisory lock taken
+ * and no request issued to GitHub. It is ADR 0013's own word for the last row of
+ * its trigger table, "everything else | inert", and it covers two shapes: an
+ * event or action that is not a trigger, which is every `edited` delivery and
+ * each of the three events GitHub delivers to every App unconditionally; and an
+ * acting delivery that names no repository or pull request to act on, which no
+ * later attempt can supply. Both are decided by reading the envelope.
+ *
+ * **`unchanged` means the work was done and nothing needed doing.** The lock was
+ * taken and canonical state was read, and it disagreed with the delivery: a
+ * stale `closed` for a pull request that has since reopened is ADR 0013's own
+ * example, and cancelling on it is exactly what the canonical fetch exists to
+ * prevent. Recording that as `inert` would claim no request was made, and
+ * recording it as `ineligible` would claim canonical state refused the pull
+ * request when it did the opposite.
+ *
+ * Neither needs a migration. `disposition` is a `text` column and ADR 0008 keeps
+ * the state machines in the application rather than in a Postgres `ENUM`, which
+ * is exactly the case this is.
  */
-export declare const INGRESS_DISPOSITIONS: readonly ["ineligible", "duplicate_head", "grant_gone"];
+export declare const INGRESS_DISPOSITIONS: readonly ["inert", "ineligible", "duplicate_head", "unchanged", "grant_gone"];
 export type IngressDisposition = (typeof INGRESS_DISPOSITIONS)[number];
 /**
  * `ingress_delivery.retry_class`, on a nonterminal `received`.
@@ -1172,6 +1233,40 @@ export type IngressDisposition = (typeof INGRESS_DISPOSITIONS)[number];
  */
 export declare const INGRESS_RETRY_CLASSES: readonly ["transient", "operator_attention", "contended"];
 export type IngressRetryClass = (typeof INGRESS_RETRY_CLASSES)[number];
+/**
+ * `run.status`. ADR 0007's machine: `queued` -> `claimed` -> `executing`,
+ * terminating in one of the six below.
+ */
+export declare const RUN_STATUSES: readonly ["queued", "claimed", "executing", "completed", "incomplete", "failed", "superseded", "cancelled", "unscheduled"];
+export type RunStatus = (typeof RUN_STATUSES)[number];
+/**
+ * The statuses ADR 0013 calls **live**, and the ones the partial unique index
+ * `run_one_live_per_pull_request` is predicated on:
+ *
+ * ```sql
+ * UNIQUE (owner_id, repository_id, pull_request_number)
+ *   WHERE status IN ('queued', 'claimed', 'executing')
+ * ```
+ *
+ * The index spells them again rather than importing this list, because a
+ * migration is a text artifact that has already run in databases this list
+ * cannot reach. `run-creation.test.ts` measures the two against each other by
+ * inserting a second live Run at each status rather than by comparing strings.
+ */
+export declare const LIVE_RUN_STATUSES: readonly ["queued", "claimed", "executing"];
+export type LiveRunStatus = (typeof LIVE_RUN_STATUSES)[number];
+/**
+ * `run.cancellation_reason`, on `cancelled`.
+ *
+ * Both come from ADR 0013's trigger table - "`closed` | cancel the live Run;
+ * create none" and "`converted_to_draft` | cancel the live Run; create none" -
+ * and both are decided from **canonical state** rather than from the action
+ * that arrived, so a stale `closed` for a pull request that has since reopened
+ * cancels nothing. `superseded` is deliberately not here: it is a status of its
+ * own, and recording it twice would let the two disagree.
+ */
+export declare const RUN_CANCELLATION_REASONS: readonly ["pull_request_closed", "pull_request_drafted"];
+export type RunCancellationReason = (typeof RUN_CANCELLATION_REASONS)[number];
 ```
 
 ## dist/db/schema.d.ts
@@ -2287,6 +2382,40 @@ export declare const run: import("drizzle-orm/pg-core").PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
+        allowHostedFallback: import("drizzle-orm/pg-core").PgColumn<{
+            name: "allow_hosted_fallback";
+            tableName: "run";
+            dataType: "boolean";
+            columnType: "PgBoolean";
+            data: boolean;
+            driverParam: boolean;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        resolvedConfig: import("drizzle-orm/pg-core").PgColumn<{
+            name: "resolved_config";
+            tableName: "run";
+            dataType: "json";
+            columnType: "PgJsonb";
+            data: unknown;
+            driverParam: unknown;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
         configDigest: import("drizzle-orm/pg-core").PgColumn<{
             name: "config_digest";
             tableName: "run";
@@ -2345,7 +2474,7 @@ export declare const run: import("drizzle-orm/pg-core").PgTableWithColumns<{
             columnType: "PgTimestamp";
             data: Date;
             driverParam: string;
-            notNull: false;
+            notNull: true;
             hasDefault: false;
             isPrimaryKey: false;
             isAutoincrement: false;
@@ -3530,6 +3659,55 @@ export declare const verification: import("drizzle-orm/pg-core").PgTableWithColu
 }>;
 ```
 
+## dist/github/app-auth.d.ts
+
+```ts
+import type { ParsedBody } from "./json.js";
+/**
+ * How far the `iat` claim is backdated. GitHub rejects a JWT whose `iat` is in
+ * *its* future, and the two clocks are not the same clock; a minute is GitHub's
+ * own documented recommendation for the gap.
+ */
+export declare const CLOCK_DRIFT_SECONDS = 60;
+/**
+ * The token's life, under GitHub's ten-minute ceiling with the backdating
+ * already spent. Nine minutes rather than the ceiling, because a JWT that
+ * expires exactly at the limit is one whose validity depends on the drift being
+ * in the direction that helps.
+ */
+export declare const APP_JWT_LIFETIME_SECONDS: number;
+/** The App's identity, as the deployment configured it. */
+export interface AppCredentials {
+    /** GitHub's numeric App id, which is the JWT's `iss`. */
+    readonly appId: string;
+    /** The App's private key, PEM-encoded, in either PKCS#1 or PKCS#8. */
+    readonly privateKey: string;
+}
+/**
+ * Mints the JWT the installation-token exchange is authorized by.
+ *
+ * @param credentials The App id and its PEM private key.
+ * @param issuedAt The instant to date the assertion from.
+ * @returns A compact JWS, ready for an `Authorization: Bearer` header.
+ * @throws {TypeError} Naming the field, when the App id is empty or the private
+ *   key is not a key. Both are deployment configuration, and a JWT built from
+ *   either would fail at GitHub as an opaque `401` classified
+ *   `operator_attention` - true, and several steps removed from the cause.
+ */
+export declare const appJwt: (credentials: AppCredentials, issuedAt: Date) => string;
+/** An installation token, or the reason this response carried none. */
+export type IssuedInstallationToken = ParsedBody<{
+    token: string;
+}>;
+/**
+ * Reads `POST /app/installations/{id}/access_tokens`'s body.
+ *
+ * @param body The raw response body.
+ * @returns The token, or why there is none.
+ */
+export declare const readInstallationToken: (body: string) => IssuedInstallationToken;
+```
+
 ## dist/github/body.d.ts
 
 ```ts
@@ -3567,6 +3745,234 @@ export type BoundedBody = {
  * @returns The exact bytes received, or the cap they broke.
  */
 export declare const readBoundedBody: (request: Request, limit: number) => Promise<BoundedBody>;
+```
+
+## dist/github/canonical.d.ts
+
+```ts
+/** Canonical state, in Reprove's shape rather than GitHub's. */
+export interface CanonicalPullRequest {
+    readonly number: number;
+    /** `state === "open"`. A merged pull request is closed. */
+    readonly open: boolean;
+    readonly draft: boolean;
+    /** The base branch tip, not the merge base. */
+    readonly baseSha: string;
+    readonly headSha: string;
+    readonly baseRepositoryId: number;
+    /** `null` for a deleted fork. */
+    readonly headRepositoryId: number | null;
+    readonly authorId: number;
+    readonly authorAssociation: string;
+}
+/** Canonical state, or the reason this response could not become it. */
+export type ParsedPullRequest = {
+    readonly kind: "canonical";
+    readonly pullRequest: CanonicalPullRequest;
+} | {
+    readonly kind: "unreadable";
+    readonly reason: string;
+};
+/**
+ * Reads a `GET /repos/{owner}/{repo}/pulls/{number}` body into canonical state.
+ *
+ * @param body The raw response body.
+ * @returns The canonical state, or why there is none.
+ */
+export declare const readPullRequest: (body: string) => ParsedPullRequest;
+```
+
+## dist/github/client.d.ts
+
+```ts
+/**
+ * The GitHub client, which is two requests and a classification.
+ *
+ * [ADR
+ * 0013](../../../../docs/adr/0013-github-ingress-and-run-creation-idempotency.md)
+ * requires canonical state to be resolved "under installation authority", which
+ * is App JWT then installation token then `GET
+ * /repos/{owner}/{repo}/pulls/{number}`, and it fixes two things about how that
+ * call may fail:
+ *
+ * ```text
+ * network failure, 5xx, 429, identified secondary rate limiting -> transient
+ * grant confirmed gone                                          -> grant_gone
+ * auth or App configuration cannot establish access             -> operator_attention
+ * ```
+ *
+ * > Retryability is classified by typed cause, never by HTTP status.
+ *
+ * The two `403`s are why. `403 Resource not accessible by integration` is a
+ * missing permission and is permanent; a `403` carrying `retry-after` or an
+ * exhausted quota is rate limiting and clears on its own. "All 401/403 retry
+ * with backoff" retries the first forever and reports nothing, which is the
+ * invisible loop ADR 0013 named.
+ *
+ * **Octokit is the rejected alternative**, and it is rejected for what it does
+ * rather than for its size. Its app plugin brings a token cache, a retry plugin
+ * and a throttling plugin whose defaults each contradict a decision above: it
+ * would retry by status where ADR 0013 classifies by cause, and it would sleep
+ * on a rate limit inside a transaction that is holding both an advisory lock and
+ * a pooled connection. Turning three plugins off is more code than the fifty
+ * lines below and leaves the behaviour a version bump from changing.
+ *
+ * `fetch` is injected rather than taken from the global for the same reason the
+ * webhook's commit is a port: ADR 0016's acceptance scenario intercepts GitHub
+ * "only at the transport", so the JWT, the exchange, the request shape and the
+ * response parsing all execute for real against a canned body.
+ */
+import type { AppCredentials } from "./app-auth.js";
+import type { CanonicalPullRequest } from "./canonical.js";
+/** GitHub's REST root. */
+export declare const GITHUB_API_URL = "https://api.github.com";
+/**
+ * The hard client timeout ADR 0013 requires, per request.
+ *
+ * It is a **budget inside a transaction**, not a generous ceiling: the fetch
+ * runs while an advisory lock and a pooled connection are both held, and ADR
+ * 0013 backstops it with a transaction-local `idle_in_transaction_session_
+ * timeout` set higher, "so application code normally aborts cleanly before
+ * Postgres kills the session". Two requests at this budget still fit inside
+ * that backstop.
+ *
+ * A constant rather than a configuration field, because the number is only
+ * correct in relation to that backstop: a deployment free to raise it could
+ * raise it past the timeout that exists to catch it, and no caller has ever
+ * needed to.
+ */
+export declare const REQUEST_TIMEOUT_MS = 5000;
+/** The injected transport. One `Request` in, one `Response` out. */
+export type GitHubFetch = (request: Request) => Promise<Response>;
+/** What the client is composed over. No value here is read from anywhere. */
+export interface GitHubClientConfig extends AppCredentials {
+    readonly fetch: GitHubFetch;
+}
+/** Which pull request, reached through which grant. */
+export interface CanonicalRequest {
+    readonly installationId: number;
+    /** `owner/name`. */
+    readonly repositoryNameWithOwner: string;
+    readonly pullRequestNumber: number;
+}
+/**
+ * What the fetch concluded, in ADR 0013's own vocabulary rather than in HTTP's.
+ * Each failure maps onto exactly one ledger outcome, which is what stops the
+ * classification being made twice in two places.
+ */
+export type CanonicalOutcome = {
+    readonly kind: "canonical";
+    readonly pullRequest: CanonicalPullRequest;
+}
+/** Confirmed gone. Terminal: `discarded: grant_gone`. */
+ | {
+    readonly kind: "grant_gone";
+    readonly reason: string;
+}
+/** Clears on its own. Nonterminal: `received`, `retryClass = transient`. */
+ | {
+    readonly kind: "transient";
+    readonly reason: string;
+}
+/** A person has to act. Nonterminal: `received`, `operator_attention`. */
+ | {
+    readonly kind: "operator_attention";
+    readonly reason: string;
+};
+/** The one thing this client does. */
+export interface GitHubClient {
+    readonly canonicalPullRequest: (request: CanonicalRequest) => Promise<CanonicalOutcome>;
+}
+/**
+ * Composes the client over an App's credentials and a transport.
+ *
+ * @param config The App id, its private key and the injected `fetch`.
+ * @returns A client that resolves canonical pull request state.
+ */
+export declare const createGitHubClient: (config: GitHubClientConfig) => GitHubClient;
+```
+
+## dist/github/delivery.d.ts
+
+```ts
+/**
+ * What one delivery is, and what processing it concluded - as types a consumer
+ * may hold.
+ *
+ * These three live apart from the modules that use them for a boundary reason
+ * rather than a tidiness one. [ADR
+ * 0010](../../../../docs/adr/0010-package-graph-and-open-core-boundary.md)
+ * forbids `apps/control-plane` from depending on `drizzle-orm` or a Postgres
+ * driver, and `tools/verify-packages.mjs` measures that by type-checking the
+ * packed declarations in a consumer with `skipLibCheck: false`. A published type
+ * that merely *lives in* a module importing Drizzle drags Drizzle's whole
+ * declaration graph into that check, whether or not any signature names one.
+ *
+ * `ledger.ts` and `processing.ts` both name a Drizzle transaction, so neither
+ * can be the home of a type `createControlPlane()` returns. Declaring them here
+ * - over `IngressEnvelope` and the closed value sets, and nothing else - is what
+ * makes the boundary hold by construction instead of by review.
+ */
+import type { IngressDisposition, IngressRetryClass } from "../db/schema-values.js";
+import type { IngressEnvelope } from "./envelope.js";
+/**
+ * How a processing attempt ended, as the ledger holds it.
+ *
+ * A union rather than three nullable columns a caller fills in, because the
+ * combinations the columns permit are mostly nonsense: a `done` row carrying a
+ * retry class, or a `discarded` row with a next attempt, is a delivery a
+ * re-drive sweeper would pick up and redo. Here the state names its own
+ * evidence and there is no fourth shape.
+ */
+export type IngressOutcome =
+/** A Run was created. Terminal. */
+{
+    readonly state: "done";
+}
+/** Terminal, and the disposition says which conclusion was reached. */
+ | {
+    readonly state: "discarded";
+    readonly disposition: IngressDisposition;
+}
+/**
+ * Nonterminal: the delivery stays `received` and the retry class says what
+ * kind of recovery it needs. ADR 0013 makes an automatic re-drive path for
+ * `transient` and `contended` a Phase 0 exit condition rather than deferred
+ * work, and #38 chooses the mechanism.
+ */
+ | {
+    readonly state: "received";
+    readonly retryClass: IngressRetryClass;
+    readonly nextAttemptAt: Date | null;
+};
+/** A committed ledger row and the envelope it holds. */
+export interface DeliveryToProcess {
+    /** The ledger row's id, as `recordDelivery()` returned it. */
+    readonly deliveryId: string;
+    readonly envelope: IngressEnvelope;
+}
+/** What one processing attempt concluded, and whether the ledger took it. */
+export interface ProcessedDelivery {
+    /**
+     * What this attempt concluded, or `null` where it concluded nothing because
+     * the delivery was already terminal when the lock was taken.
+     *
+     * Nullable rather than folded into a disposition, because a disposition is a
+     * statement about work that was done. Every value of it would misreport this:
+     * the attempt read the ledger, found the question already answered, and left
+     * without fetching, writing or settling anything.
+     */
+    readonly outcome: IngressOutcome | null;
+    /**
+     * `false` when the row was already terminal, or belongs to another Owner.
+     * ADR 0013's stateful GUID rule is what makes that expected rather than
+     * exceptional: the contended attempt that settles after the one that won the
+     * lock must not reopen a delivery whose work is finished.
+     */
+    readonly settled: boolean;
+    /** The Run this delivery produced, where it produced one. */
+    readonly runId: string | null;
+}
 ```
 
 ## dist/github/envelope.d.ts
@@ -3618,42 +4024,63 @@ export interface ReceivedDelivery {
 export declare const normalizeDelivery: (delivery: ReceivedDelivery) => NormalizedDelivery;
 ```
 
+## dist/github/json.d.ts
+
+```ts
+/**
+ * JSON at a boundary: the value type it arrives as, and the one parse every
+ * reader of a GitHub response performs.
+ *
+ * Both halves exist because the same three-step shape - decode the bytes,
+ * validate the result, say why not - was being written once per endpoint, and a
+ * response reader that differs between two endpoints differs in what it accepts
+ * as well as in how it reports. The [ADR
+ * 0013](../../../../docs/adr/0013-github-ingress-and-run-creation-idempotency.md)
+ * reason it matters is that both readers feed a Run's immutable spec: a field
+ * that merely looked right at the property access that read it is a permanent
+ * wrong answer, so the parse is the boundary rather than a convenience.
+ *
+ * The rejected alternative is a reader per endpoint holding its own `try` around
+ * `JSON.parse`, which is what this replaced. It reads as harmless duplication
+ * and is not: the two copies had already diverged on what they said about a body
+ * that was not JSON at all.
+ */
+import type { z } from "zod";
+/**
+ * JSON, as a value rather than as `unknown`.
+ *
+ * A configuration is JSON before it is a `ResolvedConfig` - today from a
+ * literal, and from `.reprove.yml` once
+ * [#21](https://github.com/nick-neely/reprove/issues/21) reads one - so a parse
+ * over one takes the shape it actually arrives in.
+ */
+export type JsonValue = string | number | boolean | null | readonly JsonValue[] | {
+    readonly [key: string]: JsonValue;
+};
+/** A parsed body, or the reason these bytes could not become one. */
+export type ParsedBody<Value> = {
+    readonly kind: "parsed";
+    readonly value: Value;
+} | {
+    readonly kind: "unreadable";
+    readonly reason: string;
+};
+/**
+ * Decodes one response body and validates it against a schema.
+ *
+ * @param body The raw response body.
+ * @param schema The shape the caller requires of it.
+ * @returns The parsed value, or why there is none.
+ */
+export declare const parseBody: <Schema extends z.ZodType>(body: string, schema: Schema) => ParsedBody<z.infer<Schema>>;
+```
+
 ## dist/github/ledger.d.ts
 
 ```ts
 import type { TenantTransaction } from "../db/runtime.js";
-import type { IngressDisposition, IngressRetryClass } from "../db/schema-values.js";
+import type { IngressOutcome } from "./delivery.js";
 import type { IngressEnvelope } from "./envelope.js";
-/**
- * How a processing attempt ended, as the ledger holds it.
- *
- * A union rather than three nullable columns a caller fills in, because the
- * combinations the columns permit are mostly nonsense: a `done` row carrying a
- * retry class, or a `discarded` row with a next attempt, is a delivery a
- * re-drive sweeper would pick up and redo. Here the state names its own
- * evidence and there is no fourth shape.
- */
-export type IngressOutcome =
-/** A Run was created. Terminal. */
-{
-    readonly state: "done";
-}
-/** Terminal, and the disposition says which conclusion was reached. */
- | {
-    readonly state: "discarded";
-    readonly disposition: IngressDisposition;
-}
-/**
- * Nonterminal: the delivery stays `received` and the retry class says what
- * kind of recovery it needs. ADR 0013 makes an automatic re-drive path for
- * `transient` and `contended` a Phase 0 exit condition rather than deferred
- * work, and #38 chooses the mechanism.
- */
- | {
-    readonly state: "received";
-    readonly retryClass: IngressRetryClass;
-    readonly nextAttemptAt: Date | null;
-};
 /**
  * Commits one envelope, with the identity rows it depends on, inside the
  * caller's tenant transaction.
@@ -3741,8 +4168,8 @@ export declare const settleDelivery: (tx: TenantTransaction, deliveryId: string,
  * every App by default and **they cannot be subscribed to or unsubscribed
  * from**, so they are absent here and still recorded: the handler normalizes
  * whatever event it is sent rather than assuming an unsubscribed one never
- * arrives, and the event name is a column on the ledger row so #49 can dispatch
- * on it.
+ * arrives, and the event name is a column on the ledger row that `trigger.ts`
+ * dispatches on.
  */
 /** The permission levels GitHub accepts in a manifest. */
 export type ManifestPermission = "read" | "write" | "admin";
@@ -3793,6 +4220,290 @@ export interface GitHubAppManifest {
 export declare const githubAppManifest: (options: ManifestOptions) => GitHubAppManifest;
 ```
 
+## dist/github/processing.d.ts
+
+```ts
+/**
+ * What happens after the `200`, and the one transaction it happens in.
+ *
+ * [ADR
+ * 0013](../../../../docs/adr/0013-github-ingress-and-run-creation-idempotency.md)
+ * ends the webhook handler at "return 200 -> kick asynchronous processing", and
+ * this is what the kick reaches. It maps the critical section's decision onto
+ * the ledger's own vocabulary, which is deliberately neither Refusal nor Failure
+ * vocabulary - "nothing was refused and nothing executed":
+ *
+ * ```text
+ * Run created                                  -> done
+ * canonical state ineligible - closed, draft   -> discarded: ineligible
+ * a Run already exists at the canonical head   -> discarded: duplicate_head
+ * grant definitively gone                      -> discarded: grant_gone
+ * not a delivery that acts                     -> discarded: inert
+ * lock contention                              -> received, contended
+ * network failure, 5xx, 429, rate limiting     -> received, transient
+ * auth or App configuration                    -> received, operator_attention
+ * ```
+ *
+ * **The settlement is in the same transaction as the decision**, which is the
+ * one structural choice here. Settling afterwards would leave a window in which
+ * a Run exists and the delivery that created it still reads `received`, and a
+ * re-drive reaching that window would take the lock, observe its own Run at the
+ * canonical head, and conclude `duplicate_head` for the delivery that is
+ * actually `done`. One transaction makes the Run and the conclusion about it a
+ * single fact.
+ *
+ * The rejected alternative for the whole module is a sweeper that discovers
+ * `received` rows on a timer. ADR 0013 requires an automatic re-drive path for
+ * `contended` and `transient` as a Phase 0 exit condition and hands the
+ * *mechanism* to [#38](https://github.com/nick-neely/reprove/issues/38), which
+ * chose the platform's own step retry. Building a second one here would be a
+ * recovery system nobody asked for, competing with the durable one - so
+ * `processDelivery` is exposed as a function instead, and the kick that calls it
+ * is fire-and-forget precisely because it is not the thing that recovers.
+ */
+import type { RuntimeDb } from "../db/runtime.js";
+import type { DeliveryToProcess, ProcessedDelivery } from "./delivery.js";
+import type { Phase0RunProfile } from "./profile.js";
+import type { RunCreationConfig } from "./run-creation.js";
+/** What the processor is composed over. */
+export interface DeliveryProcessorConfig {
+    readonly withOwner: RuntimeDb["withOwner"];
+    readonly canonicalPullRequest: RunCreationConfig["canonicalPullRequest"];
+    readonly profile: Phase0RunProfile;
+    /** Defaults to the system clock. */
+    readonly now?: () => Date;
+}
+/**
+ * Composes the processor over a runtime client, the canonical fetch and the
+ * injected profile.
+ *
+ * @param config The tenant transaction factory, the fetch and the profile.
+ * @returns A function from a committed delivery to what it concluded.
+ */
+export declare const createDeliveryProcessor: (config: DeliveryProcessorConfig) => ((delivery: DeliveryToProcess) => Promise<ProcessedDelivery>);
+```
+
+## dist/github/profile.d.ts
+
+```ts
+import type { ResolvedConfig, RunSpec } from "@reprove/protocol/v1";
+import type { JsonValue } from "./json.js";
+/** ADR 0014's Phase 0 unclaimed window, which ADR 0016 restates as a fixture. */
+export declare const PHASE_0_CLAIMABLE_FOR_MS: number;
+/**
+ * The half of a Run's spec no pull request can influence.
+ *
+ * Every field is named from `RunSpec` rather than respelled, so a value this
+ * profile can hold is exactly a value the Worker protocol accepts. There is no
+ * second vocabulary for a harness or an autonomy level to drift against.
+ */
+export interface Phase0RunProfile {
+    readonly harness: RunSpec["harness"];
+    readonly model: string;
+    readonly strategy: RunSpec["strategy"];
+    readonly autonomy: RunSpec["autonomy"];
+    readonly placement: RunSpec["placement"];
+    readonly allowHostedFallback: boolean;
+    /** A real bounded normalized config, not a placeholder. */
+    readonly resolvedConfig: ResolvedConfig;
+    /** How long a created Run stays claimable. Written into the spec. */
+    readonly claimableForMs: number;
+}
+/**
+ * The digest of one resolved configuration.
+ *
+ * @param resolvedConfig The bounded normalized config that governs a Run.
+ * @returns `sha256:` followed by the hex digest of its canonical form.
+ */
+export declare const configDigest: (resolvedConfig: ResolvedConfig) => string;
+/**
+ * Parses a profile's configuration, so a profile carrying something the Worker
+ * protocol would reject fails at composition rather than at the Run insert.
+ *
+ * @param resolvedConfig The configuration to normalize.
+ * @returns The parsed configuration, with every default filled in.
+ * @throws {TypeError} Naming what the configuration broke.
+ */
+export declare const normalizeResolvedConfig: (resolvedConfig: JsonValue) => ResolvedConfig;
+/**
+ * The Phase 0 fixture, as one named value.
+ *
+ * It is exported so `apps/control-plane` can inject it by name instead of
+ * writing these literals into route wiring, and it is **not** a default: nothing
+ * reaches for it unless a caller passes it.
+ */
+export declare const PHASE_0_RUN_PROFILE: Phase0RunProfile;
+```
+
+## dist/github/provenance.d.ts
+
+```ts
+/**
+ * Where the code under review came from, computed rather than configured.
+ *
+ * [ADR
+ * 0013](../../../../docs/adr/0013-github-ingress-and-run-creation-idempotency.md)
+ * states the rule and the reason it is computed **from the canonical response
+ * fetched inside the critical section**, "so it is fresh rather than
+ * event-stale":
+ *
+ * ```text
+ * internal  iff  head.repo.id is present
+ *           and  head.repo.id === base.repo.id
+ *           and  author_association in { OWNER, MEMBER, COLLABORATOR }
+ * external  otherwise
+ * ```
+ *
+ * Repository **numeric ids, never names**, so a rename cannot flip a
+ * classification, and a deleted fork - `head.repo == null` - is `external`
+ * along with `CONTRIBUTOR`, `FIRST_TIME_CONTRIBUTOR`, `FIRST_TIMER` and `NONE`.
+ * Anything GitHub adds to that vocabulary later is `external` too, because the
+ * allowlist is the safe direction to be wrong in.
+ *
+ * **The live collaborator-permission endpoint is the rejected alternative, and
+ * its absence is an accepted consequence rather than a gap.** It would
+ * additionally distinguish a read-only collaborator from one who can push, and
+ * ADR 0008 establishes that it needs only `Metadata: read`, so it is available.
+ * It is not used because `CONTEXT.md` says collaborator, not write-capable
+ * collaborator, and Provenance "classifies risk rather than conferring safety".
+ * If it should later mean "could push the head branch", that is a new
+ * {@link PROVENANCE_RULE_VERSION} and old Runs stay explainable - which is the
+ * entire reason ADR 0007 kept `provenanceBasis`.
+ *
+ * The basis persists the **inputs** rather than prose reconstructed later, for
+ * the same reason: a sentence explaining a decision is written against today's
+ * rule, and the rule is the thing that changes.
+ */
+import type { CanonicalPullRequest } from "./canonical.js";
+/**
+ * Which rule produced a classification. It is on every basis so that a Run
+ * classified under an older rule is still readable as what it was, rather than
+ * being reinterpreted under whatever the rule became.
+ */
+export declare const PROVENANCE_RULE_VERSION = 1;
+/** ADR 0007's `provenanceBasis`, which is the inputs and the two matches. */
+export interface ProvenanceBasis {
+    readonly ruleVersion: number;
+    readonly baseRepositoryId: number;
+    readonly headRepositoryId: number | null;
+    readonly authorAssociation: string;
+    readonly authorId: number;
+    readonly matchedSameRepository: boolean;
+    readonly matchedAssociation: boolean;
+}
+/** The classification and everything it was reached from. */
+export interface ProvenanceDecision {
+    readonly provenance: "internal" | "external";
+    readonly basis: ProvenanceBasis;
+}
+/**
+ * Classifies one pull request's canonical state.
+ *
+ * @param pullRequest Canonical state, as the fetch inside the lock read it.
+ * @returns The classification and the basis to persist beside it.
+ */
+export declare const provenanceOf: (pullRequest: CanonicalPullRequest) => ProvenanceDecision;
+```
+
+## dist/github/run-creation.d.ts
+
+```ts
+import type { TenantTransaction } from "../db/runtime.js";
+import type { RunCancellationReason } from "../db/schema-values.js";
+import type { CanonicalOutcome, CanonicalRequest } from "./client.js";
+import type { Phase0RunProfile } from "./profile.js";
+import type { DeliveryIntent } from "./trigger.js";
+/**
+ * The backstop ADR 0013 puts behind the client timeout, and it is set **higher**
+ * on purpose: "with the client timeout set lower so application code normally
+ * aborts cleanly before Postgres kills the session". Two GitHub requests at the
+ * client's own budget still fit inside this.
+ */
+export declare const IDLE_IN_TRANSACTION_TIMEOUT_MS = 15000;
+/** Which pull request, in which tenant, reached through which grant. */
+export interface PullRequestLocator extends CanonicalRequest {
+    readonly ownerId: number;
+    readonly repositoryId: number;
+}
+/** One ledger row's worth of work: what to act on, and on whose behalf. */
+export interface DeliveryUnderLock {
+    /** The ledger row, which is re-read under the lock before anything moves. */
+    readonly deliveryId: string;
+    readonly locator: PullRequestLocator;
+    readonly intent: Exclude<DeliveryIntent, "inert">;
+}
+/** What the critical section is composed over. */
+export interface RunCreationConfig {
+    readonly canonicalPullRequest: (request: CanonicalRequest) => Promise<CanonicalOutcome>;
+    readonly profile: Phase0RunProfile;
+    readonly now: () => Date;
+}
+/**
+ * What the critical section decided, in enough detail that the ledger outcome
+ * and a test can both be written from it. Every shape names what happened to
+ * existing Runs as well as to any new one, because "supersede the old Run and
+ * insert its replacement happen in the same `withOwner` transaction" is the
+ * claim, and a decision that reported only the insert could not state it.
+ */
+export type RunDecision =
+/** A Run exists at the canonical head, and it is this one. */
+{
+    readonly kind: "created";
+    readonly runId: string;
+    /** The live Run at an older head that this one replaced, if any. */
+    readonly supersededRunId: string | null;
+}
+/** Canonical state is closed or draft. Any live Run was ended. */
+ | {
+    readonly kind: "ineligible";
+    readonly reason: RunCancellationReason;
+    readonly cancelledRunId: string | null;
+}
+/** A Run already exists at the canonical head, in some status. */
+ | {
+    readonly kind: "duplicate_head";
+    readonly supersededRunId: string | null;
+}
+/** A cancelling delivery whose pull request is, canonically, still open. */
+ | {
+    readonly kind: "unchanged";
+}
+/**
+ * The ledger row is no longer `received`, so this attempt has nothing to do
+ * and must do nothing. Nothing was fetched and nothing was written.
+ */
+ | {
+    readonly kind: "already_concluded";
+}
+/** Another processor holds this pull request. Nothing was read or written. */
+ | {
+    readonly kind: "contended";
+} | {
+    readonly kind: "grant_gone";
+    readonly reason: string;
+} | {
+    readonly kind: "transient";
+    readonly reason: string;
+} | {
+    readonly kind: "operator_attention";
+    readonly reason: string;
+};
+/**
+ * Resolves canonical state and settles one pull request, inside the caller's
+ * tenant transaction.
+ *
+ * The transaction is the caller's for the same reason the ledger's is: the lock
+ * is transaction-scoped, so a function that opened one of its own would release
+ * it before the caller recorded what it decided.
+ *
+ * @param tx A tenant transaction already scoped to the delivery's Owner.
+ * @param config The canonical fetch, the injected profile and the clock.
+ * @param delivery The ledger row, the pull request it names and what it asks.
+ * @returns What was decided, and what it did to existing Runs.
+ */
+export declare const settlePullRequest: (tx: TenantTransaction, config: RunCreationConfig, delivery: DeliveryUnderLock) => Promise<RunDecision>;
+```
+
 ## dist/github/signature.d.ts
 
 ```ts
@@ -3834,9 +4545,68 @@ export interface OfferedSignature {
 export declare const isSignatureValid: (offered: OfferedSignature) => boolean;
 ```
 
+## dist/github/trigger.d.ts
+
+```ts
+/**
+ * Which deliveries act, and what each of them is asking for.
+ *
+ * [ADR
+ * 0013](../../../../docs/adr/0013-github-ingress-and-run-creation-idempotency.md)
+ * fixes the table:
+ *
+ * | `pull_request` action | effect |
+ * | --- | --- |
+ * | `opened` | create a Run, if not draft |
+ * | `synchronize` | supersede the live Run and create one at the canonical head, if not draft |
+ * | `reopened` | create if not draft and no Run exists at that head |
+ * | `ready_for_review` | create if no Run exists at that head |
+ * | `closed` | cancel the live Run; create none |
+ * | `converted_to_draft` | cancel the live Run; create none |
+ * | everything else | inert |
+ *
+ * The per-action conditions are deliberately **not** repeated here, because
+ * every one of them is a statement about canonical state rather than about the
+ * action, and ADR 0013 resolves canonical state inside the critical section
+ * precisely so that the action stops being the authority. "If not draft" and "if
+ * no Run exists at that head" are the same two checks in all four rows, so
+ * `run-creation.ts` makes them once. What survives here is the only distinction
+ * the action really carries: whether the delivery could produce a Run at all.
+ *
+ * **`edited` is inert deliberately**, and it is the row worth stating twice.
+ * [ADR 0012](../../../../docs/adr/0012-author-controlled-narrative-input.md)
+ * classifies the title and description as Author-controlled narrative, so
+ * letting an edit re-trigger would hand the Author an unlimited free re-roll of
+ * the review at no cost.
+ *
+ * The switch is **explicit and closed** rather than an allowlist over
+ * `pull_request` alone: GitHub delivers `installation`,
+ * `installation_repositories` and `github_app_authorization` to every App by
+ * default and they "cannot be subscribed to or unsubscribed from", so the
+ * handler "may not assume that an unsubscribed event never arrives".
+ */
+/** What a delivery is asking the critical section to consider doing. */
+export type DeliveryIntent =
+/** Create a Run at the canonical head, if canonical state allows one. */
+"review"
+/** End the live Run, if canonical state agrees the pull request is over. */
+ | "cancel"
+/** Nothing. No lock is taken and no canonical fetch is made. */
+ | "inert";
+/**
+ * Reads one delivery's event and action.
+ *
+ * @param event `X-GitHub-Event`, as the envelope recorded it.
+ * @param action The payload's action, or `null` where it carried none.
+ * @returns What this delivery is asking for.
+ */
+export declare const intentOf: (event: string, action: string | null) => DeliveryIntent;
+```
+
 ## dist/github/webhook.d.ts
 
 ```ts
+import type { DeliveryToProcess } from "./delivery.js";
 import type { IngressEnvelope } from "./envelope.js";
 export declare const EVENT_HEADER = "x-github-event";
 export declare const DELIVERY_HEADER = "x-github-delivery";
@@ -3872,8 +4642,27 @@ export declare const WEBHOOK_STATUS: {
  * What durably commits an envelope. It resolves only once the row is committed,
  * and rejects otherwise; there is no third answer, because the handler turns
  * the distinction straight into an acknowledgement or the absence of one.
+ *
+ * It resolves with the ledger row's id, which is what the kick below needs and
+ * the only thing later processing resumes from.
  */
-export type CommitEnvelope = (envelope: IngressEnvelope) => Promise<void>;
+export type CommitEnvelope = (envelope: IngressEnvelope) => Promise<string>;
+/**
+ * What starts processing a committed delivery, and it is **not** awaited.
+ *
+ * ADR 0013's order ends "return 200 -> kick asynchronous processing", and the
+ * arrow is one-way on purpose: "once the envelope is committed, a failed
+ * asynchronous kick still returns `200`, because Reprove now holds the intent
+ * and the ledger is what recovers it." Awaiting it would spend GitHub's
+ * ten-second wall on the canonical fetch and the advisory lock, and would turn
+ * a contended delivery - the one case that is *expected* to fail - into a
+ * non-2xx for a delivery that is already durable.
+ *
+ * It is therefore synchronous and returns nothing. A port that returned a
+ * promise would invite a caller to await it, which is the mistake this shape
+ * exists to make unavailable.
+ */
+export type KickProcessing = (delivery: DeliveryToProcess) => void;
 /** What the handler is composed over. No value here is read from anywhere. */
 export interface WebhookConfig {
     /** The webhook secret the App was registered with. */
@@ -3881,6 +4670,8 @@ export interface WebhookConfig {
     /** The largest body to accept. Defaults to {@link MAXIMUM_DELIVERY_BYTES}. */
     readonly maximumBytes?: number;
     readonly commit: CommitEnvelope;
+    /** Optional: a handler with no kick records deliveries and processes none. */
+    readonly kick?: KickProcessing;
 }
 /**
  * Builds the handler.
@@ -3922,7 +4713,11 @@ export { MIGRATIONS_FOLDER, readCommittedMigrations } from "./db/migrations.js";
 export type { CheckName, CheckOutcome } from "./db/refusal.js";
 export { BootRefusalError } from "./db/refusal.js";
 export { RUNTIME_ROLE } from "./db/roles.js";
+export type { DeliveryToProcess, IngressOutcome, ProcessedDelivery, } from "./github/delivery.js";
+export type { IngressEnvelope } from "./github/envelope.js";
 export type { GitHubAppManifest, ManifestOptions, ManifestPermission, } from "./github/manifest.js";
+export type { Phase0RunProfile } from "./github/profile.js";
+export { PHASE_0_RUN_PROFILE } from "./github/profile.js";
 export { APP_EVENTS, APP_PERMISSIONS, githubAppManifest, WEBHOOK_PATH, } from "./github/manifest.js";
 export { WEBHOOK_STATUS } from "./github/webhook.js";
 export declare const packageName: "@reprove/control-plane";

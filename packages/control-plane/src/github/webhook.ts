@@ -35,6 +35,7 @@
  * was refused and nothing executed.
  */
 import { readBoundedBody } from "./body.js";
+import type { DeliveryToProcess } from "./delivery.js";
 import type { IngressEnvelope } from "./envelope.js";
 import { normalizeDelivery } from "./envelope.js";
 import { isSignatureValid, SIGNATURE_HEADER } from "./signature.js";
@@ -76,8 +77,28 @@ export const WEBHOOK_STATUS = {
  * What durably commits an envelope. It resolves only once the row is committed,
  * and rejects otherwise; there is no third answer, because the handler turns
  * the distinction straight into an acknowledgement or the absence of one.
+ *
+ * It resolves with the ledger row's id, which is what the kick below needs and
+ * the only thing later processing resumes from.
  */
-export type CommitEnvelope = (envelope: IngressEnvelope) => Promise<void>;
+export type CommitEnvelope = (envelope: IngressEnvelope) => Promise<string>;
+
+/**
+ * What starts processing a committed delivery, and it is **not** awaited.
+ *
+ * ADR 0013's order ends "return 200 -> kick asynchronous processing", and the
+ * arrow is one-way on purpose: "once the envelope is committed, a failed
+ * asynchronous kick still returns `200`, because Reprove now holds the intent
+ * and the ledger is what recovers it." Awaiting it would spend GitHub's
+ * ten-second wall on the canonical fetch and the advisory lock, and would turn
+ * a contended delivery - the one case that is *expected* to fail - into a
+ * non-2xx for a delivery that is already durable.
+ *
+ * It is therefore synchronous and returns nothing. A port that returned a
+ * promise would invite a caller to await it, which is the mistake this shape
+ * exists to make unavailable.
+ */
+export type KickProcessing = (delivery: DeliveryToProcess) => void;
 
 /** What the handler is composed over. No value here is read from anywhere. */
 export interface WebhookConfig {
@@ -86,6 +107,8 @@ export interface WebhookConfig {
   /** The largest body to accept. Defaults to {@link MAXIMUM_DELIVERY_BYTES}. */
   readonly maximumBytes?: number;
   readonly commit: CommitEnvelope;
+  /** Optional: a handler with no kick records deliveries and processes none. */
+  readonly kick?: KickProcessing;
 }
 
 /**
@@ -142,8 +165,9 @@ export const createGitHubWebhookHandler = (
       return answer(WEBHOOK_STATUS.unusable, normalized.reason);
     }
 
+    let deliveryId: string;
     try {
-      await config.commit(normalized.envelope);
+      deliveryId = await config.commit(normalized.envelope);
     } catch {
       // Deliberately nothing from the cause: the reader of this body is
       // whoever opens the App's delivery UI, and a connection string or a
@@ -153,6 +177,18 @@ export const createGitHubWebhookHandler = (
         WEBHOOK_STATUS.notCommitted,
         "the delivery could not be recorded durably, so it is not acknowledged"
       );
+    }
+
+    // After the commit and before the answer, because the kick is synchronous
+    // and does not block on the work it starts. A kick that threw on its way
+    // out would still not unmake the row, so it may not unmake the
+    // acknowledgement either.
+    try {
+      config.kick?.({ deliveryId, envelope: normalized.envelope });
+    } catch {
+      // Deliberately swallowed. The envelope is durable, and ADR 0013 makes the
+      // ledger - not this call - what recovers a delivery whose processing
+      // never started.
     }
 
     return answer(
