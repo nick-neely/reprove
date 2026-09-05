@@ -331,6 +331,18 @@ is a 26-star beta, cited here as an existence proof rather than a dependency.
   Workflow's schemas happen not to collide.
 - **ADR 0010 gains a runtime asset.** `@reprove/control-plane` ships its migration folder and
   resolves it relative to the package.
+
+  > **Extended by [#48](https://github.com/nick-neely/reprove/issues/48).** A runtime asset is a
+  > constraint on how the package may be *loaded*, not only on how it is packed, and the first
+  > route to reach the boot assertion is where that surfaced. Resolving the folder from the
+  > module's own location is correct exactly while the module stays where its files are, so
+  > `apps/control-plane` loads the package through Node's own resolution rather than letting the
+  > bundler inline it: bundled, the relative base becomes the bundle's location and the migration
+  > files are not beside it. Next.js's `serverExternalPackages` is the configuration built for this
+  > and cannot express it here - it matches the **resolved** path against `/node_modules/<package>/`,
+  > and a pnpm workspace link resolves through to `packages/control-plane`, where that pattern never
+  > matches - so the opt-out is per import instead. Whatever eventually deploys this has the same
+  > obligation, and it is a load-time one rather than a packing one.
 - **#31's `verify` job gains `fetch-depth: 0`** and a second root-sequenced verifier. The required
   check set is unchanged at two.
 - **`CONTEXT.md` is unchanged.** No noun is added: this is verification machinery, and `Owner`,
