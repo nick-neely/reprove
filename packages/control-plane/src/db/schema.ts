@@ -335,7 +335,12 @@ export const run = pgTable(
     configDigest: text("config_digest").notNull(),
 
     // state
+    /**
+     * queued | claimed | executing | completed | incomplete | failed |
+     * superseded | cancelled | unscheduled
+     */
     status: text("status").notNull().default("queued"),
+    /** pull_request_closed | pull_request_drafted, on `cancelled` */
     cancellationReason: text("cancellation_reason"),
     /**
      * Not nullable, because ADR 0013 puts it in the immutable `spec`: "no field

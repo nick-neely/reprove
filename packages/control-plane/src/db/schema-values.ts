@@ -77,3 +77,57 @@ export const INGRESS_RETRY_CLASSES = [
   "contended",
 ] as const;
 export type IngressRetryClass = (typeof INGRESS_RETRY_CLASSES)[number];
+
+/**
+ * `run.status`. ADR 0007's machine: `queued` -> `claimed` -> `executing`,
+ * terminating in one of the six below.
+ */
+export const RUN_STATUSES = [
+  "queued",
+  "claimed",
+  "executing",
+  "completed",
+  "incomplete",
+  "failed",
+  "superseded",
+  "cancelled",
+  "unscheduled",
+] as const;
+export type RunStatus = (typeof RUN_STATUSES)[number];
+
+/**
+ * The statuses ADR 0013 calls **live**, and the ones the partial unique index
+ * `run_one_live_per_pull_request` is predicated on:
+ *
+ * ```sql
+ * UNIQUE (repository_id, pull_request_number)
+ *   WHERE status IN ('queued', 'claimed', 'executing')
+ * ```
+ *
+ * The index spells them again rather than importing this list, because a
+ * migration is a text artifact that has already run in databases this list
+ * cannot reach. `run-creation.test.ts` measures the two against each other by
+ * inserting a second live Run at each status rather than by comparing strings.
+ */
+export const LIVE_RUN_STATUSES = [
+  "queued",
+  "claimed",
+  "executing",
+] as const satisfies readonly RunStatus[];
+export type LiveRunStatus = (typeof LIVE_RUN_STATUSES)[number];
+
+/**
+ * `run.cancellation_reason`, on `cancelled`.
+ *
+ * Both come from ADR 0013's trigger table - "`closed` | cancel the live Run;
+ * create none" and "`converted_to_draft` | cancel the live Run; create none" -
+ * and both are decided from **canonical state** rather than from the action
+ * that arrived, so a stale `closed` for a pull request that has since reopened
+ * cancels nothing. `superseded` is deliberately not here: it is a status of its
+ * own, and recording it twice would let the two disagree.
+ */
+export const RUN_CANCELLATION_REASONS = [
+  "pull_request_closed",
+  "pull_request_drafted",
+] as const;
+export type RunCancellationReason = (typeof RUN_CANCELLATION_REASONS)[number];
