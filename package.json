@@ -5,8 +5,9 @@
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
-    "verify": "pnpm run verify:workspace && pnpm run verify:build && pnpm run verify:packages && pnpm run verify:test && pnpm run verify:lint",
+    "verify": "pnpm run verify:workspace && pnpm run verify:migrations && pnpm run verify:build && pnpm run verify:packages && pnpm run verify:test && pnpm run verify:lint",
     "verify:workspace": "node tools/verify-workspace.mjs",
+    "verify:migrations": "node tools/verify-migrations.mjs",
     "verify:build": "turbo run build typecheck",
     "verify:packages": "node tools/verify-packages.mjs",
     "verify:test": "vitest run",

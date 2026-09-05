@@ -24,7 +24,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "db:force": "pnpm run build && node ./dist/db/force-generate.js"
   },
   "dependencies": {
     "@reprove/protocol": "workspace:*",

@@ -169,6 +169,27 @@ The generator emits a canonical form carrying a generator marker, and the verifi
 generator-owned migration whose contents do not conform to that grammar exactly**, so a second
 arbitrary statement cannot ride into a file that claims to be generated.
 
+> **Amended by [issue #46](https://github.com/nick-neely/reprove/issues/46), 2026-09-05:** this ADR
+> names three authors and does not say how a reader tells them apart, and the implementation found
+> that the answer is **measured, not declared**, because drizzle-kit marks nothing. `generate`
+> writes a snapshot reflecting the new schema; `generate --custom` writes its parent's content back
+> out unchanged apart from the snapshot's own identity. So a migration whose snapshot did not
+> advance is a custom one, and the marker separates the generator's from a human's. That is what
+> lets the denylist apply to a hand-authored migration without also refusing the `CREATE TABLE` in
+> the drizzle-generated file it is the whole point of.
+>
+> Attribution alone would then have left a hole, and the amendment closes it rather than recording
+> it. A drizzle-attributed file is *allowed* to carry `CREATE POLICY` and `ENABLE ROW LEVEL
+> SECURITY`; nothing in the grammar could say whether the statements in front of it are the ones the
+> schema module asked for, so a `DROP POLICY` or a `DISABLE ROW LEVEL SECURITY` edited into one
+> passed. **The effective-state walk therefore covers all three of the boundary's facts, not just
+> `FORCE`**: the policy set and the RLS enablement each table is left with at the end of the journal
+> are compared against what the pinned dialect renders for the classification, over every migration
+> whoever wrote it. A boundary statement the walk cannot parse is a failure rather than a skip. What
+> remains outside authoring time is unchanged from "What this deliberately does not claim" below:
+> only the catalog assertion sees what a database actually has. A generated file is still scanned
+> for `FORCE`, which drizzle-kit cannot emit and whose presence therefore means the file was edited.
+
 `effectiveForceState(table)` is then a walk of the journal in order over statements Reprove itself
 owns the shape of, rather than regex-driven SQL interpretation. The denylist is the argument; the
 scan is the measurement. ADR 0008 already took this posture when it kept one behavioural check

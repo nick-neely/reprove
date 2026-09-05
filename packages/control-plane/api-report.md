@@ -181,6 +181,261 @@ export type SuppliedField = string | null | undefined;
 export declare const requireNonEmpty: (value: SuppliedField, field: string) => string;
 ```
 
+## dist/db/declared.d.ts
+
+```ts
+import type { Classification } from "./classification.js";
+/**
+ * The set arithmetic ADR 0017 states, and nothing else:
+ *
+ * ```text
+ * MANAGED_TABLES == TENANT_TABLES ∪ NON_TENANT_TABLES
+ * TENANT_TABLES  ∩  NON_TENANT_TABLES == ∅
+ * ```
+ *
+ * The managed set is enumerated from the schema module's `pgTable` exports, so
+ * a table added there and left out of both declared sets is a problem here
+ * rather than a table sitting silently outside the tenant boundary.
+ *
+ * Shared with the boot assertion, which adds the one clause that needs a
+ * database to answer.
+ *
+ * @param classification The classification to measure.
+ * @returns One message per broken clause, empty when the three hold.
+ */
+export declare const classificationProblems: (classification: Classification) => string[];
+/**
+ * Everything the schema module alone can be held to.
+ *
+ * @param classification The classification to measure. Defaults to the real one,
+ *   which is what the test asserting the repository holds passes.
+ * @returns One message per problem, empty when the committed schema intends the
+ *   boundary.
+ */
+export declare const checkDeclaredTenancy: (classification?: Classification) => string[];
+```
+
+## dist/db/force-generate.d.ts
+
+```ts
+import type { Classification } from "./classification.js";
+import type { ForceOperation } from "./force.js";
+/** What the generator wrote, for the caller that has to report it. */
+export interface ForceMigration {
+    /** The journal tag, which is also the `.sql` file's basename. */
+    readonly tag: string;
+    readonly operations: readonly ForceOperation[];
+}
+export interface EmitOptions {
+    /** The migration folder to append to. Defaults to this package's own. */
+    readonly folder?: string;
+    /** The classification the delta is derived from. */
+    readonly classification?: Classification;
+    /**
+     * The journal timestamp. Drizzle applies only migrations whose `when` exceeds
+     * the newest applied one, so it is taken as strictly later than the last entry
+     * rather than trusted from the clock.
+     */
+    readonly now?: number;
+}
+/**
+ * Appends one custom migration carrying the FORCE delta, or nothing at all.
+ *
+ * The three artifacts are the three drizzle-kit writes for a `generate --custom`
+ * migration, and they are written together because a journal entry naming a
+ * missing file, or a snapshot chain with a hole in it, is a migration folder
+ * every other reader of it would refuse.
+ *
+ * @param options See {@link EmitOptions}.
+ * @returns What was appended, or `null` when the history already agrees with the
+ *   classification.
+ * @throws {Error} If the folder holds no migration to chain a snapshot onto.
+ *   The initial schema is drizzle-kit's to generate, never this generator's.
+ */
+export declare const emitForceMigration: (options?: EmitOptions) => ForceMigration | null;
+```
+
+## dist/db/force.d.ts
+
+```ts
+import type { Classification } from "./classification.js";
+import type { Policy } from "./policy.js";
+/**
+ * The first line of every migration this generator owns. It is what separates a
+ * generated file from a hand-authored custom one, and the verifier holds
+ * everything under it to the grammar below.
+ */
+export declare const FORCE_MARKER = "-- reprove:force-row-level-security";
+/** One table left forced, or explicitly not, by one generated statement. */
+export interface ForceOperation {
+    readonly table: string;
+    readonly forced: boolean;
+}
+/** One journaled migration, as the three checks below need to see it. */
+export interface MigrationSource {
+    readonly idx: number;
+    readonly tag: string;
+    /** The raw file text, which is also what Drizzle hashes. */
+    readonly sql: string;
+    /**
+     * Who wrote it. `drizzle` advanced the snapshot, so drizzle-kit generated it
+     * from the schema module; the other two share their parent's snapshot, and
+     * the marker separates them.
+     */
+    readonly kind: "drizzle" | "generator" | "hand-authored";
+}
+interface JournalEntry {
+    idx: number;
+    tag: string;
+    when: number;
+}
+/** The journal, which is drizzle-kit's own output and the order of record. */
+export declare const readJournal: (folder: string) => JournalEntry[];
+/** The snapshot drizzle-kit chained to one journal entry. */
+export declare const snapshotFile: (folder: string, idx: number) => string;
+/**
+ * Every journaled migration in order, each attributed to the author whose rules
+ * it is then held to.
+ *
+ * The attribution is measured rather than declared, because drizzle-kit marks
+ * nothing: `generate` writes a snapshot reflecting the new schema, and
+ * `generate --custom` writes its parent's content back out unchanged apart from
+ * the snapshot's own identity. A migration whose snapshot did not advance is
+ * therefore a custom one, and the marker separates the generator's from a
+ * human's.
+ *
+ * @param folder The migration folder to read. Defaults to this package's own.
+ * @returns One entry per journal entry, in journal order.
+ */
+export declare const readMigrationSources: (folder?: string) => MigrationSource[];
+/**
+ * The generated file, which is the only thing that ever writes this grammar.
+ * {@link parseForceMigration} is its exact inverse, and `force.test.ts` holds
+ * the two to that.
+ *
+ * @param operations The operations to emit, in the order they should apply.
+ * @returns The migration file text, trailing newline included.
+ */
+export declare const renderForceMigration: (operations: readonly ForceOperation[]) => string;
+/**
+ * A generator-owned migration reduced to the operations it performs, or the
+ * reason it is not one.
+ *
+ * "Exactly", not "contains": a second arbitrary statement may not ride into a
+ * file that claims to be generated, because everything downstream of this walk
+ * trusts the file to say only what the grammar can say.
+ *
+ * @param sql The raw file text.
+ * @returns The operations in file order, or the first line that broke the
+ *   grammar.
+ */
+export declare const parseForceMigration: (sql: string) => {
+    operations: ForceOperation[];
+} | {
+    problem: string;
+};
+/**
+ * Every migration held to its author's rules.
+ *
+ * @param folder The migration folder to read. Defaults to this package's own.
+ * @returns One message per migration that broke them, empty when the history is
+ *   one drizzle-kit generated the schema and one the generator forced it.
+ */
+export declare const checkMigrationGrammar: (folder?: string) => string[];
+/**
+ * The FORCE state each table is left in once the whole journal has been applied,
+ * in order, with the last relevant operation winning.
+ *
+ * A table absent from the result was never named by any generated migration.
+ * That is a different fact from being named and left `NO FORCE`, and
+ * {@link forceStateProblems} reports it differently, because "nobody generated
+ * it" and "somebody unforced it" are different mistakes.
+ *
+ * @param folder The migration folder to read. Defaults to this package's own.
+ * @returns The final state per table, keyed by SQL name.
+ */
+export declare const effectiveForceState: (folder?: string) => Map<string, boolean>;
+/**
+ * The delta between what the classification says and what the migration history
+ * has already established, which is the whole of what a new generated migration
+ * would contain.
+ *
+ * Symmetric in both directions, because a tenant to non-tenant reclassification
+ * is security-significant and leaving the old `FORCE` in place would be the
+ * classification and the database disagreeing:
+ *
+ * ```text
+ * tenant     && !forced  ->  FORCE ROW LEVEL SECURITY
+ * non-tenant &&  forced  ->  NO FORCE ROW LEVEL SECURITY
+ * already matching       ->  nothing
+ * ```
+ *
+ * @param classification The classification the delta is derived from.
+ * @param folder The migration folder to read. Defaults to this package's own.
+ * @returns The operations to append, sorted by table name, empty when the
+ *   history already agrees with the classification.
+ */
+export declare const forceDelta: (classification: Classification, folder?: string) => ForceOperation[];
+/**
+ * The classification and the migration history, cross-checked.
+ *
+ * This is the authoring-time half of ADR 0008's fourth boot check. The boot
+ * assertion reads `relforcerowsecurity` and sees what a database actually has;
+ * this one reads the history and sees whether the pull request would ever have
+ * given it one.
+ *
+ * @param classification The classification to measure against.
+ * @param folder The migration folder to read. Defaults to this package's own.
+ * @returns One message per table whose forced state does not follow from its
+ *   classification, empty when the delta is empty.
+ */
+export declare const forceStateProblems: (classification: Classification, folder?: string) => string[];
+/** Where the boundary stands once every migration has been read, in order. */
+interface EffectiveBoundary {
+    /** Every policy in force at the end of history, keyed by SQL table name. */
+    readonly policies: Map<string, Policy[]>;
+    /** Whether row-level security is enabled, keyed by SQL table name. */
+    readonly enabled: Map<string, boolean>;
+    /** Statements the walk could not interpret, which are failures, not skips. */
+    readonly problems: string[];
+}
+/**
+ * The policy set and RLS enablement the whole journal leaves behind.
+ *
+ * Every migration is read, whoever wrote it. Attribution decides which rules a
+ * *file* is held to; it does not decide whether a statement counts, because a
+ * `DROP POLICY` drops the policy just as thoroughly in a file drizzle-kit
+ * generated as in one nobody should have written.
+ *
+ * A boundary statement the walk cannot parse is a **problem**, never a skip.
+ * The measurement is only worth what its coverage is worth, and a form nobody
+ * anticipated is exactly where a silent gap would sit.
+ *
+ * @param folder The migration folder to read. Defaults to this package's own.
+ * @returns The state at the end of history, and every statement that refused to
+ *   be read.
+ */
+export declare const effectiveBoundary: (folder?: string) => EffectiveBoundary;
+/**
+ * The migration history and the schema module, cross-checked on the two facts
+ * `FORCE` is defense in depth beside.
+ *
+ * This is what makes a drizzle-attributed migration trustworthy rather than
+ * trusted. `checkMigrationGrammar` lets such a file carry `CREATE POLICY` and
+ * `ENABLE ROW LEVEL SECURITY`, because that is drizzle-kit's own output; only
+ * this check knows whether the statements in it are the ones the schema module
+ * asked for. A `DROP POLICY` or `DISABLE ROW LEVEL SECURITY` edited into one
+ * fails here, at authoring time, rather than waiting for the live-catalog check
+ * at boot.
+ *
+ * @param classification The classification to measure against.
+ * @param folder The migration folder to read. Defaults to this package's own.
+ * @returns One message per table the history leaves outside its classification.
+ */
+export declare const boundaryProblems: (classification: Classification, folder?: string) => string[];
+export {};
+```
+
 ## dist/db/index.d.ts
 
 ```ts
@@ -301,6 +556,87 @@ export interface CommittedMigration {
  * @returns One entry per journal entry, in journal order.
  */
 export declare const readCommittedMigrations: (folder?: string) => CommittedMigration[];
+```
+
+## dist/db/policy.d.ts
+
+```ts
+import type { PgColumn, PgTable } from "drizzle-orm/pg-core";
+/** A policy as either the schema module declares it or the catalog holds it. */
+export interface Policy {
+    readonly name: string;
+    readonly permissive: boolean;
+    readonly command: string;
+    readonly roles: readonly string[];
+    readonly using: string;
+    readonly withCheck: string;
+}
+export declare const describePolicy: (policy: Policy) => string;
+export declare const samePolicy: (a: Policy, b: Policy) => boolean;
+/** Everything about a policy except the two predicates, which are reduced. */
+type RawPolicy = Omit<Policy, "using" | "withCheck"> & {
+    readonly using: string;
+    readonly withCheck: string;
+};
+/**
+ * One policy with both predicates reduced to comparable form, or the reason
+ * neither side can be compared.
+ *
+ * Every policy that reaches {@link samePolicy}, declared or live, is built here,
+ * which is what makes the connective refusal unskippable: the comparison has no
+ * other way to obtain a `Policy`.
+ *
+ * @param table The SQL name of the table the policy is attached to.
+ * @param raw The policy as its own side spells it.
+ * @returns The comparable policy, or the connective that refused it.
+ */
+export declare const comparablePolicy: (table: string, raw: RawPolicy) => {
+    policy: Policy;
+} | {
+    problem: string;
+};
+/**
+ * The column carrying the tenant key. It is `owner_id` on every Owner-scoped
+ * table except `owner` itself, whose own primary key *is* GitHub's numeric Owner
+ * id - which is why there is no second identifier beside it.
+ *
+ * @param table A tenant table.
+ * @returns The column the canonical policy compares.
+ * @throws {Error} If the table carries neither, which no tenant table may.
+ */
+export declare const tenantKey: (table: PgTable) => PgColumn;
+/**
+ * The single policy a tenant table declares, or the reason there is not exactly
+ * one of it.
+ *
+ * @param table A tenant table.
+ * @returns The declared policy in comparable form, or the problem.
+ */
+export declare const declaredPolicy: (table: PgTable) => {
+    policy: Policy;
+} | {
+    problem: string;
+};
+/**
+ * The canonical policy a tenant table must carry, rendered by the pinned dialect
+ * rather than compared against a frozen SQL literal.
+ *
+ * That is what preserves ADR 0008's hardest-won fix - `nullif(...)` rather than
+ * the bare cast, which is correct on every unpooled connection and an outage
+ * behind PgBouncer after a reset - without fossilising its spelling. A
+ * hand-rolled policy carrying that exact bug fails against this, where a "has a
+ * policy on the runtime role" check would pass it.
+ *
+ * What is still declared here is the convention around the predicate: the
+ * policy's name, and which column is the tenant key.
+ *
+ * @param table A tenant table.
+ * @returns The policy the table is required to declare, in comparable form.
+ * @throws {Error} If the canonical policy itself cannot be reduced, which would
+ *   mean `tenantPolicy()` had grown a boolean connective.
+ */
+export declare const canonicalPolicy: (table: PgTable) => Policy;
+export {};
 ```
 
 ## dist/db/predicate.d.ts

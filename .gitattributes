@@ -1,0 +1,7 @@
+# Drizzle's migration hash is `sha256` of the raw `.sql` file text, and the boot
+# assertion joins the hashes an existing database recorded against the files that
+# produced them (ADR 0017). So the bytes on disk have to be the bytes in the
+# repository: a CRLF checkout hashes differently from the checkout that applied
+# the migration, and every existing database would read as drifted. Pinned here
+# rather than left to each contributor's `core.autocrlf`.
+packages/control-plane/drizzle/** text eol=lf
