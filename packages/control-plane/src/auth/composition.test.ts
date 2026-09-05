@@ -138,6 +138,13 @@ describe("Better Auth composed over Reprove's adopted tables", () => {
     expect(stored?.providerId).toBe("github");
     expect(stored?.accountId).toBe(String(PERSON.id));
     expect(stored?.userId).toBe(owner?.id);
+    // The other half of `account_issuer_account_idx`, which is the row's real
+    // key. Better Auth 1.7.2 asks a provider for an `accountIssuer` and falls
+    // back to `local:oauth:<providerId>` when it declares none, which GitHub
+    // does not; it takes no option that would change this. Asserted rather than
+    // assumed, because a later Better Auth writing a different issuer would
+    // strand every existing row behind a key that no longer matches.
+    expect(stored?.issuer).toBe("local:oauth:github");
   });
 
   it("stores the OAuth tokens as ciphertext rather than plaintext", async () => {
