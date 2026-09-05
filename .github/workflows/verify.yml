@@ -20,9 +20,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      # `fetch-depth: 0` because `tools/verify-migrations.mjs` compares the
+      # migration folder against the merge-base with the base ref, and against
+      # the push event's `before` SHA on a push to main. Fetching only the base
+      # ref is not claimed sufficient: Git may still lack the head-side ancestry
+      # needed to establish a merge-base, and the verifier fails closed rather
+      # than skipping (ADR 0017).
       - name: Check out the commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       # No `version` input: the action reads the exact pnpm version from the

@@ -18,22 +18,26 @@
  * can be correct while the predicate is wrong; that is exactly what the bare
  * `::bigint` cast was, and the behavioural check is what caught it.
  */
-import { is } from "drizzle-orm";
-import type { PgPolicyToOption, PgTable } from "drizzle-orm/pg-core";
-import { getTableConfig, PgDialect, PgRole } from "drizzle-orm/pg-core";
+import { PgDialect } from "drizzle-orm/pg-core";
 import type { Pool } from "pg";
 
 import type { Classification } from "./classification.js";
 import { CLASSIFICATION, tableName, tableNames } from "./classification.js";
+import { classificationProblems } from "./declared.js";
 import { readCommittedMigrations } from "./migrations.js";
-import { normalizePredicate } from "./predicate.js";
+import type { Policy } from "./policy.js";
+import {
+  comparablePolicy,
+  declaredPolicy,
+  describePolicy,
+  samePolicy,
+} from "./policy.js";
 import {
   REACHING_TABLE_PRIVILEGES,
   WITHHELD_TABLE_PRIVILEGES,
 } from "./privileges.js";
 import type { CheckName, CheckOutcome } from "./refusal.js";
 import { BootRefusalError } from "./refusal.js";
-import { RUNTIME_ROLE } from "./roles.js";
 import { ownerContext } from "./schema.js";
 
 const DIALECT = new PgDialect();
@@ -51,125 +55,6 @@ const OWNER_CONTEXT = DIALECT.sqlToQuery(ownerContext).sql;
 
 /** `select` against a relation that does not exist. */
 const UNDEFINED_TABLE = "42P01";
-
-/** A policy as either the schema module declares it or the catalog holds it. */
-interface Policy {
-  readonly name: string;
-  readonly permissive: boolean;
-  readonly command: string;
-  readonly roles: readonly string[];
-  readonly using: string;
-  readonly withCheck: string;
-}
-
-const describePolicy = (policy: Policy): string =>
-  `${policy.name} ${policy.permissive ? "permissive" : "restrictive"} for ${policy.command} to ${[...policy.roles].toSorted().join(",")} using ${policy.using} with check ${policy.withCheck}`;
-
-const samePolicy = (a: Policy, b: Policy): boolean =>
-  describePolicy(a) === describePolicy(b);
-
-/** Everything about a policy except the two predicates, which are reduced. */
-type RawPolicy = Omit<Policy, "using" | "withCheck"> & {
-  readonly using: string;
-  readonly withCheck: string;
-};
-
-/**
- * One policy with both predicates reduced to comparable form, or the reason
- * neither side can be compared.
- *
- * Every policy that reaches {@link samePolicy}, declared or live, is built here,
- * which is what makes the connective refusal unskippable: the comparison has no
- * other way to obtain a `Policy`.
- *
- * @param table The SQL name of the table the policy is attached to.
- * @param raw The policy as its own side spells it.
- * @returns The comparable policy, or the connective that refused it.
- */
-const comparablePolicy = (
-  table: string,
-  raw: RawPolicy
-): { policy: Policy } | { problem: string } => {
-  const refused = (side: string, connective: string) => ({
-    problem: `${table}'s policy ${raw.name} has \`${connective}\` in its ${side} expression; a predicate the boot assertion can compare carries no boolean connective, because the comparison drops parentheses and grouping changes what a connective means`,
-  });
-
-  const using = normalizePredicate(raw.using, table);
-  if ("connective" in using) {
-    return refused("using", using.connective);
-  }
-  const withCheck = normalizePredicate(raw.withCheck, table);
-  if ("connective" in withCheck) {
-    return refused("with-check", withCheck.connective);
-  }
-  return {
-    policy: {
-      ...raw,
-      using: using.normalized,
-      withCheck: withCheck.normalized,
-    },
-  };
-};
-
-/**
- * The role names a declared policy applies to. Drizzle accepts a role object, a
- * role name, or a nested list of either, so all of them are flattened here
- * rather than at the one call site that cares.
- */
-const declaredRoles = (to: PgPolicyToOption | undefined): string[] => {
-  if (to === undefined) {
-    return [];
-  }
-  if (Array.isArray(to)) {
-    return to.flatMap((entry) => declaredRoles(entry));
-  }
-  return [is(to, PgRole) ? to.name : to];
-};
-
-/**
- * The canonical policy a tenant table declares, rendered by the pinned dialect
- * rather than compared against a frozen SQL literal.
- *
- * That is what preserves ADR 0008's hardest-won fix - `nullif(...)` rather than
- * the bare cast, which is correct on every unpooled connection and an outage
- * behind PgBouncer after a reset - without fossilising its spelling. A
- * hand-rolled policy carrying that exact bug fails here, where a "has a policy
- * on the runtime role" check would pass it.
- *
- * @param table A tenant table.
- * @returns The single declared policy, or the reason there is not exactly one.
- */
-const declaredPolicy = (
-  table: PgTable
-): { policy: Policy } | { problem: string } => {
-  const name = tableName(table);
-  const [policy, ...extra] = getTableConfig(table).policies;
-  if (policy === undefined || extra.length > 0) {
-    return {
-      problem: `${name} declares ${extra.length + (policy ? 1 : 0)} policies; a tenant table declares exactly the canonical one`,
-    };
-  }
-  if (!(policy.using && policy.withCheck)) {
-    return {
-      problem: `${name}'s policy declares no using or with-check expression`,
-    };
-  }
-  const roles = declaredRoles(policy.to);
-  const [role, ...otherRoles] = roles;
-  if (role !== RUNTIME_ROLE || otherRoles.length > 0) {
-    return {
-      problem: `${name}'s policy applies to ${roles.join(", ") || "no role"} rather than to ${RUNTIME_ROLE} alone`,
-    };
-  }
-  return comparablePolicy(name, {
-    name: policy.name,
-    permissive: (policy.as ?? "permissive") === "permissive",
-    command: (policy.for ?? "all").toLowerCase(),
-    roles,
-    using: DIALECT.sqlToQuery(policy.using).sql,
-    withCheck: DIALECT.sqlToQuery(policy.withCheck).sql,
-  });
-};
 
 /** A Postgres identifier, quoted for the few places a bind parameter cannot go. */
 const quoteIdentifier = (name: string): string =>
@@ -479,18 +364,6 @@ const checkClassification = async (
   classification: Classification
 ): Promise<string | null> => {
   const managed = tableNames(classification.managed);
-  const tenant = new Set(tableNames(classification.tenant));
-  const nonTenant = new Set(tableNames(classification.nonTenant));
-
-  const unclassified = managed.filter(
-    (name) => !(tenant.has(name) || nonTenant.has(name))
-  );
-  const both = managed.filter(
-    (name) => tenant.has(name) && nonTenant.has(name)
-  );
-  const unmanaged = [...tenant, ...nonTenant].filter(
-    (name) => !managed.includes(name)
-  );
 
   const { rows } = await pool.query<{ relname: string }>(
     `select c.relname from pg_class c
@@ -501,14 +374,11 @@ const checkClassification = async (
   const live = new Set(rows.map((row) => row.relname));
   const absent = managed.filter((name) => !live.has(name));
 
+  // The set arithmetic is `declared.ts`'s, so the authoring-time check and this
+  // one cannot disagree about what "classified" means. What the catalog adds is
+  // the one clause that needs a database: a classified table that is not there.
   const problems = [
-    unclassified.length > 0
-      ? `managed but classified as neither tenant nor non-tenant: ${unclassified.join(", ")}`
-      : null,
-    both.length > 0 ? `classified as both: ${both.join(", ")}` : null,
-    unmanaged.length > 0
-      ? `classified but not managed by the schema module: ${unmanaged.join(", ")}`
-      : null,
+    ...classificationProblems(classification),
     absent.length > 0
       ? `managed but absent from the database: ${absent.join(", ")}`
       : null,

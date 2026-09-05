@@ -50,7 +50,21 @@ The schema, the classification, `createRuntimeDb()` and its tenant transaction t
 ALTER TABLE "<table>" FORCE ROW LEVEL SECURITY;
 ```
 
-**That grammar is generator-owned.** [#46](https://github.com/nick-neely/reprove/issues/46) builds the generator that derives these statements from the classification and appends them as a delta; hand-authored migrations may not touch the tenant boundary at all. The file above is written in the shape the generator emits so that #46 never has to rewrite it, which it could not do safely - a rewritten migration is correct in the repository and inert in every database already carrying it.
+**That grammar is generator-owned.** `pnpm --filter @reprove/control-plane db:force` derives the delta from the classification - `FORCE` for a newly tenant table, `NO FORCE` for a newly non-tenant one, nothing where the two already agree - and appends it as a new migration. It reads the effective state of the whole journal rather than its own last output, so running it twice produces one migration; it never rewrites one it already emitted, which it could not do safely. The script builds the package first on purpose: a generator run against a stale `dist` would append a migration derived from a classification nobody has any more, into a history that is append-only.
+
+**Hand-authored migrations may not touch the tenant boundary at all** - no `CREATE TABLE`, no `ENABLE`/`DISABLE ROW LEVEL SECURITY`, no `FORCE`/`NO FORCE`, no `CREATE`/`ALTER`/`DROP POLICY`. That generalises "may not introduce a table" to close `DROP POLICY` and `DISABLE ROW LEVEL SECURITY`, which are the same hole in a different doorway.
+
+Which rules a migration is held to follows from **who wrote it**, and that is measured rather than declared, because drizzle-kit marks nothing: `generate` writes a snapshot reflecting the new schema and `generate --custom` copies the previous one verbatim apart from its identity. A migration whose snapshot did not advance is therefore custom, and the marker separates the generator's from a human's.
+
+```text
+snapshot advanced             drizzle-kit generated   the schema module's output
+snapshot unchanged, marked    the FORCE generator     conforms exactly, or fails
+snapshot unchanged, unmarked  hand-authored           may not touch the boundary
+```
+
+The effective state is then a walk of the journal in order: `0001 FORCE` followed by `0002 NO FORCE` leaves the table unforced and fails, because effective final state is the property rather than textual occurrence. The walk covers all three of the boundary's facts - the FORCE state, the RLS enablement, and the policy set each table is left with - and it reads **every** migration whoever wrote it, which is what makes attribution safe. Attribution says a drizzle-generated file is *allowed* to carry `CREATE POLICY` and `ENABLE ROW LEVEL SECURITY`; it cannot say whether the statements in it are the ones the schema module asked for, so a `DROP POLICY` or a `DISABLE ROW LEVEL SECURITY` edited into one fails on the policy set it leaves behind rather than on the file it is in. A boundary statement the walk cannot parse is a failure, not a skip.
+
+All of it is ordinary Vitest - `declared.test.ts`, `force.test.ts`, `force-generate.test.ts` - beside `tools/verify-migrations.mjs`, which is the Git-aware half that proves history was only appended to. None of it sees a database: what actually deployed is `createRuntimeDb()`'s seven checks, and that division is ADR 0017's, not an omission.
 
 ## Support tier
 
