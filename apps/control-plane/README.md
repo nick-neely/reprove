@@ -10,9 +10,18 @@ It owns route wiring, environment parsing and deployment configuration, and noth
 |---|---|
 | `POST /api/github/webhook` | The App's single hook URL. Wiring and environment parsing only; the handler, the signature check, the envelope and the commit are all `@reprove/control-plane`. |
 
-It reads two environment variables, because the package reads none:
-`REPROVE_DATABASE_URL` (the **pooled** endpoint as the restricted runtime role) and
-`REPROVE_GITHUB_WEBHOOK_SECRET`.
+It reads four environment variables, because the package reads none:
+`REPROVE_DATABASE_URL` (the **pooled** endpoint as the restricted runtime role),
+`REPROVE_GITHUB_WEBHOOK_SECRET`, `REPROVE_GITHUB_APP_ID` and `REPROVE_GITHUB_PRIVATE_KEY` (the
+App's PEM private key, with `\n` accepted as the escaped form so one value works in a `.env` file
+and in a secret store alike). The last two are what
+[ADR 0013](../../docs/adr/0013-github-ingress-and-run-creation-idempotency.md)'s canonical fetch
+runs under: App JWT, then installation token, then `GET /repos/{owner}/{repo}/pulls/{number}`.
+
+The Run profile is passed the same way and is **not** an environment variable. `PHASE_0_RUN_PROFILE`
+is imported from `@reprove/control-plane` and handed to `createControlPlane()` by name, because ADR
+0013 created it precisely so that a harness or a model chosen in route wiring cannot become product
+selection policy by accident.
 
 Two things about that route are deliberate and would otherwise read as accidents.
 

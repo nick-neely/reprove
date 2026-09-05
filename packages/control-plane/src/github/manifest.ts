@@ -36,8 +36,8 @@
  * every App by default and **they cannot be subscribed to or unsubscribed
  * from**, so they are absent here and still recorded: the handler normalizes
  * whatever event it is sent rather than assuming an unsubscribed one never
- * arrives, and the event name is a column on the ledger row so #49 can dispatch
- * on it.
+ * arrives, and the event name is a column on the ledger row that `trigger.ts`
+ * dispatches on.
  */
 
 /** The permission levels GitHub accepts in a manifest. */

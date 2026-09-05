@@ -37,34 +37,17 @@
  * is fire-and-forget precisely because it is not the thing that recovers.
  */
 import type { RuntimeDb } from "../db/runtime.js";
+import type {
+  DeliveryToProcess,
+  IngressOutcome,
+  ProcessedDelivery,
+} from "./delivery.js";
 import type { IngressEnvelope } from "./envelope.js";
-import type { IngressOutcome } from "./ledger.js";
 import { settleDelivery } from "./ledger.js";
 import type { Phase0RunProfile } from "./profile.js";
 import type { RunCreationConfig, RunDecision } from "./run-creation.js";
 import { settlePullRequest } from "./run-creation.js";
 import { intentOf } from "./trigger.js";
-
-/** A committed ledger row and the envelope it holds. */
-export interface DeliveryToProcess {
-  /** The ledger row's id, as `recordDelivery()` returned it. */
-  readonly deliveryId: string;
-  readonly envelope: IngressEnvelope;
-}
-
-/** What one processing attempt concluded, and whether the ledger took it. */
-export interface ProcessedDelivery {
-  readonly outcome: IngressOutcome;
-  /**
-   * `false` when the row was already terminal, or belongs to another Owner.
-   * ADR 0013's stateful GUID rule is what makes that expected rather than
-   * exceptional: the contended attempt that settles after the one that won the
-   * lock must not reopen a delivery whose work is finished.
-   */
-  readonly settled: boolean;
-  /** The Run this delivery produced, where it produced one. */
-  readonly runId: string | null;
-}
 
 /** What the processor is composed over. */
 export interface DeliveryProcessorConfig {

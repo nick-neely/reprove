@@ -11,6 +11,8 @@
  * It needs the local stack for the reason every database test in this package
  * does, and fails with instructions rather than skipping when it is down.
  */
+import { generateKeyPairSync } from "node:crypto";
+
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import type { ControlPlane } from "./control-plane.js";
@@ -27,6 +29,7 @@ import {
   signedDelivery,
   WEBHOOK_SECRET,
 } from "./github/delivery.test-support.js";
+import { PHASE_0_RUN_PROFILE } from "./github/profile.js";
 import { signDelivery } from "./github/signature.js";
 import { WEBHOOK_STATUS } from "./github/webhook.js";
 
@@ -34,6 +37,45 @@ const DATABASE = "reprove_test_control_plane_ingress";
 
 /** The Owner id `OPENED_PULL_REQUEST` carries. */
 const ACME = 1001;
+
+const PRIVATE_KEY = generateKeyPairSync("rsa", { modulusLength: 2048 })
+  .privateKey.export({ format: "pem", type: "pkcs8" })
+  .toString();
+
+const BASE = "a".repeat(40);
+/** The head `OPENED_PULL_REQUEST` names, so the fixture and GitHub agree. */
+const HEAD = "b".repeat(40);
+
+/**
+ * GitHub, substituted at the transport and nowhere else (ADR 0016). The App
+ * JWT, the installation-token exchange, the request shape and the response
+ * parse all run for real; only the two bodies are canned.
+ */
+const cannedGitHub = (request: Request): Promise<Response> =>
+  Promise.resolve(
+    request.url.includes("/access_tokens")
+      ? Response.json(
+          { token: "ghs_a_token", expires_at: "2026-02-01T13:00:00Z" },
+          { status: 201 }
+        )
+      : Response.json({
+          number: 7,
+          state: "open",
+          draft: false,
+          head: { sha: HEAD, repo: { id: 3001 } },
+          base: { sha: BASE, repo: { id: 3001 } },
+          user: { id: 5005 },
+          author_association: "MEMBER",
+        })
+  );
+
+const githubConfig = {
+  webhookSecret: WEBHOOK_SECRET,
+  appId: "1234",
+  privateKey: PRIVATE_KEY,
+  runProfile: PHASE_0_RUN_PROFILE,
+  fetch: cannedGitHub,
+};
 
 let database: TestDatabase;
 let controlPlane: ControlPlane;
@@ -54,7 +96,7 @@ describe("the control plane's GitHub webhook, end to end", () => {
     await migrate({ connectionString: database.adminUrl });
     controlPlane = await createControlPlane({
       database: { connectionString: database.runtimeUrl },
-      github: { webhookSecret: WEBHOOK_SECRET },
+      github: githubConfig,
     });
   });
 
@@ -111,7 +153,7 @@ describe("the control plane's GitHub webhook, end to end", () => {
     const before = await ledger();
     const bounded = await createControlPlane({
       database: { connectionString: database.runtimeUrl },
-      github: { webhookSecret: WEBHOOK_SECRET, maximumDeliveryBytes: 32 },
+      github: { ...githubConfig, maximumDeliveryBytes: 32 },
     });
 
     try {
@@ -145,8 +187,71 @@ describe("the control plane's GitHub webhook, end to end", () => {
     await expect(
       createControlPlane({
         database: { connectionString: database.runtimeUrl },
-        github: { webhookSecret: "" },
+        github: { ...githubConfig, webhookSecret: "" },
       })
     ).rejects.toThrow("ControlPlaneConfig.github.webhookSecret");
+  });
+
+  it("refuses a composition with no Run profile, because there is no default", async () => {
+    await expect(
+      createControlPlane({
+        database: { connectionString: database.runtimeUrl },
+        // SAFETY: the assertion is the case. `runProfile` has no default, and
+        // this is a deployment that failed to pass one - which TypeScript
+        // forbids and a JavaScript caller can still do.
+        github: { ...githubConfig, runProfile: undefined as never },
+      })
+    ).rejects.toThrow("ControlPlaneConfig.github.runProfile");
+  });
+
+  it("refuses a composition that could not read GitHub back", async () => {
+    await expect(
+      createControlPlane({
+        database: { connectionString: database.runtimeUrl },
+        github: { ...githubConfig, privateKey: "" },
+      })
+    ).rejects.toThrow("ControlPlaneConfig.github.privateKey");
+  });
+
+  it("produces exactly one Run at the canonical base and head", async () => {
+    const guid = "delivery-that-becomes-a-run";
+    const acknowledged = await controlPlane.handleGitHubWebhook(
+      signedDelivery({ deliveryGuid: guid })
+    );
+    expect(acknowledged.status).toBe(WEBHOOK_STATUS.acknowledged);
+
+    const [committed] = await database.admin<{ id: string }>(
+      `select id from ingress_delivery where delivery_guid = '${guid}'`
+    );
+    const processed = await controlPlane.processDelivery({
+      deliveryId: committed?.id ?? "",
+      envelope: {
+        deliveryGuid: guid,
+        event: "pull_request",
+        action: "opened",
+        ownerId: ACME,
+        ownerLogin: "acme",
+        ownerType: "organization",
+        installationId: 42,
+        repositoryId: 3001,
+        repositoryNameWithOwner: "acme/reprove",
+        pullRequestNumber: 7,
+      },
+    });
+
+    // `done` or `duplicate_head`: the fire-and-forget kick from the
+    // acknowledgement above may have created the Run already, and either answer
+    // means exactly one Run exists at the canonical head - which is the claim.
+    expect(["done", "discarded"]).toContain(processed.outcome.state);
+    const created = await database.admin<{
+      base_sha: string;
+      head_sha: string;
+      trigger: string;
+    }>(
+      "select base_sha, head_sha, trigger from run where pull_request_number = 7"
+    );
+    expect(created).toStrictEqual([
+      { base_sha: BASE, head_sha: HEAD, trigger: "automatic" },
+    ]);
   });
 });

@@ -35,10 +35,21 @@ export type { CheckName, CheckOutcome } from "./db/refusal.js";
 export { BootRefusalError } from "./db/refusal.js";
 export { RUNTIME_ROLE } from "./db/roles.js";
 export type {
+  DeliveryToProcess,
+  IngressOutcome,
+  ProcessedDelivery,
+} from "./github/delivery.js";
+export type { IngressEnvelope } from "./github/envelope.js";
+export type {
   GitHubAppManifest,
   ManifestOptions,
   ManifestPermission,
 } from "./github/manifest.js";
+export type { Phase0RunProfile } from "./github/profile.js";
+export {
+  PHASE_0_CLAIMABLE_FOR_MS,
+  PHASE_0_RUN_PROFILE,
+} from "./github/profile.js";
 export {
   APP_EVENTS,
   APP_PERMISSIONS,

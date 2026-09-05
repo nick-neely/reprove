@@ -31,9 +31,9 @@ import { LIVE_RUN_STATUSES } from "../db/schema-values.js";
 import * as schema from "../db/schema.js";
 import type { CanonicalPullRequest } from "./canonical.js";
 import type { CanonicalOutcome } from "./client.js";
+import type { ProcessedDelivery } from "./delivery.js";
 import type { IngressEnvelope } from "./envelope.js";
 import { recordDelivery } from "./ledger.js";
-import type { ProcessedDelivery } from "./processing.js";
 import { createDeliveryProcessor } from "./processing.js";
 import { PHASE_0_RUN_PROFILE } from "./profile.js";
 

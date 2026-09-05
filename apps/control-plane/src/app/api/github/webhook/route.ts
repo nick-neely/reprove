@@ -23,7 +23,7 @@
  * the delivery stays manually redeliverable rather than being acknowledged by a
  * process that cannot store it.
  */
-import type { ControlPlane } from "@reprove/control-plane";
+import type { ControlPlane, Phase0RunProfile } from "@reprove/control-plane";
 
 /**
  * The package is loaded through Node's own resolution rather than bundled into
@@ -60,7 +60,7 @@ let composed: Promise<ControlPlane> | undefined;
  * The deployment's configuration, read here because the app is the only place
  * allowed to read it. `@reprove/control-plane` reads no environment variable.
  */
-const configure = () => ({
+const configure = (runProfile: Phase0RunProfile) => ({
   database: {
     connectionString: process.env.REPROVE_DATABASE_URL ?? "",
     onConnectionError: (error: Error) => {
@@ -73,12 +73,28 @@ const configure = () => ({
       );
     },
   },
-  github: { webhookSecret: process.env.REPROVE_GITHUB_WEBHOOK_SECRET ?? "" },
+  github: {
+    webhookSecret: process.env.REPROVE_GITHUB_WEBHOOK_SECRET ?? "",
+    appId: process.env.REPROVE_GITHUB_APP_ID ?? "",
+    // A PEM carries newlines, which a `.env` file and most secret stores do
+    // not. `\n` is accepted as the escaped form so the same value works in
+    // both; a real PEM passes through unchanged, because it contains no
+    // backslash.
+    privateKey: (process.env.REPROVE_GITHUB_PRIVATE_KEY ?? "").replaceAll(
+      String.raw`\n`,
+      "\n"
+    ),
+    // Injected by name rather than written here, which is the whole point of
+    // ADR 0013's profile: a harness chosen in route wiring would be prototype
+    // wiring silently becoming product selection policy.
+    runProfile,
+  },
 });
 
 const compose = async (): Promise<ControlPlane> => {
-  const { createControlPlane } = await controlPlaneModule();
-  return await createControlPlane(configure());
+  const { createControlPlane, PHASE_0_RUN_PROFILE } =
+    await controlPlaneModule();
+  return await createControlPlane(configure(PHASE_0_RUN_PROFILE));
 };
 
 const controlPlane = async (): Promise<ControlPlane> => {
