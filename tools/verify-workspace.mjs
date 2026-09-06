@@ -16,6 +16,7 @@ import { builtinModules } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { valid } from "semver";
 import { createScanner } from "typescript/unstable/ast/scanner";
 
 import {
@@ -866,6 +867,15 @@ const checkDeclaredDependencies = (workspace, spec, manifest, violations) => {
 
   for (const field of DEPENDENCY_FIELDS) {
     for (const [dependency, range] of Object.entries(manifest[field] ?? {})) {
+      if (
+        dependency.startsWith("@ai-sdk/harness") &&
+        range !== "catalog:harness"
+      ) {
+        add(
+          "harness-pin",
+          `${field} declares "${dependency}": "${range}"; the Harness family must use the coordinated exact-pin catalog.`
+        );
+      }
       if (dependency.startsWith("@reprove/")) {
         if (spec.internal.includes(dependency)) {
           if (!range.startsWith("workspace:")) {
@@ -1032,6 +1042,24 @@ const checkImports = (rootDir, workspace, spec, manifest, violations) => {
  */
 export const verifyWorkspace = ({ rootDir }) => {
   const violations = [];
+
+  // Keep the catalog deliberately literal, like the workspace-glob policy:
+  // indirection or a range would hide the coordinated set from review.
+  const config = readFileSync(
+    path.join(rootDir, "pnpm-workspace.yaml"),
+    "utf-8"
+  );
+  for (const match of config.matchAll(
+    /^\s+"(?<dependency>@ai-sdk\/harness[^"]*)":\s*(?<version>\S+)\s*$/gmu
+  )) {
+    if (valid(match.groups.version) !== match.groups.version) {
+      violations.push({
+        workspace: ".",
+        rule: "harness-pin",
+        message: `${match.groups.dependency} must have a literal exact version in the Harness catalog.`,
+      });
+    }
+  }
 
   checkRootManifest(rootDir, violations);
   checkSupplyChainExceptions(rootDir, violations);
