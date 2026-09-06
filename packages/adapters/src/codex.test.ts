@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import { createCodexAdapter, codexFingerprint } from "./index.js";
 
+const unused = (): never => {
+  throw new Error("unexpected I/O");
+};
+
 describe("the Codex Adapter capability", () => {
   it("cancels a pending probe even if its callback never settles", async () => {
     const controller = new AbortController();
@@ -23,6 +27,48 @@ describe("the Codex Adapter capability", () => {
     controller.abort(new Error("cancelled probe"));
     await expect(result).rejects.toThrow("cancelled probe");
   }, 1000);
+
+  it("preserves the abort reason when Sandbox preflight is cancelled", async () => {
+    const controller = new AbortController();
+    const reason = new Error("cancelled during preflight");
+    const authentication = {
+      kind: "api-key",
+      provider: "openai",
+      key: "synthetic",
+    } as const;
+    const adapter = createCodexAdapter({
+      model: "gpt-5.6-sol",
+      authentication,
+      instructionProbe: () =>
+        Promise.resolve({
+          fingerprint: codexFingerprint(authentication, "gpt-5.6-sol"),
+          probedAt: Date.now(),
+          satisfied: true,
+          runtimeFingerprint: "a".repeat(64),
+        }),
+    });
+    await expect(
+      adapter.capability({
+        model: "gpt-5.6-sol",
+        signal: controller.signal,
+        sandbox: {
+          id: "cancelled-preflight",
+          workspace: { path: "/reprove/workspace" },
+          access: {
+            streaming: true,
+            start: () => {
+              controller.abort(reason);
+              throw reason;
+            },
+            read: unused,
+            write: unused,
+            exposePort: unused,
+            openProxy: unused,
+          },
+        },
+      })
+    ).rejects.toBe(reason);
+  });
 
   it("withdraws capability when the actual Sandbox lacks streaming access", async () => {
     const authentication = {

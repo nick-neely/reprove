@@ -111,7 +111,7 @@ export const createCodexAdapter = (input: CodexOptions): Adapter => {
       subscription[Symbol.dispose]();
     }
     signal.throwIfAborted();
-    const established =
+    let established =
       probe?.satisfied === true &&
       probe.fingerprint === fingerprint &&
       /^[a-f0-9]{64}$/u.test(probe.runtimeFingerprint) &&
@@ -121,9 +121,15 @@ export const createCodexAdapter = (input: CodexOptions): Adapter => {
       (!request ||
         (request.model === options.model &&
           resolveReasoningEffort(request.reasoningEffort) ===
-            options.reasoningEffort &&
-          (await checkCodexSandbox({ ...request, signal })) ===
-            probe.runtimeFingerprint));
+            options.reasoningEffort));
+    if (established && request) {
+      const runtimeFingerprint = await checkCodexSandbox({
+        ...request,
+        signal,
+      });
+      signal.throwIfAborted();
+      established = runtimeFingerprint === probe?.runtimeFingerprint;
+    }
     return {
       exposure: options.authentication.kind === "native" ? "account" : "none",
       supportedAutonomy: established ? ["verify"] : [],
