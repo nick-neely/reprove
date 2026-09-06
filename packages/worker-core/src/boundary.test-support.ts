@@ -154,6 +154,12 @@ export interface CodexScript {
    * ADR 0005's rule.
    */
   readonly repaired?: AdapterPassOutput;
+  /**
+   * A bundle the Adapter resolves with without ever asking `check`, which is
+   * what an Adapter with no repair mechanism does. It is the only way to hand
+   * Worker core a bundle its own conformance step is the first thing to touch.
+   */
+  readonly unchecked?: AdapterPassOutput;
   readonly throws?: Error;
 }
 
@@ -192,6 +198,9 @@ export const createCodexAdapterDouble = (
       requests.push(request);
       if (script.throws) {
         return Promise.reject(script.throws);
+      }
+      if (script.unchecked !== undefined) {
+        return Promise.resolve(script.unchecked);
       }
       const output = script.output ?? CLEAN_PASS;
       const complaint = request.check(output);

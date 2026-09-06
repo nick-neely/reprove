@@ -91,6 +91,21 @@ const harness = (
 const silent = (): Error =>
   Object.assign(new Error("silent"), { toString: () => "" });
 
+/**
+ * A bundle Worker core cannot read.
+ *
+ * An Adapter marshals its output from a Harness's own stream, so a bundle that
+ * is not the shape the port promised is a runtime fact rather than something
+ * the types rule out. The getter is how that fact is stated without lying to
+ * the compiler about it.
+ */
+const unreadable = (): AdapterPassOutput => ({
+  ...CLEAN_PASS,
+  get findings(): never {
+    throw new TypeError("the bundle carried no findings");
+  },
+});
+
 const partial = (): AdapterPassOutput => ({
   ...CLEAN_PASS,
   outcome: "partial",
@@ -468,6 +483,20 @@ describe("a defect found after execution", () => {
       reason: "sandbox_teardown_incomplete",
       phase: "teardown",
     });
+  });
+
+  it("tears the Sandbox down when the bundle is one it cannot read", async () => {
+    // Conformance runs over a shape the Adapter supplied, so reading it can
+    // throw rather than complain, and a Sandbox left running because that throw
+    // skipped teardown is exactly what teardown exists to prevent.
+    const { run, sandboxes } = harness({ unchecked: unreadable() });
+    const outcome = await run();
+    if (outcome.kind !== "failure") {
+      throw new Error("expected a Failure");
+    }
+
+    expect(outcome.failure.reason).toBe("pass_failed");
+    expect(sandboxes.teardowns()).toBe(1);
   });
 
   it("carries no protocol payload, because protocol v1 has none for it", async () => {

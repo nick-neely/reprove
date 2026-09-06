@@ -362,7 +362,21 @@ export const createWorkerCore = (options: WorkerCoreOptions): WorkerCore => {
         );
       }
 
-      const outcome = await execute(input, sandbox, instructions, capability);
+      // Nothing between here and teardown may throw past this point. The Pass
+      // itself is caught inside `execute`, but the conformance step reads a
+      // shape the Adapter supplied, and a Sandbox left running because a
+      // malformed bundle threw on the way out is the one thing teardown exists
+      // to prevent.
+      let outcome: WorkerOutcome;
+      try {
+        outcome = await execute(input, sandbox, instructions, capability);
+      } catch (error) {
+        outcome = fail({
+          reason: "pass_failed",
+          phase: "execution",
+          detail: `the Run threw after execution began: ${String(error)}`,
+        });
+      }
 
       try {
         await sandbox.teardown();
