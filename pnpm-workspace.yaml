@@ -161,3 +161,18 @@ allowBuilds:
 # review-by: 2027-03-01
 overrides:
   nanoid@5: 5.1.16
+  # `@workflow/world-local@4.4.0` and `@workflow/world-vercel@4.7.1` - both
+  # reached from every workspace through `workflow` and `@workflow/vitest` - pin
+  # `undici` to exactly `7.28.0`, which carries GHSA-4cwx-7wf7-3272
+  # (CVE-2026-13697, high severity): cross-user information disclosure and a
+  # parse-time crash from degenerate private cache directives, affecting
+  # `>= 7.0.0, < 7.29.0`. `dependency-review` fails the branch on it. 7.29.0 is
+  # the lowest 7.x release clear of it - and of the four medium advisories that
+  # share the same fix - and is a minor move within the same major, so the API
+  # the Worlds call is unchanged. An override for the same reason `nanoid` has
+  # one: the pin is exact, so a `workflow` bump is the only thing that can move
+  # it, and ADR 0014 makes that a reviewed change on its own schedule. Remove
+  # this once the workflow catalog moves to a release whose Worlds ask for
+  # 7.29.0 or later - check `pnpm why undici` after the bump.
+  # review-by: 2027-03-01
+  undici@7: 7.29.0
