@@ -21,22 +21,57 @@ pnpm db:up                          Docker; see "Database" below
 pnpm verify
 ```
 
-`pnpm verify` is the repository's proof. It sequences six independently owned
+`pnpm verify` is the repository's proof. It sequences seven independently owned
 layers, and the first to fail names the workspace and the rule it broke:
 
 ```text
-node tools/verify-workspace.mjs    the ADR 0010 workspace and dependency matrix
-node tools/verify-migrations.mjs   migration history was only appended to
-turbo run build typecheck          every workspace builds and type-checks
-node tools/verify-packages.mjs     the packed package contract
-vitest run                         the tests, against the local database stack
-ultracite check .                  lint and format
+node tools/verify-workspace.mjs        the ADR 0010 workspace and dependency matrix
+node tools/verify-migrations.mjs       migration history was only appended to
+turbo run build typecheck              every workspace builds and type-checks
+node tools/verify-packages.mjs         the packed package contract
+vitest run                             the tests, against the local database stack
+node tools/verify-workflow-build.mjs   a clean build that executes the durable spine
+ultracite check .                      lint and format
 ```
 
 Each layer is runnable on its own as an inner-loop shortcut - `verify:workspace`,
-`verify:migrations`, `verify:build`, `verify:packages`, `verify:test` and
-`verify:lint`, each under `pnpm run` - but passing one is never equivalent to
-passing `pnpm verify`.
+`verify:migrations`, `verify:build`, `verify:packages`, `verify:test`,
+`verify:workflow` and `verify:lint`, each under `pnpm run` - but passing one is
+never equivalent to passing `pnpm verify`.
+
+`verify:test` runs the root Vitest project and then `pnpm --filter
+@reprove/control-plane-workflow run test`, which is a second invocation rather
+than a second project because that package's tests have to run **from its own
+directory**: `@workflow/vitest` compiles every `'use workflow'` and `'use step'`
+function it finds into real bundles, and the transform stamps a workflow's id
+from `process.cwd()` while the bundle stamps it from the project root. The two
+agree only when those are the same place. Those tests use the local stack's
+maintenance database, because the package may depend on no Postgres driver and
+so cannot create one of its own; rows accumulate there between runs and
+`pnpm db:down` is what clears them.
+
+`verify:workflow` is the **real-builder gate**
+[ADR 0014](docs/adr/0014-workflow-orchestration-seam.md) mandates, and it is the
+slowest layer at roughly two to three minutes. The build behaviour the
+orchestration seam depends on is undocumented and version-specific: a helper
+hoisted to module scope and called from a workflow body drags its whole
+transitive graph into the workflow bundle, which runs in a VM with no `require`,
+so every workflow in the application breaks at runtime with an error naming an
+innocent one - while the build stays green. So the gate builds `apps/control-plane`
+from clean, asserts the workflow bundle imports nothing but the workflow runtime
+and that the output traces carry what the steps need, then starts the built
+application and posts a signed delivery to it against a canned GitHub on
+loopback. Absence of an expected artifact or trace is a failure rather than a
+note, and it asserts **no bundle size** or other property of today's output.
+
+It needs **Docker itself**, not only a database reachable over TCP: it creates
+and reads a database of its own through `psql` inside the stack's own container,
+because the root workspace may depend on no Postgres driver
+([ADR 0010](docs/adr/0010-package-graph-and-open-core-boundary.md)). It runs
+after `turbo run build`, since it composes the packages' `dist`.
+`pnpm verify:workflow` on its own assumes that build already happened;
+`node tools/verify-workflow-build.mjs --keep` leaves the gate's database and the
+built application in place for inspection.
 
 `verify:migrations` is Git-aware, and it is the only layer that is: it compares
 the migration folder against the merge-base with the pull request's base ref, or
@@ -133,7 +168,7 @@ Two things catch people out:
   rather than executing.
 
 Continuous integration runs the same command. Two checks are required on every
-pull request: `verify`, which is the six layers above on Ubuntu and Node 22 with
+pull request: `verify`, which is the seven layers above on Ubuntu and Node 22 with
 the database stack up, and `dependency-review`, which blocks newly introduced
 high or critical vulnerabilities in runtime and development dependencies alike.
 A new layer is sequenced inside `pnpm verify` rather than added as a third
