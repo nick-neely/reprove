@@ -23,6 +23,7 @@ import type { ConventionSource } from "./instructions.js";
 import { NARRATIVE_LIMITS, NARRATIVE_PATH } from "./narrative.js";
 import type { ProtectedFile } from "./narrative.js";
 import { WORKER_OUTCOME_KINDS } from "./outcome.js";
+import type { WorkerOutcome } from "./outcome.js";
 import { createWorkerCore } from "./run.js";
 import type { RunInput } from "./run.js";
 import { suppressionEnvironment } from "./sandbox.js";
@@ -469,6 +470,22 @@ describe("the outcome set", () => {
       "refusal",
       "failure",
     ]);
+  });
+
+  it("lists every kind the union admits, and no other", () => {
+    // The half a `satisfies` on the list cannot see. A fourth member added to
+    // `WorkerOutcome` and not to the list is a missing key here, and a fourth
+    // key added here that the union does not admit is an excess one - both are
+    // compile errors, and the assertion below then holds the order too.
+    const covered: Record<WorkerOutcome["kind"], true> = {
+      result: true,
+      refusal: true,
+      failure: true,
+    };
+
+    expect(Object.keys(covered).toSorted()).toStrictEqual(
+      [...WORKER_OUTCOME_KINDS].toSorted()
+    );
   });
 
   // SAFETY: each annotation widens a literal to the script type it already

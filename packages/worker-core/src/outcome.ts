@@ -71,11 +71,16 @@ export type WorkerOutcome =
 /**
  * The whole set, as values.
  *
- * Exported so "and no fourth" is assertable rather than merely intended: a
- * union that grew a member without this list growing with it is a compile
- * error at every exhaustive switch, and a list that grew without the union is
- * one here.
+ * Exported so "and no fourth" is assertable rather than merely intended. The
+ * `satisfies` closes one direction - a member listed here that the union does
+ * not admit is a compile error - and `run.test.ts` closes the other against a
+ * `Record` keyed by the union, because a union that grew a member is invisible
+ * to a list that did not.
  */
-export const WORKER_OUTCOME_KINDS = ["result", "refusal", "failure"] as const;
+export const WORKER_OUTCOME_KINDS = [
+  "result",
+  "refusal",
+  "failure",
+] as const satisfies readonly WorkerOutcome["kind"][];
 
 export type WorkerOutcomeKind = (typeof WORKER_OUTCOME_KINDS)[number];

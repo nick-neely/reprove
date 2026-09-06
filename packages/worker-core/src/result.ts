@@ -12,7 +12,7 @@
  * "review completed with no Findings" and malformed means "review failed", and
  * conflating them would publish a clean bill of health the Reviewer never gave.
  */
-import { resultSchema } from "@reprove/protocol/v1";
+import { protocolVersion, resultSchema } from "@reprove/protocol/v1";
 import type {
   Finding,
   PassRecord,
@@ -84,7 +84,10 @@ export const composeResult = (input: ResultInput): ComposedResult => {
     findings: input.findings,
     passes: [passRecord(input)],
     usage: input.pass.usage,
-    protocolVersion: 1,
+    // The constant, not the integer it currently is: ADR 0006 bumps it for a
+    // genuinely incompatible change, and a Result that restated the old value
+    // would be rejected by the schema that moved rather than by review.
+    protocolVersion,
     workerBuildVersion: input.workerBuildVersion,
   };
 
