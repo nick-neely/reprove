@@ -36,6 +36,7 @@ import { createHash } from "node:crypto";
 import type { ResolvedConfig, RunSpec } from "@reprove/protocol/v1";
 import { resolvedConfigSchema } from "@reprove/protocol/v1";
 
+import { DEFAULT_CODEX_MODEL } from "../models.js";
 import type { JsonValue } from "./json.js";
 
 /** ADR 0014's Phase 0 unclaimed window, which ADR 0016 restates as a fixture. */
@@ -135,7 +136,7 @@ export const normalizeResolvedConfig = (
  */
 export const PHASE_0_RUN_PROFILE: Phase0RunProfile = {
   harness: "codex",
-  model: "gpt-5",
+  model: DEFAULT_CODEX_MODEL,
   strategy: "standard",
   autonomy: "verify",
   placement: "hosted",

@@ -66,6 +66,12 @@ export type { RunLifecyclePort, RunSchedule } from "./run/schedule.js";
 
 export const packageName = "@reprove/control-plane" as const;
 
+export {
+  availableModels,
+  DEFAULT_CODEX_MODEL,
+  MODEL_CATALOGUE,
+} from "./models.js";
+
 /**
  * Shell. The control plane validates every Worker submission against the same
  * authoritative schema the Worker emits with, because a hostile or buggy Worker

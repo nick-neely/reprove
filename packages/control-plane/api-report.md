@@ -4803,6 +4803,7 @@ export type { KickProcessing } from "./github/webhook.js";
 export { WEBHOOK_STATUS } from "./github/webhook.js";
 export type { RunLifecyclePort, RunSchedule } from "./run/schedule.js";
 export declare const packageName: "@reprove/control-plane";
+export { availableModels, DEFAULT_CODEX_MODEL, MODEL_CATALOGUE, } from "./models.js";
 /**
  * Shell. The control plane validates every Worker submission against the same
  * authoritative schema the Worker emits with, because a hostile or buggy Worker
@@ -4811,6 +4812,22 @@ export declare const packageName: "@reprove/control-plane";
 export declare const accepts: {
     readonly protocolVersion: 1;
 };
+```
+
+## dist/models.d.ts
+
+```ts
+import type { Harness } from "@reprove/protocol/v1";
+/** Reprove product data. Harnesses receive an opaque pin and never enumerate Models. */
+export declare const MODEL_CATALOGUE: readonly [{
+    readonly harness: "codex";
+    readonly model: "gpt-5";
+}, {
+    readonly harness: "codex";
+    readonly model: "gpt-5.5";
+}];
+export declare const availableModels: (harness: Harness) => readonly string[];
+export declare const DEFAULT_CODEX_MODEL: "gpt-5";
 ```
 
 ## dist/run/lifecycle.d.ts
