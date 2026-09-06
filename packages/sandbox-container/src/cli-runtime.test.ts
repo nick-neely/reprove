@@ -21,6 +21,24 @@ const nodeRuntime = createCliRuntime({ name: "docker", executable: execPath });
 const ECHO_ARGV = "process.stdout.write(JSON.stringify(process.argv.slice(1)))";
 
 describe("the command-line runtime", () => {
+  it("streams output before the process exits and accepts further input", async () => {
+    const running = nodeRuntime.spawn({
+      arguments: ["-e", "process.stdin.pipe(process.stdout)"],
+    });
+    const writer = running.stdin.getWriter();
+    const reader = running.stdout.getReader();
+    await writer.write(new TextEncoder().encode("first"));
+    const first = await reader.read();
+    expect(new TextDecoder().decode(first.value)).toBe("first");
+    await writer.write(new TextEncoder().encode("second"));
+    const second = await reader.read();
+    expect(new TextDecoder().decode(second.value)).toBe("second");
+    await writer.close();
+    await expect(running.wait()).resolves.toStrictEqual({ exitCode: 0 });
+    const end = await reader.read();
+    expect(end.done).toBeTruthy();
+  });
+
   it("forwards every argument verbatim, with no shell in between", async () => {
     // Every one of these means something to a shell and nothing to a runtime.
     const hostile = ["a;b", "$(id)", "`id`", "x y", "*", "&& rm -rf /", ""];

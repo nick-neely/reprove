@@ -2,7 +2,7 @@
 
 The container Sandbox primitive. It depends on **no** `@reprove/*` package, because it is offered as a standalone security primitive usable with `@ai-sdk/harness` by someone who has never heard of Reprove - and that claim is only true if the dependency graph says so. If it later needs a small utility, the answer is to duplicate it or extract a genuinely generic external package, never to reach back into Reprove's application graph.
 
-It also depends on nothing outside Node's own builtins. There is no container-runtime client library and no schema library: the whole runtime seam is one argument vector in and text out, which is what makes every claim below something a test can assert rather than something a reviewer has to take on faith.
+Runtime calls use Node's process primitives, with buffered invocation and attached process streams. The only Harness dependency recognizes upstream credential placeholders; no upstream type crosses the package API.
 
 ## Support tier
 
@@ -120,9 +120,18 @@ If Podman ever needs `--userns=keep-id`, a quadlet or a `podman machine` path, t
 
 ## Deliberate gaps
 
-- **Egress is `none` and nothing else.** `EgressPolicy` has one member, every launch renders `--network none`, and this package creates no network of its own. Proxy egress - a Sandbox-owned `--internal` network, the proxy that terminates it, and the endpoint becoming an argument - is a follow-up, and the member lands with it. It is not shipped as an accepted-and-ignored request field first: ADR 0004's public promise is that **a weakened posture never runs quietly**, and a `{ kind: "proxy", endpoint }` that produced exactly the same `--network none` as `none` did is precisely that - a caller who asked for brokered egress, was told yes by the type, and got a Sandbox that could not reach the proxy. `EgressPolicy` stays a union of one so the variant is additive when it is real.
+- **The network namespace remains `none`.** `Sandbox.access.openProxy` adds an HTTP proxy over attached process pipes. The host terminates TLS with an ephemeral CA, enforces exact origin/method/path rules and request, byte and concurrency budgets, and substitutes credentials only after matching the SDK placeholder. The Sandbox receives the public CA and a loopback endpoint. It receives neither a host socket nor a direct network interface. Native authentication can use the same bounded egress without substitution.
 - **`WorkspaceRequest.sizeBytes` is recorded, not imposed.** The local volume driver on both runtimes takes no size. It is required to be positive and it is what a driver that does take one would be given.
 - **The instance runs as the image's own user, which is usually `root` inside the Sandbox.** That is root in a user namespace under a rootless daemon and root in the instance under a rootful one; either way it holds no capabilities and cannot write the root filesystem. The two in-container identities ADR 0012 requires are worker-core work.
 - **`InstanceReport` carries no devices, IPC mode or `Config.Env`.** Nothing can render a `--device` or an `--ipc` (the audit refuses both, and `--` keeps the image out of the flag region), so this is a gap in the third layer rather than a hole in the boundary - but it means `no-credential-in-brokered-sandbox` is decided at the request layer alone.
 - **The Workspace is created empty.** Materializing the stripped Git repository into it, and the two in-container identities [ADR 0012](../../docs/adr/0012-author-controlled-narrative-input.md) requires, are worker-core work. The API does not preclude either.
 - **There is no `@ai-sdk/harness` bridge.** It is deliberately deferred so this package's published surface stays free of upstream types; it lands with the issue that actually drives a Harness.
+
+
+## Streaming access for Codex
+
+`Sandbox.access` supplies streaming processes, binary-safe file I/O, protected inputs, loopback port forwarding and brokered egress. Commands use uid 1000. Protected writes use root only for direct children of `/reprove/input`, check ancestor ownership, and make the file and its parent unreplaceable by the Reviewer. The provisioned image must contain Node. A buffered-only injected runtime explicitly refuses streaming access.
+
+Port and proxy connections are scoped to the instance and released with its processes before container teardown. Failure to release host access quarantines the runtime as well. Host TLS termination uses the `openssl` executable; only its public CA enters the Sandbox. Redirects, unlisted targets, oversized bodies and excess requests fail closed. External response headers are not relayed except Content-Type, and literal credential reflections are redacted.
+
+The Docker contract in `tools/codex-contract.test.mjs` exercises this access through the actual pinned Codex CLI and bridge. Podman retains dialect coverage; live Podman qualification remains separate.

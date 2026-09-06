@@ -8,13 +8,15 @@
  * path or an environment value. There is no configuration option here that
  * turns one on.
  */
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import type { ExecFileException } from "node:child_process";
+import { once } from "node:events";
+import { Readable, Writable } from "node:stream";
 import { promisify } from "node:util";
 
 import type { RuntimeName } from "./request.js";
 import { RuntimeUnavailableError } from "./runtime-unavailable.js";
-import type { ContainerRuntime, RuntimeOutcome } from "./runtime.js";
+import type { RuntimeOutcome, StreamingContainerRuntime } from "./runtime.js";
 
 export interface CliRuntimeOptions {
   readonly name: RuntimeName;
@@ -44,7 +46,7 @@ const invokeFile = promisify(execFile);
 
 export const createCliRuntime = (
   options: CliRuntimeOptions
-): ContainerRuntime => {
+): StreamingContainerRuntime => {
   const executable = options.executable ?? options.name;
   const timeout = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxBuffer = options.maxBufferBytes ?? DEFAULT_MAX_BUFFER_BYTES;
@@ -61,6 +63,51 @@ export const createCliRuntime = (
 
   return {
     name: options.name,
+    spawn: (invocation) => {
+      const child = spawn(executable, [...invocation.arguments], {
+        stdio: ["pipe", "pipe", "pipe"],
+        windowsHide: true,
+        signal: invocation.signal,
+        timeout,
+        killSignal: "SIGKILL",
+      });
+      child.stdin.on("error", () => child.stdin.destroy());
+      const observe = async (): Promise<
+        { exitCode: number } | { error: unknown }
+      > => {
+        try {
+          await once(child, "close");
+          const { exitCode, signalCode } = child;
+          if (exitCode === null) {
+            throw new RuntimeUnavailableError(
+              options.name,
+              executable,
+              `exited without a status (${String(signalCode)})`
+            );
+          }
+          return { exitCode };
+        } catch (error) {
+          return { error };
+        }
+      };
+      const done = observe();
+      return {
+        stdin: Writable.toWeb(child.stdin),
+        stdout: Readable.toWeb(child.stdout),
+        stderr: Readable.toWeb(child.stderr),
+        wait: async () => {
+          const outcome = await done;
+          if ("error" in outcome) {
+            throw outcome.error;
+          }
+          return outcome;
+        },
+        kill: async () => {
+          child.kill("SIGKILL");
+          await done;
+        },
+      };
+    },
     invoke: async (invocation): Promise<RuntimeOutcome> => {
       const running = invokeFile(executable, [...invocation.arguments], {
         encoding: "utf-8",

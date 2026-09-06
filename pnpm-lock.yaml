@@ -156,6 +156,9 @@ importers:
       '@ai-sdk/harness-codex':
         specifier: catalog:harness
         version: 1.0.104(zod@4.5.4)
+      zod:
+        specifier: 'catalog:'
+        version: 4.5.4
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
@@ -240,6 +243,10 @@ importers:
         version: 7.0.2
 
   packages/sandbox-container:
+    dependencies:
+      '@ai-sdk/harness':
+        specifier: catalog:harness
+        version: 1.0.102(ws@8.21.3)(zod@4.5.4)
     devDependencies:
       '@types/node':
         specifier: 'catalog:'

@@ -456,3 +456,8 @@ user-facing npm product.
   possible later at documentation cost rather than redesign cost.
 - The first `package.json` in this repository unblocks the map's Dependabot and supply-chain patch,
   which was waiting on exactly that.
+
+
+## Amendment: Codex conformance in #52
+
+`@reprove/adapters` may depend on `zod` to parse its private, untrusted candidate output, as ADR 0005 requires. This does not grant it an edge to `@reprove/protocol`: Worker core still constructs and validates the wire Result. The verifier's external allowlist reflects this permission. `@ai-sdk/harness` and its Codex bridge use the exact coordinated `harness` catalog; only adapters and sandbox-container may import that family.

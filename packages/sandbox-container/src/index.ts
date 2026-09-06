@@ -14,6 +14,8 @@
  */
 export const packageName = "@reprove/sandbox-container" as const;
 
+export type { CommandOptions, SandboxAccess } from "./access.js";
+
 export { SANDBOX_LABEL } from "./arguments.js";
 export { attestInstance } from "./attestation.js";
 export type {
@@ -79,5 +81,18 @@ export type {
   ContainerRuntime,
   RuntimeInvocation,
   RuntimeOutcome,
+  RuntimeProcess,
+  RuntimeSpawn,
+  StreamingContainerRuntime,
 } from "./runtime.js";
 export { RuntimeUnavailableError } from "./runtime-unavailable.js";
+export { createHostProxy } from "./proxy.js";
+export type {
+  HostProxy,
+  ProxyOptions,
+  ProxyRule,
+  ProxyCredential,
+} from "./proxy.js";
+export type { PortEndpoint } from "./ports.js";
+
+export type { SandboxProxy } from "./proxy-relay.js";

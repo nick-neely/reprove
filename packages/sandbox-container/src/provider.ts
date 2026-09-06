@@ -1,3 +1,5 @@
+import { createSandboxAccess } from "./access.js";
+import type { SandboxAccess } from "./access.js";
 /**
  * The provider: the one path from a request to a running Sandbox.
  *
@@ -106,6 +108,7 @@ export interface Sandbox {
   readonly attestation: Attestation;
   readonly workspace: WorkspaceHandle;
   readonly exec: (command: readonly string[]) => Promise<ExecOutcome>;
+  readonly access?: SandboxAccess;
   readonly teardown: () => Promise<TeardownReceipt>;
 }
 
@@ -411,8 +414,14 @@ export const createSandboxProvider = (
 
     const attested = await own(request, names, rendered, host, observed);
 
+    const access = createSandboxAccess(
+      runtime,
+      names.instance,
+      request.workspace.path
+    );
     return {
       id: names.instance,
+      access,
       isolation: attested.isolation,
       attestation: attested,
       workspace: {
@@ -437,7 +446,17 @@ export const createSandboxProvider = (
           stderr: invoked.stderr,
         };
       },
-      teardown: () => teardown(names),
+      teardown: async () => {
+        try {
+          await access.close();
+        } catch (error) {
+          cache.quarantine(dialect.name, "Sandbox host access cleanup failed");
+          throw error;
+        } finally {
+          await teardown(names);
+        }
+        return { residue: [] };
+      },
     };
   };
 

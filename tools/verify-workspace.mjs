@@ -122,6 +122,7 @@ const WORKSPACES = {
       "@ai-sdk/harness-codex",
       "@ai-sdk/harness-claude-code",
       "@ai-sdk/harness-opencode",
+      "zod",
     ],
     forbidden: [
       "@reprove/*",
