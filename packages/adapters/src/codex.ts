@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { addAbortListener } from "node:events";
 
 import { VERSION } from "@ai-sdk/harness-codex";
 
@@ -27,7 +28,9 @@ export interface CodexOptions {
   readonly timeoutMs?: number;
   readonly authentication: CodexAuthentication;
   /** A behavioral measurement, never a version allowlist or a claimed default. */
-  readonly instructionProbe?: () => Promise<InstructionProbe>;
+  readonly instructionProbe?: (
+    signal: AbortSignal
+  ) => Promise<InstructionProbe>;
   /** Substitutable only at the external Provider HTTP boundary. */
   readonly fetch?: (request: Request) => Promise<Response>;
 }
@@ -74,7 +77,25 @@ export const createCodexAdapter = (input: CodexOptions): Adapter => {
   const capability: Adapter["capability"] = async (
     request
   ): Promise<ResolvedCapability> => {
-    const probe = await options.instructionProbe?.();
+    const signal = AbortSignal.any([
+      AbortSignal.timeout(30_000),
+      ...(request ? [request.signal] : []),
+    ]);
+    signal.throwIfAborted();
+    const cancelled = Promise.withResolvers<never>();
+    const subscription = addAbortListener(signal, () =>
+      cancelled.reject(signal.reason)
+    );
+    let probe: InstructionProbe | undefined;
+    try {
+      probe = await Promise.race([
+        options.instructionProbe?.(signal),
+        cancelled.promise,
+      ]);
+    } finally {
+      subscription[Symbol.dispose]();
+    }
+    signal.throwIfAborted();
     const established =
       probe?.satisfied === true &&
       probe.fingerprint === fingerprint &&
@@ -84,7 +105,8 @@ export const createCodexAdapter = (input: CodexOptions): Adapter => {
       Date.now() - probe.probedAt <= 300_000 &&
       (!request ||
         (request.model === options.model &&
-          (await checkCodexSandbox(request)) === probe.runtimeFingerprint));
+          (await checkCodexSandbox({ ...request, signal })) ===
+            probe.runtimeFingerprint));
     return {
       exposure: options.authentication.kind === "native" ? "account" : "none",
       supportedAutonomy: established ? ["verify"] : [],

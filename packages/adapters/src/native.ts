@@ -8,25 +8,30 @@ import type { SandboxConnection } from "./connection.js";
 import type { CodexSession, TurnOutput } from "./session.js";
 import type { PassRequest, ObservedToolCall, PassProgress } from "./types.js";
 
-const eventSchema = z.object({
-  type: z.string(),
-  thread_id: z.uuid().optional(),
-  item: z
-    .object({
-      type: z.string(),
-      text: z.string().optional(),
-      command: z.string().optional(),
-      exit_code: z.number().int().nullable().optional(),
-    })
-    .optional(),
-  usage: z
-    .object({
-      input_tokens: z.number().int().nonnegative(),
-      output_tokens: z.number().int().nonnegative(),
-      cached_input_tokens: z.number().int().nonnegative().optional(),
-    })
-    .optional(),
-});
+const eventSchema = z
+  .object({
+    type: z.string(),
+    thread_id: z.uuid().optional(),
+    item: z
+      .object({
+        type: z.string(),
+        text: z.string().optional(),
+        command: z.string().optional(),
+        exit_code: z.number().int().nullable().optional(),
+      })
+      .optional(),
+    usage: z
+      .object({
+        input_tokens: z.number().int().nonnegative(),
+        output_tokens: z.number().int().nonnegative(),
+        cached_input_tokens: z.number().int().nonnegative().optional(),
+      })
+      .optional(),
+  })
+  .refine(
+    (event) => event.type !== "thread.started" || event.thread_id !== undefined,
+    "thread.started requires thread_id"
+  );
 
 export const createNativeSession = async (
   request: PassRequest,
@@ -49,6 +54,12 @@ export const createNativeSession = async (
     new TextEncoder().encode(JSON.stringify(ANSWER_SCHEMA))
   );
   let threadId: string | undefined;
+  const recordThread = (id: string | undefined) => {
+    if (threadId && threadId !== id) {
+      throw new Error("Codex repair changed thread");
+    }
+    threadId = id;
+  };
   const turn = async (prompt: string): Promise<TurnOutput> => {
     const base = [
       "/opt/reprove/codex/node_modules/.pnpm/node_modules/.bin/codex",
@@ -106,7 +117,7 @@ export const createNativeSession = async (
       })) {
         const event = eventSchema.parse(JSON.parse(line));
         if (event.type === "thread.started") {
-          threadId = event.thread_id;
+          recordThread(event.thread_id);
         }
         if (
           event.type === "item.completed" &&
@@ -147,7 +158,7 @@ export const createNativeSession = async (
         text,
         observed,
         usage,
-        failed: failed || !completed || status.exitCode !== 0,
+        failed: failed || !completed || !threadId || status.exitCode !== 0,
       };
     };
     // Stderr is deliberately drained, never exposed as Finding prose or a

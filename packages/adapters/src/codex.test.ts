@@ -3,6 +3,27 @@ import { describe, expect, it } from "vitest";
 import { createCodexAdapter, codexFingerprint } from "./index.js";
 
 describe("the Codex Adapter capability", () => {
+  it("cancels a pending probe even if its callback never settles", async () => {
+    const controller = new AbortController();
+    const started = Promise.withResolvers<boolean>();
+    const adapter = createCodexAdapter({
+      model: "gpt-5.5",
+      authentication: { kind: "api-key", provider: "openai", key: "synthetic" },
+      instructionProbe: () => {
+        started.resolve(true);
+        return Promise.withResolvers<never>().promise;
+      },
+    });
+    const result = adapter.capability({
+      model: "gpt-5.5",
+      sandbox: { id: "fixture", workspace: { path: "/reprove/workspace" } },
+      signal: controller.signal,
+    });
+    await started.promise;
+    controller.abort(new Error("cancelled probe"));
+    await expect(result).rejects.toThrow("cancelled probe");
+  }, 1000);
+
   it("withdraws capability when the actual Sandbox lacks streaming access", async () => {
     const authentication = {
       kind: "api-key",

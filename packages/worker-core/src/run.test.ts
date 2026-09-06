@@ -131,6 +131,62 @@ const partial = (): AdapterPassOutput => ({
 });
 
 describe("real Codex authentication at dispatch", () => {
+  it.each(["initial", "instance"])(
+    "cancels an unresponsive %s capability resolution",
+    async (stage) => {
+      const adapter = createCodexAdapterDouble();
+      const sandboxes = createSandboxProviderDouble();
+      const started = Promise.withResolvers<boolean>();
+      const controller = new AbortController();
+      const core = createWorkerCore({
+        adapter: {
+          ...adapter,
+          capability: (request) => {
+            if (!request && stage === "instance") {
+              return adapter.capability();
+            }
+            started.resolve(true);
+            return Promise.withResolvers<never>().promise;
+          },
+        },
+        sandboxes,
+        materialize: () => Promise.resolve(),
+        workerBuildVersion: "test",
+        clock: () => NOW,
+      });
+      const result = core.execute({
+        spec: RUN_SPEC,
+        narrative: { title: "Review", description: "" },
+        conventions: [],
+        exposure: "scoped",
+        signal: controller.signal,
+      });
+      await started.promise;
+      controller.abort();
+      await expect(result).resolves.toMatchObject({
+        kind: "refusal",
+        refusal: { reason: "capability_unresolved" },
+      });
+      expect(sandboxes.teardowns()).toBe(stage === "instance" ? 1 : 0);
+      expect(adapter.requests).toHaveLength(0);
+    },
+    1000
+  );
+
+  it("uses the launched isolation when host and instance differ", async () => {
+    const { run, adapter, sandboxes } = harness(
+      {},
+      { instanceIsolation: "container" }
+    );
+    const result = await run({ exposure: "account" });
+    expect(result).toMatchObject({
+      kind: "refusal",
+      refusal: { reason: "isolation_insufficient" },
+    });
+    expect(adapter.requests).toHaveLength(0);
+    expect(sandboxes.teardowns()).toBe(1);
+  });
+
   it("refuses native account Exposure on a rootful container even when the caller says none", async () => {
     const authentication = {
       kind: "native",

@@ -275,6 +275,87 @@ describe("real Codex Adapter contracts", () => {
       }),
     },
   ]) {
+    if (authentication.kind === "native") {
+      it("fails a native Pass with a malformed thread event without starting repair", async () => {
+        const runtime = createCliRuntime({ name: "docker" });
+        let corrupt = false;
+        let invocations = 0;
+        const provider = createDockerProvider({
+          runtime: {
+            ...runtime,
+            spawn: (request) => {
+              const running = runtime.spawn(request);
+              if (!corrupt || !request.arguments.includes("--json")) {
+                return running;
+              }
+              invocations += 1;
+              let pending = "";
+              const stdout = running.stdout
+                .pipeThrough(new TextDecoderStream())
+                .pipeThrough(
+                  new TransformStream({
+                    transform(chunk, output) {
+                      pending += chunk;
+                      let end;
+                      while ((end = pending.indexOf("\n")) !== -1) {
+                        const event = JSON.parse(pending.slice(0, end));
+                        pending = pending.slice(end + 1);
+                        if (event.type === "thread.started") {
+                          delete event.thread_id;
+                        }
+                        output.enqueue(`${JSON.stringify(event)}\n`);
+                      }
+                    },
+                    flush(output) {
+                      if (pending) {
+                        output.enqueue(pending);
+                      }
+                    },
+                  })
+                )
+                .pipeThrough(new TextEncoderStream());
+              return { ...running, stdout };
+            },
+          },
+        });
+        const proof = await qualify(provider, authentication);
+        const sandbox = await provider.launch(
+          sandboxRequestFor("codex", CODEX_SANDBOX_PROFILE)
+        );
+        try {
+          await seed(sandbox);
+          corrupt = true;
+          const adapter = createCodexAdapter({
+            model: "gpt-5.5",
+            authentication,
+            instructionProbe: () => Promise.resolve(proof),
+            fetch: () => Promise.resolve(responseEvents(message("not JSON"))),
+          });
+          const result = await adapter.pass({
+            runId: "malformed",
+            passId: crypto.randomUUID(),
+            model: "gpt-5.5",
+            autonomy: "verify",
+            sandbox,
+            instructions: {
+              policy: "Return JSON",
+              conventions: [],
+              narrativePath: "/reprove/input/narrative.json",
+            },
+            signal: AbortSignal.timeout(30_000),
+            check: () => null,
+          });
+          expect(result).toMatchObject({
+            outcome: "failed",
+            repairTurnUsed: false,
+            failureReason: "codex_execution_failed",
+          });
+          expect(invocations).toBe(1);
+        } finally {
+          await sandbox.teardown();
+        }
+      }, 90_000);
+    }
     it(`${authentication.kind}/${authentication.provider ?? "saved-auth"}: suppresses repo instructions, observes execution, and repairs once in the same Pass`, async () => {
       const runtime = createCliRuntime({ name: "docker" });
       const inputs = [];

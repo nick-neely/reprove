@@ -81,7 +81,7 @@ export interface CodexOptions {
     readonly timeoutMs?: number;
     readonly authentication: CodexAuthentication;
     /** A behavioral measurement, never a version allowlist or a claimed default. */
-    readonly instructionProbe?: () => Promise<InstructionProbe>;
+    readonly instructionProbe?: (signal: AbortSignal) => Promise<InstructionProbe>;
     /** Substitutable only at the external Provider HTTP boundary. */
     readonly fetch?: (request: Request) => Promise<Response>;
 }

@@ -836,6 +836,7 @@ const checkConsumerFixture = (rootDir, packages, fixtureDir, violations) => {
     ["install", "--ignore-scripts", "--prefer-offline"],
     {
       cwd: fixtureDir,
+      timeout: 120_000,
     }
   );
   if (installed !== RAN) {

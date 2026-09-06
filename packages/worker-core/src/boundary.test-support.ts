@@ -220,6 +220,7 @@ export const createCodexAdapterDouble = (
 
 /** How the Sandbox provider double answers. */
 export interface SandboxScript {
+  readonly instanceIsolation?: Isolation;
   readonly isolation?: Isolation;
   /** A provider that refuses rather than returning a Sandbox. */
   readonly refuses?: Error;
@@ -265,7 +266,8 @@ export const createSandboxProviderDouble = (
       if (script.refuses) {
         return Promise.reject(script.refuses);
       }
-      const isolation = script.isolation ?? CAPABILITY.isolation;
+      const isolation =
+        script.instanceIsolation ?? script.isolation ?? CAPABILITY.isolation;
       const sandbox: Sandbox = {
         id: "reprove-sbx-double",
         isolation,

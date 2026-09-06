@@ -32,6 +32,8 @@
  * eligibility away. Neither authorizes itself, and neither is reached at all
  * until every gate above it has passed.
  */
+import { addAbortListener } from "node:events";
+
 import { protocolVersion, refusalSchema } from "@reprove/protocol/v1";
 import type { Exposure, Refusal, RunSpec } from "@reprove/protocol/v1";
 import {
@@ -157,6 +159,26 @@ const isolationOf = async (
   return host.isolation;
 };
 
+const resolveWithinDeadline = async <T>(
+  resolve: (signal: AbortSignal) => Promise<T>,
+  caller?: AbortSignal
+): Promise<T> => {
+  const signal = AbortSignal.any([
+    AbortSignal.timeout(30_000),
+    ...(caller ? [caller] : []),
+  ]);
+  signal.throwIfAborted();
+  const cancelled = Promise.withResolvers<never>();
+  const subscription = addAbortListener(signal, () =>
+    cancelled.reject(signal.reason)
+  );
+  try {
+    return await Promise.race([resolve(signal), cancelled.promise]);
+  } finally {
+    subscription[Symbol.dispose]();
+  }
+};
+
 export const createWorkerCore = (options: WorkerCoreOptions): WorkerCore => {
   const profile = options.profile ?? PHASE0_SANDBOX_PROFILE;
   const clock = options.clock ?? Date.now;
@@ -274,8 +296,13 @@ export const createWorkerCore = (options: WorkerCoreOptions): WorkerCore => {
             "the selected Adapter does not match the pinned Harness"
           );
         }
-        capability = await adapter.capability();
-        isolation = await isolationOf(sandboxes);
+        ({ capability, isolation } = await resolveWithinDeadline(
+          async () => ({
+            capability: await adapter.capability(),
+            isolation: await isolationOf(sandboxes),
+          }),
+          input.signal
+        ));
       } catch (error) {
         return refuse(
           spec,
@@ -372,11 +399,11 @@ export const createWorkerCore = (options: WorkerCoreOptions): WorkerCore => {
       // Workspace mismatches are Refusals, before any Reviewer executes.
       let instanceRefusal: RefusalCause | null;
       try {
-        capability = await adapter.capability({
-          sandbox,
-          model: spec.model,
-          signal: input.signal ?? AbortSignal.timeout(30_000),
-        });
+        capability = await resolveWithinDeadline(
+          (signal) =>
+            adapter.capability({ sandbox, model: spec.model, signal }),
+          input.signal
+        );
         instanceRefusal = checkDispatch({
           autonomy: spec.autonomy,
           provenance: spec.provenance,
@@ -384,7 +411,7 @@ export const createWorkerCore = (options: WorkerCoreOptions): WorkerCore => {
             spec.resolvedConfig.security.allowExternalProvenance,
           exposure: capability.exposure ?? input.exposure,
           maximumExposure: spec.resolvedConfig.security.maxExposure,
-          isolation,
+          isolation: sandbox.isolation,
           capability,
           now: clock(),
         });

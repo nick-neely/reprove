@@ -40,10 +40,31 @@ export const createSandboxAccess = (
   directory: string
 ): SandboxAccess => {
   let closing: Promise<void> | undefined;
+  let closeRequested = false;
+  const lifetime = new AbortController();
+  const registrations = new Set<Promise<unknown>>();
   const assertOpen = () => {
-    if (closing) {
+    if (closeRequested) {
       throw new Error("Sandbox access is closed");
     }
+  };
+  const establish = <T>(setup: Promise<T>, resources: Set<T>): Promise<T> => {
+    const registration = Promise.withResolvers<T>();
+    registrations.add(registration.promise);
+    const complete = async () => {
+      try {
+        const resource = await setup;
+        resources.add(resource);
+        assertOpen();
+        registration.resolve(resource);
+      } catch (error) {
+        registration.reject(error);
+      } finally {
+        registrations.delete(registration.promise);
+      }
+    };
+    void complete();
+    return registration.promise;
   };
   const processes = new Set<RuntimeProcess>();
   const endpoints = new Set<PortEndpoint>();
@@ -97,18 +118,23 @@ export const createSandboxAccess = (
   const access: SandboxAccess = {
     openProxy: async (options) => {
       assertOpen();
-      const proxy = await openSandboxProxy(access, options);
-      proxies.add(proxy);
-      return proxy;
+      return await establish(
+        openSandboxProxy(access, {
+          ...options,
+          signal: AbortSignal.any([options.signal, lifetime.signal]),
+        }),
+        proxies
+      );
     },
     exposePort: async (port) => {
       assertOpen();
-      const endpoint = await exposePort(access.start, port);
-      endpoints.add(endpoint);
-      return endpoint;
+      return await establish(exposePort(access.start, port), endpoints);
     },
     close: () => {
+      closeRequested = true;
+      lifetime.abort();
       const release = async () => {
+        await Promise.allSettled(registrations);
         const results = await Promise.allSettled([
           ...[...proxies].map((proxy) => proxy.close()),
           ...[...endpoints].map((endpoint) => endpoint.close()),
