@@ -104,6 +104,18 @@ export interface WorkerCore {
   readonly execute: (input: RunInput) => Promise<WorkerOutcome>;
 }
 
+/**
+ * One side of a cause, as a field the schema will accept.
+ *
+ * `required` and `actual` are non-empty-or-absent on the wire, and half of the
+ * causes here read `actual` off a caught value: `String(error)` over a thrown
+ * empty string is `""`, which the schema rejects. Refusing to build the Refusal
+ * would leave the Run with no outcome at all, which is the one thing this
+ * boundary promises cannot happen, so an empty side says that it was empty.
+ */
+const stated = (side: string | null): string | null =>
+  side === "" ? "reported with no detail" : side;
+
 const refuse = (
   spec: RunSpec,
   cause: RefusalCause,
@@ -114,8 +126,8 @@ const refuse = (
   const refusal: Refusal = refusalSchema.parse({
     runId: spec.runId,
     reason: cause.reason,
-    required: cause.required,
-    actual: cause.actual,
+    required: stated(cause.required),
+    actual: stated(cause.actual),
     protocolVersion,
     workerBuildVersion,
   });

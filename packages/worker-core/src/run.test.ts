@@ -87,6 +87,10 @@ const harness = (
   };
 };
 
+/** A thrown cause whose string form is empty, which the schema rejects. */
+const silent = (): Error =>
+  Object.assign(new Error("silent"), { toString: () => "" });
+
 const partial = (): AdapterPassOutput => ({
   ...CLEAN_PASS,
   outcome: "partial",
@@ -343,6 +347,20 @@ describe("a defect found before execution", () => {
     await run();
 
     expect(sandboxes.teardowns()).toBe(1);
+  });
+
+  it("still refuses when the cause it caught has no string form", async () => {
+    // `String(error)` over a thrown value that stringifies to nothing is "",
+    // which the Refusal schema rejects - so the Refusal would throw on its way
+    // out and the Run would end with no outcome at all, which is the fourth
+    // outcome this boundary does not have.
+    const outcome = await harness({ capabilityThrows: silent() }).run();
+    if (outcome.kind !== "refusal") {
+      throw new Error("expected a Refusal");
+    }
+
+    expect(outcome.refusal.reason).toBe("capability_unresolved");
+    expect(outcome.refusal.actual).toBe("reported with no detail");
   });
 });
 
