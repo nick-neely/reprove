@@ -79,6 +79,13 @@ describe("base convention admission", () => {
     // convention, and unusual enough in a tracked ref that admitting it by
     // default would be surprising. ADR 0009 excludes it at launch.
     "CLAUDE.local.md",
+    // An allowlisted file name inside a directory the ADR never re-admits
+    // from. The directory decides, because Reprove cannot tell an agent
+    // definition from a convention by its name.
+    ".claude/agents/AGENTS.md",
+    ".claude/skills/deploy/CONTEXT.md",
+    ".agents/skills/release/AGENTS.md",
+    "packages/api/.opencode/agent/CLAUDE.md",
   ])("never admits %s, whatever it contains", (path) => {
     // Markdown is not the security property: `.opencode/agent/build.md` is a
     // markdown file that replaces the Reviewer's system prompt and grants

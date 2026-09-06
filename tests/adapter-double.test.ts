@@ -49,7 +49,11 @@ describe("the test-only Codex Adapter double", () => {
     // neither could resolve it if it did: it is not in `dist`, and the package
     // exports one subpath.
     for (const workspace of ["packages/worker", "packages/worker-hosted"]) {
-      for (const file of sourcesOf(workspace)) {
+      const sources = sourcesOf(workspace);
+
+      // A lifecycle whose sources vanished would otherwise assert nothing.
+      expect(sources.length).toBeGreaterThan(0);
+      for (const file of sources) {
         const source = readFileSync(file, "utf-8");
 
         expect(source).not.toContain("test-support");

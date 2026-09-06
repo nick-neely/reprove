@@ -48,6 +48,24 @@ const ALLOWED_FILE_NAMES: ReadonlySet<string> = new Set([
 /** The one directory-shaped member of the allowlist, at any depth. */
 const ALLOWED_DIRECTORY = ".claude/rules/";
 
+/**
+ * The directories ADR 0009 never re-admits from, whatever a file inside one is
+ * called.
+ *
+ * Checked before the allowlist, because the allowlist matches a file name at
+ * any depth and these directories hold surfaces whose native semantics are the
+ * reason they are refused: an agent definition replaces the Reviewer's system
+ * prompt and grants itself `bash: allow`. A file named `AGENTS.md` sitting in
+ * one of them is still a file in one of them, and Reprove has no way to tell
+ * from the name which it is.
+ */
+const DENIED_DIRECTORIES: readonly string[] = [
+  ".claude/agents/",
+  ".claude/skills/",
+  ".agents/skills/",
+  ".opencode/agent/",
+];
+
 /** Where a convention came from. Only one of these is ever re-admitted. */
 export type ConventionOrigin = "base" | "head";
 
@@ -114,7 +132,17 @@ const IMPORT_REFERENCE = /(?<![\w@.\-/])@(?<target>\S+)/gu;
  */
 const TRAILING_PUNCTUATION = /[.,;:!?)\]}'"]+$/u;
 
+/** Whether a path sits under a directory the ADR names as never re-admitted. */
+const isDenied = (path: string): boolean =>
+  DENIED_DIRECTORIES.some(
+    (directory) =>
+      path.startsWith(directory) || path.includes(`/${directory}`)
+  );
+
 const isAllowlisted = (path: string): boolean => {
+  if (isDenied(path)) {
+    return false;
+  }
   const fileName = path.slice(path.lastIndexOf("/") + 1);
   return (
     ALLOWED_FILE_NAMES.has(fileName) ||
