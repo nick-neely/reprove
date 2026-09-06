@@ -203,6 +203,38 @@ describe("the capability gates", () => {
     });
   });
 
+  it.each([
+    {
+      case: "a probe stamped in the future",
+      probedAt: NOW + 1000,
+      actual: "probed 1000ms in the future",
+    },
+    {
+      case: "a probe stamped with no usable timestamp",
+      probedAt: Number.NaN,
+      actual: "probed at NaN, which is not a usable timestamp",
+    },
+    {
+      case: "a probe stamped infinitely far back",
+      probedAt: Number.NEGATIVE_INFINITY,
+      actual: "probed at -Infinity, which is not a usable timestamp",
+    },
+  ])(
+    "refuses $case rather than reading it as fresh",
+    ({ probedAt, actual }) => {
+      // The shelf life is a bound on a measurement the Adapter reports, so a
+      // stamp that cannot be older than the bound is refused rather than trusted:
+      // "not stale" must mean measured recently, never merely uncomparable.
+      const capability = { ...sound.capability, probedAt };
+
+      expect(checkDispatch({ ...sound, capability })).toStrictEqual({
+        reason: "capability_probe_stale",
+        required: `probed within ${PROBE_MAX_AGE_MS}ms`,
+        actual,
+      });
+    }
+  );
+
   it("refuses when the instruction boundary cannot be established", () => {
     // There is no degraded Run: ADR 0004 bans anything that warns and runs, and
     // ADR 0009 promotes this from an advisory field to a hard gate.

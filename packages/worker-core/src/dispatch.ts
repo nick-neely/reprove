@@ -159,6 +159,25 @@ const ineligible = (input: DispatchInput): RefusalCause => {
 };
 
 /**
+ * How old the probe is, said in a way an operator can act on.
+ *
+ * A `probedAt` an Adapter reports is a number, not a promise that the number is
+ * a timestamp: a future stamp, a `NaN` and an infinity all read as "not stale"
+ * under a `>` comparison alone, so the one gate that bounds a capability's
+ * shelf life would be turned off by the party it constrains. Each of those is
+ * therefore stated as the fact it is rather than folded into an age.
+ */
+const staleness = (age: number, probedAt: number): string | null => {
+  if (!Number.isFinite(age)) {
+    return `probed at ${String(probedAt)}, which is not a usable timestamp`;
+  }
+  if (age < 0) {
+    return `probed ${-age}ms in the future`;
+  }
+  return age > PROBE_MAX_AGE_MS ? `probed ${age}ms ago` : null;
+};
+
+/**
  * Refuses a Run before execution is authorized, or returns `null`.
  *
  * Ordered, and the order is the point: the capability gates come first, because
@@ -170,12 +189,13 @@ const ineligible = (input: DispatchInput): RefusalCause => {
  * @returns The cause that refused the Run, or `null` where none did.
  */
 export const checkDispatch = (input: DispatchInput): RefusalCause | null => {
-  const age = input.now - input.capability.probedAt;
-  if (age > PROBE_MAX_AGE_MS) {
+  const { probedAt } = input.capability;
+  const stale = staleness(input.now - probedAt, probedAt);
+  if (stale !== null) {
     return {
       reason: "capability_probe_stale",
       required: `probed within ${PROBE_MAX_AGE_MS}ms`,
-      actual: `probed ${age}ms ago`,
+      actual: stale,
     };
   }
 
