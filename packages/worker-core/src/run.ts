@@ -276,6 +276,7 @@ export const createWorkerCore = (options: WorkerCoreOptions): WorkerCore => {
         allowExternalProvenance:
           spec.resolvedConfig.security.allowExternalProvenance,
         exposure: input.exposure,
+        maximumExposure: spec.resolvedConfig.security.maxExposure,
         isolation,
         capability,
         now: clock(),

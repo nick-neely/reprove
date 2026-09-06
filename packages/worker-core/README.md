@@ -51,7 +51,7 @@ The regression that proves it is that every Refusal path leaves the Adapter's
 | Module | What it owns |
 |---|---|
 | `run.ts` | The pipeline above, and the only place execution is authorized. |
-| `dispatch.ts` | ADR 0004's `Exposure` x `Isolation` x `Provenance` matrix, the capability probe's shelf life, ADR 0009's boundary gate, and the Autonomy check. |
+| `dispatch.ts` | ADR 0004's `Exposure` x `Isolation` x `Provenance` matrix, the capability probe's shelf life, ADR 0009's boundary gate, ADR 0011's `security.maxExposure`, and the Autonomy check. |
 | `narrative.ts` | ADR 0012's bounded, protected `authority: none` data file. |
 | `instructions.ts` | ADR 0009's channel separation: origin decides admission, indirection is neutralized. |
 | `evidence.ts` | The Evidence cross-check, and the bound that keeps raw output off the wire. |

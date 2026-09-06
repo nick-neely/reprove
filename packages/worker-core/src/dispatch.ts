@@ -2,9 +2,10 @@
  * Everything Worker core decides before a single byte of repository code runs.
  *
  * ADR 0004 gates dispatch on `Exposure` x `Isolation` x `Provenance`, ADR 0005
- * makes a resolved capability the only view safe to act on, and ADR 0009
- * promotes the instruction boundary from an advisory field to a hard gate.
- * They are one ordered decision here rather than four scattered conditions,
+ * makes a resolved capability the only view safe to act on, ADR 0009 promotes
+ * the instruction boundary from an advisory field to a hard gate, and ADR 0011
+ * gives a Repository a maximum Exposure it will run under. They are one ordered
+ * decision here rather than five scattered conditions,
  * because the guarantee is the conjunction: **nothing warns and runs.** A
  * missing hard requirement is a Refusal, never a narrowing and never a log
  * line, and a warning in a Worker log is silent to the person whose pull
@@ -43,6 +44,7 @@ export type RefusalReason =
   | "capability_probe_stale"
   | "instruction_boundary_unenforceable"
   | "autonomy_unsupported"
+  | "exposure_above_maximum"
   | "isolation_insufficient"
   | "provenance_ineligible"
   | "narrative_title_missing"
@@ -70,11 +72,27 @@ export interface DispatchInput {
   readonly allowExternalProvenance: boolean;
   /** Resolved from the credential at dispatch, never from registration. */
   readonly exposure: Exposure;
+  /**
+   * The Repository's `security.maxExposure`, already narrowed by whatever Owner
+   * Ceiling applied. The Worker is the only place it can bind: ADR 0004 resolves
+   * `Exposure` from the credential at dispatch, so the control plane that read
+   * the key never saw the value it constrains.
+   */
+  readonly maximumExposure: Exposure;
   /** What the Sandbox provider's host capability actually established. */
   readonly isolation: IsolationLevel;
   readonly capability: ResolvedCapability;
   readonly now: number;
 }
+
+/**
+ * The Exposure ladder in blast-radius order, so "no more than" is comparable.
+ *
+ * `none` yields no usable credential, `scoped` a model-only one revocable
+ * without disturbing the user's own login, and `account` one that can act as
+ * the user beyond this Run.
+ */
+const EXPOSURE_LADDER: readonly Exposure[] = ["none", "scoped", "account"];
 
 /** Anything above a rootful container, which is the only weak rung. */
 const isStrong = (isolation: IsolationLevel): boolean =>
@@ -174,6 +192,22 @@ export const checkDispatch = (input: DispatchInput): RefusalCause | null => {
       reason: "autonomy_unsupported",
       required: input.autonomy,
       actual: input.capability.supportedAutonomy.join(", ") || "no Autonomy",
+    };
+  }
+
+  // Before the matrix, because a Repository that wrote `maxExposure: scoped`
+  // has already answered this Run, and naming ADR 0004's table instead would
+  // send an operator to rebuild a host over a credential their own
+  // configuration had refused. A key that reads as configured and gates nothing
+  // is the silent downgrade ADR 0004 puts in scope as a vulnerability.
+  if (
+    EXPOSURE_LADDER.indexOf(input.exposure) >
+    EXPOSURE_LADDER.indexOf(input.maximumExposure)
+  ) {
+    return {
+      reason: "exposure_above_maximum",
+      required: `no more than ${input.maximumExposure}`,
+      actual: input.exposure,
     };
   }
 

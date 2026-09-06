@@ -21,6 +21,7 @@ const sound: DispatchInput = {
   provenance: "internal",
   allowExternalProvenance: false,
   exposure: "scoped",
+  maximumExposure: "account",
   isolation: "container-rootless",
   capability: {
     supportedAutonomy: ["verify", "fix"],
@@ -128,6 +129,42 @@ describe("the dispatch matrix", () => {
       required: "internal",
       actual: "external",
     });
+  });
+
+  it("refuses an Exposure above the maximum the Repository allows", () => {
+    // ADR 0011's durable form of "never let a password-equivalent account
+    // credential run here". The Worker is the only place it can bind, because
+    // the control plane that read the key never saw the resolved Exposure.
+    expect(
+      checkDispatch({ ...sound, exposure: "account", maximumExposure: "scoped" })
+    ).toStrictEqual({
+      reason: "exposure_above_maximum",
+      required: "no more than scoped",
+      actual: "account",
+    });
+  });
+
+  it("names the maximum before the matrix an operator cannot act on", () => {
+    // A Repository that refused the credential has already answered this Run,
+    // and naming ADR 0004's table instead would send an operator to rebuild a
+    // host over a combination their own configuration never permitted.
+    expect(
+      checkDispatch({
+        ...sound,
+        exposure: "account",
+        maximumExposure: "none",
+        isolation: "container",
+      })?.reason
+    ).toBe("exposure_above_maximum");
+  });
+
+  it("permits an Exposure at or below the maximum", () => {
+    expect(
+      checkDispatch({ ...sound, exposure: "scoped", maximumExposure: "scoped" })
+    ).toBeNull();
+    expect(
+      checkDispatch({ ...sound, exposure: "none", maximumExposure: "none" })
+    ).toBeNull();
   });
 
   it("permits external Provenance on the one opt-in cell", () => {

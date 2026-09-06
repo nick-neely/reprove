@@ -254,6 +254,24 @@ describe("a defect found before execution", () => {
         harness({ capability: { canEnforceRepoInstructionBoundary: false } }),
     },
     {
+      name: "an Exposure above the maximum the Repository allows",
+      reason: "exposure_above_maximum",
+      harnessed: () => harness(),
+      overrides: {
+        exposure: "account" as const,
+        spec: {
+          ...RUN_SPEC,
+          resolvedConfig: {
+            ...RUN_SPEC.resolvedConfig,
+            security: {
+              ...RUN_SPEC.resolvedConfig.security,
+              maxExposure: "scoped" as const,
+            },
+          },
+        },
+      },
+    },
+    {
       name: "an ineligible Exposure, Isolation and Provenance combination",
       reason: "isolation_insufficient",
       harnessed: () => harness({}, { isolation: "container" }),
