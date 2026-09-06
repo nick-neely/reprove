@@ -29,8 +29,15 @@
  * ADR 0005 puts one bounded repair turn inside the same Pass and the same
  * Sandbox, and also gives Reprove ownership of Result conformance. Only Worker
  * core can decide conformance - schema validation and the Evidence cross-check
- * are its - so the Pass request carries `accept`, and what an Adapter may do
+ * are its - so the Pass request carries `check`, and what an Adapter may do
  * about a complaint is run its one repair turn and ask again.
+ *
+ * The word is **conformance** rather than acceptance throughout. `CONTEXT.md`
+ * reserves Acceptance for the control plane's decision to absorb a submitted
+ * Result into its Run, states that it happens only there, and distinguishes it
+ * by name from the validation a Worker performs on its own output. Reusing it
+ * here would re-collapse the two operations ADR 0010's clarification of ADR
+ * 0006 separated.
  *
  * **The bundle is strictly narrower than a Result.** It carries candidate
  * Findings and *claimed* Evidence, and nothing here has crossed the Worker
@@ -142,7 +149,7 @@ export interface AdapterPassOutput {
     readonly failureReason: string | null;
 }
 /** What Worker core says about a bundle it will not build a Result from. */
-export interface AcceptanceComplaint {
+export interface ConformanceComplaint {
     readonly reason: "result_invalid" | "evidence_unsupported";
     readonly detail: string;
 }
@@ -162,10 +169,10 @@ export interface PassRequest {
     /** Pass budget enforcement, which no adapter offers on its own. */
     readonly signal: AbortSignal;
     /**
-     * Worker core's acceptance check, which the Adapter may answer with its one
-     * bounded repair turn. A `null` complaint means the bundle would be accepted.
+     * Worker core's conformance check, which the Adapter may answer with its one
+     * bounded repair turn. A `null` complaint means the bundle would survive it.
      */
-    readonly accept: (output: AdapterPassOutput) => AcceptanceComplaint | null;
+    readonly check: (output: AdapterPassOutput) => ConformanceComplaint | null;
 }
 export interface Adapter {
     readonly harness: Harness;
@@ -182,9 +189,10 @@ export interface Adapter {
  * Everything Worker core decides before a single byte of repository code runs.
  *
  * ADR 0004 gates dispatch on `Exposure` x `Isolation` x `Provenance`, ADR 0005
- * makes a resolved capability the only view safe to act on, and ADR 0009
- * promotes the instruction boundary from an advisory field to a hard gate.
- * They are one ordered decision here rather than four scattered conditions,
+ * makes a resolved capability the only view safe to act on, ADR 0009 promotes
+ * the instruction boundary from an advisory field to a hard gate, and ADR 0011
+ * gives a Repository a maximum Exposure it will run under. They are one ordered
+ * decision here rather than five scattered conditions,
  * because the guarantee is the conjunction: **nothing warns and runs.** A
  * missing hard requirement is a Refusal, never a narrowing and never a log
  * line, and a warning in a Worker log is silent to the person whose pull
@@ -214,7 +222,7 @@ export type IsolationLevel = "microvm" | "container-rootless" | "container";
  */
 export declare const PROBE_MAX_AGE_MS: number;
 /** Why Worker core will not serve this Run. Closed, and each names a fact. */
-export type RefusalReason = "capability_unresolved" | "capability_probe_stale" | "instruction_boundary_unenforceable" | "autonomy_unsupported" | "isolation_insufficient" | "provenance_ineligible" | "narrative_title_missing" | "narrative_not_protected" | "sandbox_refused";
+export type RefusalReason = "capability_unresolved" | "capability_probe_stale" | "instruction_boundary_unenforceable" | "autonomy_unsupported" | "exposure_above_maximum" | "isolation_insufficient" | "provenance_ineligible" | "narrative_title_missing" | "narrative_not_protected" | "sandbox_refused";
 /**
  * A Refusal's substance, before it is addressed to a Run.
  *
@@ -235,6 +243,13 @@ export interface DispatchInput {
     readonly allowExternalProvenance: boolean;
     /** Resolved from the credential at dispatch, never from registration. */
     readonly exposure: Exposure;
+    /**
+     * The Repository's `security.maxExposure`, already narrowed by whatever Owner
+     * Ceiling applied. The Worker is the only place it can bind: ADR 0004 resolves
+     * `Exposure` from the credential at dispatch, so the control plane that read
+     * the key never saw the value it constrains.
+     */
+    readonly maximumExposure: Exposure;
     /** What the Sandbox provider's host capability actually established. */
     readonly isolation: IsolationLevel;
     readonly capability: ResolvedCapability;
@@ -272,7 +287,7 @@ export declare const checkDispatch: (input: DispatchInput) => RefusalCause | nul
 
 ```ts
 import type { Finding } from "@reprove/protocol/v1";
-import type { AcceptanceComplaint, CandidateFinding, ObservedToolCall } from "./adapter.js";
+import type { ConformanceComplaint, CandidateFinding, ObservedToolCall } from "./adapter.js";
 export interface CrossCheckInput {
     readonly findings: readonly CandidateFinding[];
     /** Every tool execution the Adapter saw on the Harness's own stream. */
@@ -283,7 +298,7 @@ export type CrossCheck = {
     readonly complaint: null;
 } | {
     readonly findings: null;
-    readonly complaint: AcceptanceComplaint;
+    readonly complaint: ConformanceComplaint;
 };
 /**
  * Checks every claim against what was observed and carries what survives.
@@ -314,7 +329,7 @@ export declare const composedFrom: {
     readonly protocolVersion: 1;
     readonly sandboxContainer: "@reprove/sandbox-container";
 };
-export type { AcceptanceComplaint, Adapter, AdapterPassOutput, Autonomy, CandidateFinding, CandidateLocation, ClaimedEvidence, Harness, ObservedToolCall, PassOutcome, PassRequest, ResolvedCapability, } from "./adapter.js";
+export type { ConformanceComplaint, Adapter, AdapterPassOutput, Autonomy, CandidateFinding, CandidateLocation, ClaimedEvidence, Harness, ObservedToolCall, PassOutcome, PassRequest, ResolvedCapability, } from "./adapter.js";
 export { checkDispatch, permittedProvenance, PROBE_MAX_AGE_MS, } from "./dispatch.js";
 export type { DispatchInput, IsolationLevel, RefusalCause, RefusalReason, } from "./dispatch.js";
 export { crossCheckEvidence } from "./evidence.js";
@@ -560,8 +575,15 @@ import type { Refusal, Result } from "@reprove/protocol/v1";
  * that must never be collapsed into `worker_lost`.
  */
 export type FailureReason = "pass_failed" | "result_invalid" | "evidence_unsupported" | "model_substituted" | "sandbox_teardown_incomplete";
-/** Where in the post-execution sequence the defect was found. */
-export type FailurePhase = "execution" | "acceptance" | "teardown";
+/**
+ * Where in the post-execution sequence the defect was found.
+ *
+ * `conformance` rather than acceptance: `CONTEXT.md` reserves Acceptance for
+ * the control plane's decision to absorb a Result into its Run and says
+ * outright that it happens only there, distinguishing it by name from the
+ * validation a Worker performs on its own output.
+ */
+export type FailurePhase = "execution" | "conformance" | "teardown";
 /**
  * A Failure, internal to Worker core.
  *
@@ -588,10 +610,11 @@ export type WorkerOutcome = {
 /**
  * The whole set, as values.
  *
- * Exported so "and no fourth" is assertable rather than merely intended: a
- * union that grew a member without this list growing with it is a compile
- * error at every exhaustive switch, and a list that grew without the union is
- * one here.
+ * Exported so "and no fourth" is assertable rather than merely intended. The
+ * `satisfies` closes one direction - a member listed here that the union does
+ * not admit is a compile error - and `run.test.ts` closes the other against a
+ * `Record` keyed by the union, because a union that grew a member is invisible
+ * to a list that did not.
  */
 export declare const WORKER_OUTCOME_KINDS: readonly ["result", "refusal", "failure"];
 export type WorkerOutcomeKind = (typeof WORKER_OUTCOME_KINDS)[number];
@@ -601,7 +624,7 @@ export type WorkerOutcomeKind = (typeof WORKER_OUTCOME_KINDS)[number];
 
 ```ts
 import type { Finding, Result, RunSpec } from "@reprove/protocol/v1";
-import type { AcceptanceComplaint, AdapterPassOutput } from "./adapter.js";
+import type { ConformanceComplaint, AdapterPassOutput } from "./adapter.js";
 export interface ResultInput {
     readonly spec: RunSpec;
     readonly pass: AdapterPassOutput;
@@ -617,7 +640,7 @@ export type ComposedResult = {
     readonly complaint: null;
 } | {
     readonly result: null;
-    readonly complaint: AcceptanceComplaint;
+    readonly complaint: ConformanceComplaint;
 };
 /**
  * Composes a Result and validates it against the authoritative schema.
