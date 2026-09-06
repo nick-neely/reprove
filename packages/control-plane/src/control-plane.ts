@@ -29,6 +29,7 @@ import type {
 } from "./github/delivery.js";
 import { recordDelivery } from "./github/ledger.js";
 import { createDeliveryProcessor } from "./github/processing.js";
+import { normalizeRunProfile } from "./github/profile.js";
 import type { Phase0RunProfile } from "./github/profile.js";
 import type { KickProcessing } from "./github/webhook.js";
 import { createGitHubWebhookHandler } from "./github/webhook.js";
@@ -180,6 +181,8 @@ export const createControlPlane = async (
     );
   }
 
+  const resolvedRunProfile = normalizeRunProfile(runProfile);
+
   const runtime = await createRuntimeDb({
     connectionString: config.database?.connectionString,
     poolSize: config.database?.poolSize,
@@ -196,7 +199,7 @@ export const createControlPlane = async (
   const processDelivery = createDeliveryProcessor({
     withOwner: runtime.withOwner,
     canonicalPullRequest: github.canonicalPullRequest,
-    profile: runProfile,
+    profile: resolvedRunProfile,
   });
 
   // The in-process fallback. Started and not awaited, so the acknowledgement

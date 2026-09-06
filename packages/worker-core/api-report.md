@@ -43,7 +43,7 @@
  * Findings and *claimed* Evidence, and nothing here has crossed the Worker
  * boundary yet. Everything that leaves the Sandbox is attacker-controlled.
  */
-import type { Autonomy, Harness, Severity, Usage, Verification } from "@reprove/protocol/v1";
+import type { Autonomy, CodexReasoningEffort, Harness, Severity, Usage, Verification } from "@reprove/protocol/v1";
 import type { Sandbox } from "@reprove/sandbox-container";
 import type { TrustedInstructions } from "./instructions.js";
 export type { Autonomy, Harness } from "@reprove/protocol/v1";
@@ -177,6 +177,7 @@ export type PassProgress = {
     readonly failureReason: string | null;
 };
 export interface PassRequest {
+    readonly reasoningEffort?: CodexReasoningEffort;
     /** Synchronous subscription; events arrive while the Pass is running. */
     readonly onProgress?: (event: PassProgress) => void;
     readonly runId: string;
@@ -198,7 +199,7 @@ export interface PassRequest {
 export interface Adapter {
     readonly harness: Harness;
     /** The resolved view, taken fresh per dispatch. */
-    readonly capability: (request?: Pick<PassRequest, "sandbox" | "model" | "signal">) => Promise<ResolvedCapability>;
+    readonly capability: (request?: Pick<PassRequest, "sandbox" | "model" | "signal" | "reasoningEffort">) => Promise<ResolvedCapability>;
     readonly pass: (request: PassRequest) => Promise<AdapterPassOutput>;
 }
 ```

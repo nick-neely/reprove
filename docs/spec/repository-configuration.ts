@@ -156,13 +156,12 @@ export const projectCommands = z
   .strict()
 
 /**
- * ADR 0005's small typed per-Harness advanced options. Ships empty and
- * `.strict()`, so every key is rejected until one is added deliberately.
- * Reserving the shape without inventing keys is the point.
+ * ADR 0005's small typed per-Harness advanced options. Codex effort is
+ * narrowed against the selected Model by the control plane. Unknown keys fail.
  */
 export const harnessOptions = z
   .object({
-    codex: z.object({}).strict().optional(),
+    codex: z.object({ reasoningEffort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).default('medium') }).strict().optional(),
     claudeCode: z.object({}).strict().optional(),
     openCode: z.object({}).strict().optional(),
   })

@@ -233,6 +233,11 @@ export const createWorkerCore = (options: WorkerCoreOptions): WorkerCore => {
         runId: spec.runId,
         passId,
         model: spec.model,
+        reasoningEffort:
+          spec.harness === "codex"
+            ? (spec.resolvedConfig.review.harnessOptions.codex
+                ?.reasoningEffort ?? "medium")
+            : undefined,
         autonomy: spec.autonomy,
         instructions,
         sandbox,
@@ -401,7 +406,16 @@ export const createWorkerCore = (options: WorkerCoreOptions): WorkerCore => {
       try {
         capability = await resolveWithinDeadline(
           (signal) =>
-            adapter.capability({ sandbox, model: spec.model, signal }),
+            adapter.capability({
+              sandbox,
+              model: spec.model,
+              signal,
+              reasoningEffort:
+                spec.harness === "codex"
+                  ? (spec.resolvedConfig.review.harnessOptions.codex
+                      ?.reasoningEffort ?? "medium")
+                  : undefined,
+            }),
           input.signal
         );
         instanceRefusal = checkDispatch({

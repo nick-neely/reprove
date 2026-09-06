@@ -39,7 +39,7 @@ const responseEvents = (output) => {
     id: "resp_fixture",
     object: "response",
     status: "completed",
-    model: "gpt-5.5",
+    model: "gpt-5.6-sol",
     output: [output],
     usage: { input_tokens: 3, output_tokens: 4, total_tokens: 7 },
   };
@@ -132,14 +132,19 @@ const seed = async (sandbox, narrative = true) => {
   }
 };
 
-const qualify = async (provider, authentication) => {
+const qualify = async (
+  provider,
+  authentication,
+  reasoningEffort = "medium"
+) => {
   const sandbox = await provider.launch(
     sandboxRequestFor("codex", CODEX_SANDBOX_PROFILE)
   );
   try {
     await seed(sandbox);
     const proof = await probeCodexInstructions({
-      model: "gpt-5.5",
+      reasoningEffort,
+      model: "gpt-5.6-sol",
       authentication,
       sandbox,
       signal: AbortSignal.timeout(60_000),
@@ -175,7 +180,7 @@ const RUN_SPEC = {
   placement: "hosted",
   allowHostedFallback: false,
   harness: "codex",
-  model: "gpt-5.5",
+  model: "gpt-5.6-sol",
   strategy: "standard",
   autonomy: "verify",
   resolvedConfig: {
@@ -187,7 +192,7 @@ const RUN_SPEC = {
       threshold: { severity: "medium", verification: "any" },
       ignore: [],
       baseConventions: true,
-      harnessOptions: {},
+      harnessOptions: { codex: { reasoningEffort: "high" } },
       overrides: [],
     },
     security: {
@@ -222,7 +227,7 @@ describe("real Codex Adapter contracts", () => {
       };
       const proof = await qualify(provider, authentication);
       const adapter = createCodexAdapter({
-        model: "gpt-5.5",
+        model: "gpt-5.6-sol",
         authentication,
         instructionProbe: () => Promise.resolve(proof),
       });
@@ -245,7 +250,7 @@ describe("real Codex Adapter contracts", () => {
         await seed(sandbox);
         await expect(
           adapter.capability({
-            model: "gpt-5.5",
+            model: "gpt-5.6-sol",
             sandbox,
             signal: AbortSignal.timeout(30_000),
           })
@@ -326,7 +331,7 @@ describe("real Codex Adapter contracts", () => {
           await seed(sandbox);
           corrupt = true;
           const adapter = createCodexAdapter({
-            model: "gpt-5.5",
+            model: "gpt-5.6-sol",
             authentication,
             instructionProbe: () => Promise.resolve(proof),
             fetch: () => Promise.resolve(responseEvents(message("not JSON"))),
@@ -334,7 +339,7 @@ describe("real Codex Adapter contracts", () => {
           const result = await adapter.pass({
             runId: "malformed",
             passId: crypto.randomUUID(),
-            model: "gpt-5.5",
+            model: "gpt-5.6-sol",
             autonomy: "verify",
             sandbox,
             instructions: {
@@ -377,7 +382,14 @@ describe("real Codex Adapter contracts", () => {
           },
         },
       });
-      const proof = await qualify(provider, authentication);
+      let reasoningEffort = "high";
+      if (authentication.provider === "openai") {
+        reasoningEffort = "medium";
+      }
+      if (authentication.provider === "gateway") {
+        reasoningEffort = "max";
+      }
+      const proof = await qualify(provider, authentication, reasoningEffort);
       const sandbox = await provider.launch(
         sandboxRequestFor("codex", CODEX_SANDBOX_PROFILE)
       );
@@ -386,9 +398,10 @@ describe("real Codex Adapter contracts", () => {
         const requests = [];
         const progress = [];
         const adapter = createCodexAdapter({
-          model: "gpt-5.5",
+          model: "gpt-5.6-sol",
           authentication,
           timeoutMs: 90_000,
+          reasoningEffort,
           instructionProbe: () => Promise.resolve(proof),
           fetch: async (request) => {
             const body = await request.json();
@@ -422,16 +435,34 @@ describe("real Codex Adapter contracts", () => {
             );
           },
         });
+        await expect(
+          adapter.capability({
+            model: "gpt-5.6-sol",
+            sandbox,
+            signal: AbortSignal.timeout(30_000),
+            reasoningEffort: reasoningEffort === "medium" ? "high" : "medium",
+          })
+        ).resolves.toMatchObject({ canEnforceRepoInstructionBoundary: false });
+        const changedEffort = createCodexAdapter({
+          model: "gpt-5.6-sol",
+          authentication,
+          reasoningEffort: reasoningEffort === "medium" ? "high" : "medium",
+          instructionProbe: () => Promise.resolve(proof),
+        });
+        await expect(changedEffort.capability()).resolves.toMatchObject({
+          canEnforceRepoInstructionBoundary: false,
+        });
         let settled = false;
         const mismatched = createCodexAdapter({
-          model: "gpt-5.5",
+          reasoningEffort,
+          model: "gpt-5.6-sol",
           authentication,
           instructionProbe: () =>
             Promise.resolve({ ...proof, runtimeFingerprint: "0".repeat(64) }),
         });
         await expect(
           mismatched.capability({
-            model: "gpt-5.5",
+            model: "gpt-5.6-sol",
             sandbox,
             signal: AbortSignal.timeout(30_000),
           })
@@ -441,9 +472,10 @@ describe("real Codex Adapter contracts", () => {
             expect(settled).toBe(false);
             progress.push(event);
           },
+          reasoningEffort,
           runId: "fixture",
           passId: crypto.randomUUID(),
-          model: "gpt-5.5",
+          model: "gpt-5.6-sol",
           autonomy: "verify",
           instructions: {
             policy: "Review the Workspace. Return JSON.",
@@ -488,6 +520,11 @@ describe("real Codex Adapter contracts", () => {
           }),
         ]);
         expect(requests).toHaveLength(3);
+        expect(requests.map((request) => request.reasoning?.effort)).toEqual([
+          reasoningEffort,
+          reasoningEffort,
+          reasoningEffort,
+        ]);
         expect(JSON.stringify(requests[1])).toContain(CANARY);
         const inputText = inputs.join("\n");
         if (authentication.kind === "api-key") {
@@ -516,7 +553,7 @@ describe("real Codex Adapter contracts", () => {
         const controller = new AbortController();
         const started = Promise.withResolvers();
         const adapter = createCodexAdapter({
-          model: "gpt-5.5",
+          model: "gpt-5.6-sol",
           authentication,
           instructionProbe: () => Promise.resolve(proof),
           timeoutMs: 30_000,
@@ -536,7 +573,7 @@ describe("real Codex Adapter contracts", () => {
           onProgress: (event) => progress.push(event),
           runId: "cancel",
           passId: crypto.randomUUID(),
-          model: "gpt-5.5",
+          model: "gpt-5.6-sol",
           autonomy: "verify",
           sandbox,
           instructions: {
@@ -578,7 +615,7 @@ describe("real Codex Adapter contracts", () => {
         provider: "openai",
         key: "synthetic-broker-key",
       };
-      const proof = await qualify(provider, authentication);
+      const proof = await qualify(provider, authentication, "high");
       let requests = 0;
       const candidate = unsupported
         ? {
@@ -605,14 +642,15 @@ describe("real Codex Adapter contracts", () => {
           }
         : ANSWER;
       const adapter = createCodexAdapter({
-        model: "gpt-5.5",
+        model: "gpt-5.6-sol",
+        reasoningEffort: "high",
         authentication,
         instructionProbe: () => Promise.resolve(proof),
-        fetch: () => {
+        fetch: async (request) => {
+          const body = await request.json();
+          expect(body.reasoning.effort).toBe("high");
           requests += 1;
-          return Promise.resolve(
-            responseEvents(message(JSON.stringify(candidate)))
-          );
+          return responseEvents(message(JSON.stringify(candidate)));
         },
       });
       const core = createWorkerCore({
@@ -648,7 +686,7 @@ describe("real Codex Adapter contracts", () => {
             passes: [
               {
                 harness: "codex",
-                pinnedModel: "gpt-5.5",
+                pinnedModel: "gpt-5.6-sol",
                 repairTurnUsed: false,
               },
             ],

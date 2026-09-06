@@ -175,6 +175,7 @@ export const createBrokeredSession = async (
       : { OPENAI_API_KEY: authentication.key };
   const harness = createCodex({
     model: request.model,
+    reasoningEffort: options.reasoningEffort ?? "medium",
     auth,
     webSearch: false,
     codexConfig: {

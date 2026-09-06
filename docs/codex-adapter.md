@@ -20,7 +20,7 @@ Brokered credentials enter the Adapter on the Worker host. The SDK receives only
 | --- | --- |
 | Harness core | `1.0.102` |
 | Codex Harness bridge | `1.0.104` |
-| Embedded Codex SDK and native CLI | `0.149.1` |
+| Embedded Codex SDK and native CLI | `0.153.4` |
 
 The coordinated `harness` catalog pins the first two. The bridge's shipped frozen bootstrap lock pins the latter. Build the image before handling repository content or credentials:
 
@@ -37,15 +37,16 @@ The native CLI supports `--ignore-user-config` and `--ignore-rules`. The upstrea
 
 ## Fresh capability evidence
 
-`capability()` reports only `verify` after a fresh matching instruction probe. `inspect` and `fix` are unavailable. Missing, failed, stale, future-dated or mismatched evidence withdraws capability. The fingerprint hashes executable Adapter/Harness package contents, the authentication implementation, Provider selection and pinned Model. Worker core resolves it again against the actual attested Sandbox and its observed isolation before authorizing the Pass. Capability resolution has a 30-second deadline even when the caller provides a signal; `instructionProbe(signal)` receives the composed cancellation signal. An unresponsive callback cannot delay the Worker's refusal and teardown.
+`capability()` reports only `verify` after a fresh matching instruction probe. `inspect` and `fix` are unavailable. Missing, failed, stale, future-dated or mismatched evidence withdraws capability. The fingerprint hashes executable Adapter/Harness package contents, the authentication implementation, Provider selection, pinned Model and reasoning effort. Worker core resolves it again against the actual attested Sandbox and its observed isolation before authorizing the Pass. Capability resolution has a 30-second deadline even when the caller provides a signal; `instructionProbe(signal)` receives the composed cancellation signal. An unresponsive callback cannot delay the Worker's refusal and teardown.
 
-To obtain evidence, launch a **separate disposable synthetic Sandbox**, install the trusted `CODEX_PROBE_FILES` as root-owned read-only Workspace files, and create a protected empty narrative. Call `probeCodexInstructions({ model, authentication, sandbox, signal })`, then tear down that Sandbox. The probe uses the real CLI/bridge, checks that fixture files are present, observes outbound Provider inputs for prose, skill and unresolved-import canaries, and checks whether executable MCP configuration ran. It consumes a Provider turn. Cache only its returned measurement, for at most five minutes, and provide it through `instructionProbe`. A probe is never a production Run or a fabricated clean Result.
+To obtain evidence, launch a **separate disposable synthetic Sandbox**, install the trusted `CODEX_PROBE_FILES` as root-owned read-only Workspace files, and create a protected empty narrative. Call `probeCodexInstructions({ model, reasoningEffort, authentication, sandbox, signal })`, then tear down that Sandbox. The probe uses the real CLI/bridge, checks that fixture files are present, observes outbound Provider inputs for prose, skill and unresolved-import canaries, and checks whether executable MCP configuration ran. It consumes a Provider turn. Cache only its returned measurement, for at most five minutes, and provide it through `instructionProbe`. A probe is never a production Run or a fabricated clean Result.
 
 For example, after acquiring a measured `proof` and preparing the pinned Workspace:
 
 ```ts
 const adapter = createCodexAdapter({
   model,
+  reasoningEffort: input.spec.resolvedConfig.review.harnessOptions.codex?.reasoningEffort ?? "medium",
   authentication,
   instructionProbe: () => Promise.resolve(proof),
 });
@@ -60,6 +61,39 @@ const outcome = await core.execute(input);
 ```
 
 `materializeWorkspaceAndNarrative` is the existing Worker materialization port: populate the pinned Workspace, then call `materializeNarrative`. No Author bytes belong in command arguments or environment. Reprove's available Model choices live in control-plane `MODEL_CATALOGUE`; the Adapter accepts an opaque explicit pin and performs no runtime enumeration.
+
+## Model and reasoning defaults
+
+The control-plane default is `gpt-5.6-sol` with explicit `medium` reasoning. Configure
+reasoning in the immutable Run's resolved configuration:
+
+```yaml
+review:
+  harnessOptions:
+    codex:
+      reasoningEffort: medium
+```
+
+Control-plane composition resolves omitted Codex effort to explicit `medium` before
+creating a Run or computing its configuration digest. An unknown Codex Model or an
+unsupported Model/effort pair rejects the trusted Phase 0 profile at composition.
+
+The Adapter and probe accept the matching `reasoningEffort` option. An omitted value
+means `medium`; Worker core forwards the resolved value to capability checks and the
+Pass. A different configured effort needs its own probe, and a request that disagrees
+with the Adapter's selected effort is refused before execution.
+
+`availableReasoningEfforts(harness, model)` returns the Model/bridge intersection:
+GPT-5.6 Sol offers `low`, `medium`, `high`, `xhigh`, `max`; GPT-5.5 offers through
+`xhigh`; GPT-5 offers through `high`. The bridge's typed interface does not expose
+`none` or `minimal`, so those are not advertised even where a Model supports them.
+The brokered route sets the Harness's `reasoningEffort`; native execution sets
+`model_reasoning_effort` for both initial and repair invocations. Raw CLI flags and
+arbitrary Codex config are not accepted.
+
+Model capability sources: [GPT-5.6 Sol](https://developers.openai.com/api/docs/models/gpt-5.6-sol),
+[GPT-5.5](https://developers.openai.com/api/docs/models/gpt-5.5), and
+[GPT-5](https://developers.openai.com/api/docs/models/gpt-5), checked 2026-09-06.
 
 ## Output and lifecycle
 
@@ -76,3 +110,5 @@ The prerequisite scope follows the [#1](https://github.com/nick-neely/reprove/is
 The probe also records a SHA-256 digest of the complete immutable Codex runtime tree inside its Sandbox, including the native executable, suppression launcher, bridge, SDK dependencies and bootstrap files. Dispatch compares the actual Sandbox digest with that measurement and separately checks the expected bridge and launcher bytes. Host package fingerprints include runtime JavaScript, JSON manifests and the embedded frozen lockfile. A rebuilt image cannot reuse another runtime's evidence just by retaining its version string.
 
 `PassRequest.onProgress` is a synchronous subscription to live `started`, `tool-completed`, `usage`, `repair-started` and `finished` events. Worker core forwards a Run's subscription. Events carry metadata, never model prose, command text or command output; they remain untrusted and are not Evidence. Observer exceptions fail the Pass. Both authentication routes use the same event vocabulary and keep repair within the original Pass.
+
+The CLI and Codex SDK are independently pinned at 0.153.4 in the Adapter-owned frozen bootstrap lock. The latest Harness bridge release remains 1.0.104; its embedded older runtime lock is replaced explicitly while its bridge code stays pinned and qualified by the real contract suite.

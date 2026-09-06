@@ -41,7 +41,7 @@ export interface SandboxProfile {
 
 /** The pinned Codex image is built by tools/build-codex-image.mjs. */
 export const CODEX_SANDBOX_PROFILE: SandboxProfile = {
-  image: "reprove-codex:0.149.1-1.0.104",
+  image: "reprove-codex:0.153.4-1.0.104",
   command: ["node", "-e", "setInterval(()=>{},2147483647)"],
   workspacePath: "/reprove/workspace",
   workspaceSizeBytes: 1024 * 1024 * 1024,

@@ -4412,6 +4412,8 @@ export declare const normalizeResolvedConfig: (resolvedConfig: JsonValue) => Res
  * reaches for it unless a caller passes it.
  */
 export declare const PHASE_0_RUN_PROFILE: Phase0RunProfile;
+/** Resolve the trusted composition profile before any Run can be created. */
+export declare const normalizeRunProfile: (profile: Phase0RunProfile) => Phase0RunProfile;
 ```
 
 ## dist/github/provenance.d.ts
@@ -4803,7 +4805,7 @@ export type { KickProcessing } from "./github/webhook.js";
 export { WEBHOOK_STATUS } from "./github/webhook.js";
 export type { RunLifecyclePort, RunSchedule } from "./run/schedule.js";
 export declare const packageName: "@reprove/control-plane";
-export { availableModels, DEFAULT_CODEX_MODEL, MODEL_CATALOGUE, } from "./models.js";
+export { availableModels, availableReasoningEfforts, DEFAULT_CODEX_REASONING_EFFORT, DEFAULT_CODEX_MODEL, MODEL_CATALOGUE, } from "./models.js";
 /**
  * Shell. The control plane validates every Worker submission against the same
  * authoritative schema the Worker emits with, because a hostile or buggy Worker
@@ -4817,17 +4819,26 @@ export declare const accepts: {
 ## dist/models.d.ts
 
 ```ts
-import type { Harness } from "@reprove/protocol/v1";
+import type { Harness, CodexReasoningEffort } from "@reprove/protocol/v1";
 /** Reprove product data. Harnesses receive an opaque pin and never enumerate Models. */
 export declare const MODEL_CATALOGUE: readonly [{
     readonly harness: "codex";
+    readonly model: "gpt-5.6-sol";
+    readonly reasoningEfforts: readonly ["low", "medium", "high", "xhigh", "max"];
+}, {
+    readonly harness: "codex";
     readonly model: "gpt-5";
+    readonly reasoningEfforts: readonly ["low", "medium", "high"];
 }, {
     readonly harness: "codex";
     readonly model: "gpt-5.5";
+    readonly reasoningEfforts: readonly ["low", "medium", "high", "xhigh"];
 }];
 export declare const availableModels: (harness: Harness) => readonly string[];
-export declare const DEFAULT_CODEX_MODEL: "gpt-5";
+export declare const DEFAULT_CODEX_MODEL: "gpt-5.6-sol";
+export declare const DEFAULT_CODEX_REASONING_EFFORT: "medium";
+/** Only levels supported by both the selected Model and the Codex bridge. */
+export declare const availableReasoningEfforts: (harness: Harness, model: string) => readonly CodexReasoningEffort[];
 ```
 
 ## dist/run/lifecycle.d.ts

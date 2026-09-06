@@ -68,6 +68,8 @@ export const packageName = "@reprove/control-plane" as const;
 
 export {
   availableModels,
+  availableReasoningEfforts,
+  DEFAULT_CODEX_REASONING_EFFORT,
   DEFAULT_CODEX_MODEL,
   MODEL_CATALOGUE,
 } from "./models.js";

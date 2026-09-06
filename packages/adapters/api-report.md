@@ -48,6 +48,14 @@ export declare const ANSWER_SCHEMA: z.core.ZodStandardJSONSchemaPayload<z.ZodObj
 export declare const parseAnswer: (text: string) => Pick<AdapterPassOutput, "summary" | "disprovedHypothesisCount" | "findings">;
 ```
 
+## dist/bootstrap.d.ts
+
+```ts
+import type { ImageFile } from "./image.js";
+export declare const CODEX_CLI_VERSION = "0.153.4";
+export declare const CODEX_BOOTSTRAP_FILES: readonly ImageFile[];
+```
+
 ## dist/brokered.d.ts
 
 ```ts
@@ -61,7 +69,9 @@ export declare const createBrokeredSession: (request: PassRequest, options: Code
 ## dist/codex.d.ts
 
 ```ts
+import type { CodexReasoningEffort } from "./reasoning.js";
 import type { Adapter } from "./types.js";
+export { CODEX_CLI_VERSION } from "./bootstrap.js";
 export type CodexAuthentication = {
     readonly kind: "api-key";
     readonly provider: "openai" | "gateway";
@@ -77,6 +87,7 @@ export interface InstructionProbe {
     readonly satisfied: boolean;
 }
 export interface CodexOptions {
+    readonly reasoningEffort?: CodexReasoningEffort;
     readonly model: string;
     readonly timeoutMs?: number;
     readonly authentication: CodexAuthentication;
@@ -85,8 +96,7 @@ export interface CodexOptions {
     /** Substitutable only at the external Provider HTTP boundary. */
     readonly fetch?: (request: Request) => Promise<Response>;
 }
-export declare const CODEX_CLI_VERSION = "0.149.1";
-export declare const codexFingerprint: (authentication: CodexAuthentication, model: string) => string;
+export declare const codexFingerprint: (authentication: CodexAuthentication, model: string, reasoningEffort?: CodexReasoningEffort) => string;
 export declare const createCodexAdapter: (input: CodexOptions) => Adapter;
 ```
 
@@ -173,6 +183,8 @@ export type { ImageFile } from "./image.js";
 export { createCodexAdapter, codexFingerprint, CODEX_CLI_VERSION, } from "./codex.js";
 export type { CodexOptions, CodexAuthentication, InstructionProbe, } from "./codex.js";
 export type { PassProgress } from "./types.js";
+export { CODEX_REASONING_EFFORTS } from "./reasoning.js";
+export type { CodexReasoningEffort } from "./reasoning.js";
 ```
 
 ## dist/io.d.ts
@@ -248,6 +260,14 @@ export declare const probeCodexInstructions: (options: Omit<CodexOptions, "instr
 }) => Promise<InstructionProbe>;
 ```
 
+## dist/reasoning.d.ts
+
+```ts
+export declare const CODEX_REASONING_EFFORTS: readonly ["low", "medium", "high", "xhigh", "max"];
+export type CodexReasoningEffort = (typeof CODEX_REASONING_EFFORTS)[number];
+export declare const resolveReasoningEffort: (value?: CodexReasoningEffort) => CodexReasoningEffort;
+```
+
 ## dist/session.d.ts
 
 ```ts
@@ -271,6 +291,7 @@ export declare const SUMMARIZE = "Review the Workspace under the supplied policy
 
 ```ts
 import type { SandboxConnection } from "./connection.js";
+import type { CodexReasoningEffort } from "./reasoning.js";
 type Autonomy = "inspect" | "verify" | "fix";
 type Severity = "critical" | "high" | "medium" | "low";
 type Verification = "verified" | "inconclusive" | "static";
@@ -370,6 +391,7 @@ export type PassProgress = {
     readonly failureReason: string | null;
 };
 export interface PassRequest {
+    readonly reasoningEffort?: CodexReasoningEffort;
     /** Synchronous subscription; events arrive while the Pass is running. */
     readonly onProgress?: (event: PassProgress) => void;
     readonly runId: string;
@@ -383,7 +405,7 @@ export interface PassRequest {
 }
 export interface Adapter {
     readonly harness: "codex";
-    readonly capability: (request?: Pick<PassRequest, "sandbox" | "model" | "signal">) => Promise<ResolvedCapability>;
+    readonly capability: (request?: Pick<PassRequest, "sandbox" | "model" | "signal" | "reasoningEffort">) => Promise<ResolvedCapability>;
     readonly pass: (request: PassRequest) => Promise<AdapterPassOutput>;
 }
 export {};

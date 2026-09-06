@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 import {
   configDigest,
   normalizeResolvedConfig,
+  normalizeRunProfile,
   PHASE_0_CLAIMABLE_FOR_MS,
   PHASE_0_RUN_PROFILE,
 } from "./profile.js";
@@ -21,7 +22,11 @@ describe("the Phase 0 profile", () => {
   it("carries a configuration the Worker protocol accepts, with defaults filled in", () => {
     expect(PHASE_0_RUN_PROFILE.resolvedConfig).toMatchObject({
       schemaVersion: 1,
-      review: { event: "COMMENT", ignore: [] },
+      review: {
+        event: "COMMENT",
+        ignore: [],
+        harnessOptions: { codex: { reasoningEffort: "medium" } },
+      },
       security: { maxExposure: "account", installScripts: "deny" },
     });
   });
@@ -29,6 +34,7 @@ describe("the Phase 0 profile", () => {
   it("is a fixture rather than a set of literals at the point of use", () => {
     expect(PHASE_0_RUN_PROFILE).toMatchObject({
       harness: "codex",
+      model: "gpt-5.6-sol",
       strategy: "standard",
       autonomy: "verify",
       placement: "hosted",
@@ -101,4 +107,40 @@ describe("the configuration digest", () => {
 
     expect(configDigest(forwards)).not.toBe(configDigest(backwards));
   });
+});
+
+describe("Codex profile resolution", () => {
+  it("stores the same effort and digest for omitted and explicit medium", () => {
+    const omitted = normalizeRunProfile({
+      ...PHASE_0_RUN_PROFILE,
+      resolvedConfig: normalizeResolvedConfig({
+        schemaVersion: 1,
+        review: {},
+        security: {},
+      }),
+    });
+    expect(
+      omitted.resolvedConfig.review.harnessOptions.codex?.reasoningEffort
+    ).toBe("medium");
+    expect(configDigest(omitted.resolvedConfig)).toBe(
+      configDigest(PHASE_0_RUN_PROFILE.resolvedConfig)
+    );
+  });
+
+  it.each(["gpt-5", "unknown-model"])(
+    "refuses unsupported Model/effort pair %s/max before Run creation",
+    (model) => {
+      expect(() =>
+        normalizeRunProfile({
+          ...PHASE_0_RUN_PROFILE,
+          model,
+          resolvedConfig: normalizeResolvedConfig({
+            schemaVersion: 1,
+            review: { harnessOptions: { codex: { reasoningEffort: "max" } } },
+            security: {},
+          }),
+        })
+      ).toThrow(/Model.*reasoning effort/u);
+    }
+  );
 });

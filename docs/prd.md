@@ -1463,7 +1463,9 @@ review:                      # Repository value beats Owner value beats Reprove 
     test: pnpm test
     typecheck: pnpm typecheck
   baseConventions: true      # ADR 0009's re-admission switch
-  harnessOptions: {}         # ADR 0005's typed options; empty at launch
+  harnessOptions:
+    codex:
+      reasoningEffort: medium # Typed option; available levels depend on the Model
   overrides:                 # last match wins; path-local keys only
     - paths: [packages/web/**]
       threshold: { severity: high }

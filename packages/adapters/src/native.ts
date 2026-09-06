@@ -80,6 +80,8 @@ export const createNativeSession = async (
       "--output-schema",
       schemaPath,
       "-c",
+      `model_reasoning_effort=${JSON.stringify(request.reasoningEffort ?? "medium")}`,
+      "-c",
       "project_doc_max_bytes=0",
       "-c",
       "skills.include_instructions=false",

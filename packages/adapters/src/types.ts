@@ -1,4 +1,5 @@
 import type { SandboxConnection } from "./connection.js";
+import type { CodexReasoningEffort } from "./reasoning.js";
 
 type Autonomy = "inspect" | "verify" | "fix";
 type Severity = "critical" | "high" | "medium" | "low";
@@ -106,6 +107,7 @@ export type PassProgress =
     };
 
 export interface PassRequest {
+  readonly reasoningEffort?: CodexReasoningEffort;
   /** Synchronous subscription; events arrive while the Pass is running. */
   readonly onProgress?: (event: PassProgress) => void;
   readonly runId: string;
@@ -121,7 +123,10 @@ export interface PassRequest {
 export interface Adapter {
   readonly harness: "codex";
   readonly capability: (
-    request?: Pick<PassRequest, "sandbox" | "model" | "signal">
+    request?: Pick<
+      PassRequest,
+      "sandbox" | "model" | "signal" | "reasoningEffort"
+    >
   ) => Promise<ResolvedCapability>;
   readonly pass: (request: PassRequest) => Promise<AdapterPassOutput>;
 }

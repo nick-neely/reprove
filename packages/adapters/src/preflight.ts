@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { CODEX_CLI_VERSION } from "./bootstrap.js";
 import { codexImageFiles } from "./image.js";
 import { execute } from "./io.js";
 import type { PassRequest } from "./types.js";
@@ -97,7 +98,7 @@ export const checkCodexSandbox = async (
       request.signal
     );
     return version.exitCode === 0 &&
-      version.stdout.trim() === "codex-cli 0.149.1" &&
+      version.stdout.trim() === `codex-cli ${CODEX_CLI_VERSION}` &&
       /^[a-f0-9]{64}$/u.test(prepared.stdout)
       ? prepared.stdout
       : null;

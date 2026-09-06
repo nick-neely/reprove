@@ -1,5 +1,7 @@
 import { createCodex } from "@ai-sdk/harness-codex";
 
+import { CODEX_BOOTSTRAP_FILES } from "./bootstrap.js";
+
 /** Trusted build inputs, resolved from the exactly pinned Harness artifact. */
 export interface ImageFile {
   readonly path: string;
@@ -34,12 +36,15 @@ export const codexImageFiles = async (): Promise<readonly ImageFile[]> => {
     throw new Error("the pinned Codex Harness supplied no bootstrap recipe");
   }
   return [
-    ...recipe.files.map((file) =>
-      suppressDiscovery({
-        path: file.path.slice(recipe.bootstrapDir.length + 1),
-        content: file.content,
-      })
-    ),
+    ...CODEX_BOOTSTRAP_FILES,
+    ...recipe.files
+      .filter((file) => file.path === `${recipe.bootstrapDir}/bridge.mjs`)
+      .map((file) =>
+        suppressDiscovery({
+          path: file.path.slice(recipe.bootstrapDir.length + 1),
+          content: file.content,
+        })
+      ),
     {
       path: "reprove-codex",
       content:

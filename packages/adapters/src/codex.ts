@@ -3,10 +3,15 @@ import { addAbortListener } from "node:events";
 
 import { VERSION } from "@ai-sdk/harness-codex";
 
+import { CODEX_CLI_VERSION } from "./bootstrap.js";
 import { ARTIFACT_FINGERPRINT } from "./fingerprint.js";
 import { invokeCodex, nativeAuthentication } from "./pass.js";
 import { checkCodexSandbox } from "./preflight.js";
+import { resolveReasoningEffort } from "./reasoning.js";
+import type { CodexReasoningEffort } from "./reasoning.js";
 import type { Adapter, ResolvedCapability } from "./types.js";
+
+export { CODEX_CLI_VERSION } from "./bootstrap.js";
 
 export type CodexAuthentication =
   | {
@@ -24,6 +29,7 @@ export interface InstructionProbe {
 }
 
 export interface CodexOptions {
+  readonly reasoningEffort?: CodexReasoningEffort;
   readonly model: string;
   readonly timeoutMs?: number;
   readonly authentication: CodexAuthentication;
@@ -35,10 +41,10 @@ export interface CodexOptions {
   readonly fetch?: (request: Request) => Promise<Response>;
 }
 
-export const CODEX_CLI_VERSION = "0.149.1";
 export const codexFingerprint = (
   authentication: CodexAuthentication,
-  model: string
+  model: string,
+  reasoningEffort: CodexReasoningEffort = "medium"
 ): string =>
   createHash("sha256")
     .update(
@@ -52,13 +58,18 @@ export const codexFingerprint = (
             ? authentication.provider
             : "native",
         model,
+        reasoningEffort: resolveReasoningEffort(reasoningEffort),
         suppression: 1,
       })
     )
     .digest("hex");
 
 export const createCodexAdapter = (input: CodexOptions): Adapter => {
-  const options = { ...input, authentication: { ...input.authentication } };
+  const options = {
+    ...input,
+    authentication: { ...input.authentication },
+    reasoningEffort: resolveReasoningEffort(input.reasoningEffort),
+  };
   if (!options.model.trim()) {
     throw new TypeError("a Pass needs an explicit Model");
   }
@@ -73,7 +84,11 @@ export const createCodexAdapter = (input: CodexOptions): Adapter => {
   } else if (!options.authentication.key.trim()) {
     throw new TypeError("Codex credential is empty");
   }
-  const fingerprint = codexFingerprint(options.authentication, options.model);
+  const fingerprint = codexFingerprint(
+    options.authentication,
+    options.model,
+    options.reasoningEffort
+  );
   const capability: Adapter["capability"] = async (
     request
   ): Promise<ResolvedCapability> => {
@@ -105,6 +120,8 @@ export const createCodexAdapter = (input: CodexOptions): Adapter => {
       Date.now() - probe.probedAt <= 300_000 &&
       (!request ||
         (request.model === options.model &&
+          resolveReasoningEffort(request.reasoningEffort) ===
+            options.reasoningEffort &&
           (await checkCodexSandbox({ ...request, signal })) ===
             probe.runtimeFingerprint));
     return {

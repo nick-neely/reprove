@@ -98,9 +98,21 @@ export const projectCommandsSchema = z
   })
   .strict();
 
+export const codexReasoningEffortSchema = z.enum([
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+]);
+export type CodexReasoningEffort = z.infer<typeof codexReasoningEffortSchema>;
+
 export const harnessOptionsSchema = z
   .object({
-    codex: z.object({}).strict().optional(),
+    codex: z
+      .object({ reasoningEffort: codexReasoningEffortSchema.default("medium") })
+      .strict()
+      .optional(),
     claudeCode: z.object({}).strict().optional(),
     openCode: z.object({}).strict().optional(),
   })

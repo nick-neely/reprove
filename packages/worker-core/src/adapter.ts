@@ -37,6 +37,7 @@
  */
 import type {
   Autonomy,
+  CodexReasoningEffort,
   Harness,
   Severity,
   Usage,
@@ -186,6 +187,7 @@ export type PassProgress =
     };
 
 export interface PassRequest {
+  readonly reasoningEffort?: CodexReasoningEffort;
   /** Synchronous subscription; events arrive while the Pass is running. */
   readonly onProgress?: (event: PassProgress) => void;
   readonly runId: string;
@@ -209,7 +211,10 @@ export interface Adapter {
   readonly harness: Harness;
   /** The resolved view, taken fresh per dispatch. */
   readonly capability: (
-    request?: Pick<PassRequest, "sandbox" | "model" | "signal">
+    request?: Pick<
+      PassRequest,
+      "sandbox" | "model" | "signal" | "reasoningEffort"
+    >
   ) => Promise<ResolvedCapability>;
   readonly pass: (request: PassRequest) => Promise<AdapterPassOutput>;
 }

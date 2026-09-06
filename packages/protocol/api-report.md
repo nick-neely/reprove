@@ -115,8 +115,24 @@ export declare const projectCommandsSchema: z.ZodObject<{
     test: z.ZodOptional<z.ZodString>;
     typecheck: z.ZodOptional<z.ZodString>;
 }, z.core.$strict>;
+export declare const codexReasoningEffortSchema: z.ZodEnum<{
+    high: "high";
+    low: "low";
+    max: "max";
+    medium: "medium";
+    xhigh: "xhigh";
+}>;
+export type CodexReasoningEffort = z.infer<typeof codexReasoningEffortSchema>;
 export declare const harnessOptionsSchema: z.ZodObject<{
-    codex: z.ZodOptional<z.ZodObject<{}, z.core.$strict>>;
+    codex: z.ZodOptional<z.ZodObject<{
+        reasoningEffort: z.ZodDefault<z.ZodEnum<{
+            high: "high";
+            low: "low";
+            max: "max";
+            medium: "medium";
+            xhigh: "xhigh";
+        }>>;
+    }, z.core.$strict>>;
     claudeCode: z.ZodOptional<z.ZodObject<{}, z.core.$strict>>;
     openCode: z.ZodOptional<z.ZodObject<{}, z.core.$strict>>;
 }, z.core.$strict>;
@@ -167,7 +183,15 @@ export declare const resolvedReviewConfigSchema: z.ZodObject<{
     }, z.core.$strict>>;
     baseConventions: z.ZodDefault<z.ZodBoolean>;
     harnessOptions: z.ZodDefault<z.ZodObject<{
-        codex: z.ZodOptional<z.ZodObject<{}, z.core.$strict>>;
+        codex: z.ZodOptional<z.ZodObject<{
+            reasoningEffort: z.ZodDefault<z.ZodEnum<{
+                high: "high";
+                low: "low";
+                max: "max";
+                medium: "medium";
+                xhigh: "xhigh";
+            }>>;
+        }, z.core.$strict>>;
         claudeCode: z.ZodOptional<z.ZodObject<{}, z.core.$strict>>;
         openCode: z.ZodOptional<z.ZodObject<{}, z.core.$strict>>;
     }, z.core.$strict>>;
@@ -252,7 +276,15 @@ export declare const resolvedConfigSchema: z.ZodPreprocess<z.ZodObject<{
         }, z.core.$strict>>;
         baseConventions: z.ZodDefault<z.ZodBoolean>;
         harnessOptions: z.ZodDefault<z.ZodObject<{
-            codex: z.ZodOptional<z.ZodObject<{}, z.core.$strict>>;
+            codex: z.ZodOptional<z.ZodObject<{
+                reasoningEffort: z.ZodDefault<z.ZodEnum<{
+                    high: "high";
+                    low: "low";
+                    max: "max";
+                    medium: "medium";
+                    xhigh: "xhigh";
+                }>>;
+            }, z.core.$strict>>;
             claudeCode: z.ZodOptional<z.ZodObject<{}, z.core.$strict>>;
             openCode: z.ZodOptional<z.ZodObject<{}, z.core.$strict>>;
         }, z.core.$strict>>;
@@ -551,7 +583,15 @@ export declare const runSpecSchema: z.ZodObject<{
             }, z.core.$strict>>;
             baseConventions: z.ZodDefault<z.ZodBoolean>;
             harnessOptions: z.ZodDefault<z.ZodObject<{
-                codex: z.ZodOptional<z.ZodObject<{}, z.core.$strict>>;
+                codex: z.ZodOptional<z.ZodObject<{
+                    reasoningEffort: z.ZodDefault<z.ZodEnum<{
+                        high: "high";
+                        low: "low";
+                        max: "max";
+                        medium: "medium";
+                        xhigh: "xhigh";
+                    }>>;
+                }, z.core.$strict>>;
                 claudeCode: z.ZodOptional<z.ZodObject<{}, z.core.$strict>>;
                 openCode: z.ZodOptional<z.ZodObject<{}, z.core.$strict>>;
             }, z.core.$strict>>;
@@ -695,7 +735,15 @@ export declare const protocolSchemas: {
                 }, z.core.$strict>>;
                 baseConventions: z.ZodDefault<z.ZodBoolean>;
                 harnessOptions: z.ZodDefault<z.ZodObject<{
-                    codex: z.ZodOptional<z.ZodObject<{}, z.core.$strict>>;
+                    codex: z.ZodOptional<z.ZodObject<{
+                        reasoningEffort: z.ZodDefault<z.ZodEnum<{
+                            high: "high";
+                            low: "low";
+                            max: "max";
+                            medium: "medium";
+                            xhigh: "xhigh";
+                        }>>;
+                    }, z.core.$strict>>;
                     claudeCode: z.ZodOptional<z.ZodObject<{}, z.core.$strict>>;
                     openCode: z.ZodOptional<z.ZodObject<{}, z.core.$strict>>;
                 }, z.core.$strict>>;

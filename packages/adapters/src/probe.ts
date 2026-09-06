@@ -31,7 +31,11 @@ export const probeCodexInstructions = async (
     readonly signal: AbortSignal;
   }
 ): Promise<InstructionProbe> => {
-  const fingerprint = codexFingerprint(options.authentication, options.model);
+  const fingerprint = codexFingerprint(
+    options.authentication,
+    options.model,
+    options.reasoningEffort
+  );
   const runtimeFingerprint = await checkCodexSandbox(options);
   const failed = (): InstructionProbe => ({
     fingerprint,
@@ -71,6 +75,7 @@ export const probeCodexInstructions = async (
       },
     },
     {
+      reasoningEffort: options.reasoningEffort,
       runId: "instruction-probe",
       passId: crypto.randomUUID(),
       model: options.model,

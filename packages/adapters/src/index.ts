@@ -22,3 +22,6 @@ export type {
 } from "./codex.js";
 
 export type { PassProgress } from "./types.js";
+
+export { CODEX_REASONING_EFFORTS } from "./reasoning.js";
+export type { CodexReasoningEffort } from "./reasoning.js";

@@ -5,6 +5,7 @@ import { createBrokeredSession } from "./brokered.js";
 import type { CodexOptions } from "./codex.js";
 import { createNativeSession } from "./native.js";
 import { checkCodexSandbox, CODEX_ENVIRONMENT } from "./preflight.js";
+import { resolveReasoningEffort } from "./reasoning.js";
 import type { CodexSession } from "./session.js";
 import { SUMMARIZE } from "./session.js";
 import type {
@@ -54,7 +55,12 @@ export const invokeCodex = async (
   if (!access?.streaming) {
     return failed("sandbox_streaming_unavailable");
   }
-  if (request.model !== options.model || request.autonomy !== "verify") {
+  if (
+    request.model !== options.model ||
+    request.autonomy !== "verify" ||
+    resolveReasoningEffort(request.reasoningEffort) !==
+      resolveReasoningEffort(options.reasoningEffort)
+  ) {
     return failed("pass_capability_mismatch");
   }
   const timeout = options.timeoutMs ?? 300_000;
