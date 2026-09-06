@@ -319,11 +319,17 @@ export const protocolSchemas = {
   refusal: refusalSchema,
 } as const;
 
+export type Autonomy = z.infer<typeof autonomySchema>;
 export type Evidence = z.infer<typeof evidenceSchema>;
+export type Exposure = z.infer<typeof exposureSchema>;
 export type Finding = z.infer<typeof findingSchema>;
+export type Harness = z.infer<typeof harnessSchema>;
 export type PassRecord = z.infer<typeof passRecordSchema>;
+export type Provenance = z.infer<typeof provenanceSchema>;
 export type Refusal = z.infer<typeof refusalSchema>;
 export type ResolvedConfig = z.infer<typeof resolvedConfigSchema>;
 export type Result = z.infer<typeof resultSchema>;
 export type RunSpec = z.infer<typeof runSpecSchema>;
+export type Severity = z.infer<typeof severitySchema>;
 export type Usage = z.infer<typeof usageSchema>;
+export type Verification = z.infer<typeof verificationSchema>;
