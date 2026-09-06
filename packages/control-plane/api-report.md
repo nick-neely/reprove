@@ -194,6 +194,11 @@ export interface ControlPlaneGitHubConfig {
     /**
      * The REST root. Defaults to `https://api.github.com`; a GitHub Enterprise
      * Server deployment names its own.
+     *
+     * It must be `https:`, or `http:` on loopback (`127.0.0.1`, `localhost`,
+     * `::1`), because every request under it carries the App JWT or an
+     * installation token. Anything else is refused here, at composition, the way
+     * a missing field is.
      */
     readonly apiUrl?: string;
 }
@@ -3895,6 +3900,12 @@ export interface GitHubClientConfig extends AppCredentials {
      * The REST root every request is addressed under. Defaults to
      * {@link GITHUB_API_URL}; a GitHub Enterprise Server deployment names its
      * own, and so does a build gate standing a canned GitHub up on loopback.
+     *
+     * It must be `https:`, or `http:` on loopback (`127.0.0.1`, `localhost`,
+     * `::1`). Anything else throws from {@link createGitHubClient}: every request
+     * built on this root carries the App JWT or an installation token in an
+     * `Authorization` header, and a cleartext root off this machine puts both on
+     * the wire.
      */
     readonly apiUrl?: string;
 }
@@ -3938,6 +3949,8 @@ export interface GitHubClient {
  *
  * @param config The App id, its private key and the injected `fetch`.
  * @returns A client that resolves canonical pull request state.
+ * @throws {TypeError} When `config.apiUrl` is not a root a credential may
+ *   travel to. See {@link restRoot}.
  */
 export declare const createGitHubClient: (config: GitHubClientConfig) => GitHubClient;
 ```

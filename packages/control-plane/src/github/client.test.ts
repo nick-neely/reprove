@@ -128,6 +128,51 @@ describe("the canonical fetch", () => {
     ]);
   });
 
+  it("addresses a GitHub Enterprise Server root under its own path prefix", async () => {
+    const wire = transport(tokenIssued(), json(200, CANONICAL));
+    const client = createGitHubClient({
+      appId: "1234",
+      privateKey: PRIVATE_KEY,
+      fetch: wire.fetch,
+      apiUrl: "https://ghe.example.com/api/v3",
+    });
+
+    await client.canonicalPullRequest(REQUEST);
+
+    expect(wire.issued.map((request) => request.url)).toStrictEqual([
+      "https://ghe.example.com/api/v3/app/installations/42/access_tokens",
+      "https://ghe.example.com/api/v3/repos/acme/reprove/pulls/7",
+    ]);
+  });
+
+  it("refuses a cleartext root off this machine rather than sending a credential to it", () => {
+    // At composition, not at the first delivery: every request under the root
+    // carries the App JWT or an installation token, so a misconfigured
+    // deployment has to fail to boot rather than leak one.
+    const wire = transport(tokenIssued(), json(200, CANONICAL));
+
+    expect(() =>
+      createGitHubClient({
+        appId: "1234",
+        privateKey: PRIVATE_KEY,
+        fetch: wire.fetch,
+        apiUrl: "http://api.example.com",
+      })
+    ).toThrow(/GitHubClientConfig\.apiUrl/u);
+    expect(wire.issued).toStrictEqual([]);
+  });
+
+  it("refuses a root that is not a URL at all", () => {
+    expect(() =>
+      createGitHubClient({
+        appId: "1234",
+        privateKey: PRIVATE_KEY,
+        fetch: transport().fetch,
+        apiUrl: "api.github.com",
+      })
+    ).toThrow(/GitHubClientConfig\.apiUrl/u);
+  });
+
   it("addresses the installation token exchange with the App JWT", async () => {
     const { client, issued } = clientOver(tokenIssued(), json(200, CANONICAL));
 

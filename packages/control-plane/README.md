@@ -253,7 +253,10 @@ means `https://api.github.com`, which the package spells once and no consumer re
 Enterprise Server deployment names its own root, and so does a build gate -
 [`tools/verify-workflow-build.mjs`](../../tools/verify-workflow-build.mjs) stands a canned GitHub up
 on loopback and points the built application at it, which is the transport substitution above
-reaching all the way through a real `next start` rather than only through a test.
+reaching all the way through a real `next start` rather than only through a test. The root must be
+`https:`, or `http:` on loopback, and `createGitHubClient()` throws on anything else at composition:
+both requests carry a credential in an `Authorization` header, so a cleartext root off the machine
+is a token on the wire, and a deployment that named one should fail to boot rather than leak it.
 
 Octokit is rejected for what it does rather than for its size. Its app plugin brings a token cache,
 a retry plugin and a throttling plugin, and each contradicts a decision already made: ADR 0013

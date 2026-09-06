@@ -123,12 +123,30 @@ const BASE_SHA = "a".repeat(40);
 
 const STARTUP_TIMEOUT_MS = 90_000;
 const RUN_TIMEOUT_MS = 90_000;
+/**
+ * How long the acknowledgement of one signed delivery may take.
+ *
+ * The webhook verifies a signature, commits a ledger row and answers; ADR 0013
+ * makes that the whole of the synchronous path. Generous against a cold route
+ * compiled on its first request, and still far short of the five minutes
+ * `fetch` would otherwise wait on a server that never answers.
+ */
+const DELIVERY_TIMEOUT_MS = 30_000;
 const POLL_INTERVAL_MS = 500;
 
 const BARE_REQUIRE = /\brequire\(\s*["'](?<specifier>[^"'./][^"']*)["']\s*\)/gu;
 const STATIC_IMPORT =
   /^\s*(?:import|export)\b[^;'"]*?\bfrom\s*["'](?<specifier>[^"']+)["']/gmu;
 const BARE_IMPORT = /^\s*import\s*["'](?<specifier>[^"'./][^"']*)["']/gmu;
+/**
+ * `import("pg")`, which the three patterns above all miss. A workflow body that
+ * reaches a driver behind an `await import(...)` compiles cleanly and fails
+ * only when the VM evaluates that path, which is exactly the arrangement this
+ * check exists to catch. A computed specifier is not matched and cannot be: a
+ * literal is what a bundle names.
+ */
+const DYNAMIC_IMPORT =
+  /\bimport\s*\(\s*["'](?<specifier>[^"'./][^"']*)["']\s*\)/gu;
 
 /**
  * The module specifiers a workflow bundle reaches for that are not the
@@ -156,7 +174,12 @@ const BARE_IMPORT = /^\s*import\s*["'](?<specifier>[^"'./][^"']*)["']/gmu;
  */
 export const foreignSpecifiers = (source) => {
   const specifiers = new Set();
-  for (const pattern of [BARE_REQUIRE, STATIC_IMPORT, BARE_IMPORT]) {
+  for (const pattern of [
+    BARE_REQUIRE,
+    STATIC_IMPORT,
+    BARE_IMPORT,
+    DYNAMIC_IMPORT,
+  ]) {
     for (const match of source.matchAll(pattern)) {
       const specifier = match.groups?.specifier;
       if (specifier && !specifier.startsWith(".")) {
@@ -503,7 +526,13 @@ const untilServing = async (origin) => {
   const deadline = Date.now() + STARTUP_TIMEOUT_MS;
   while (Date.now() < deadline) {
     try {
-      const response = await fetch(origin);
+      // Bounded by what is left of the deadline, because the loop only checks
+      // it between passes: `fetch` waits five minutes for response headers by
+      // default, so a server that accepts the connection and then says nothing
+      // would hold this probe open long past the failure it is meant to report.
+      const response = await fetch(origin, {
+        signal: AbortSignal.timeout(deadline - Date.now()),
+      });
       if (response.ok) {
         return;
       }
@@ -615,6 +644,7 @@ const checkExecution = async () => {
       method: "POST",
       headers: delivery.headers,
       body: delivery.body,
+      signal: AbortSignal.timeout(DELIVERY_TIMEOUT_MS),
     });
     if (response.status !== 200) {
       bad(

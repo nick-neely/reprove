@@ -37,10 +37,23 @@ describe(foreignSpecifiers, () => {
     expect(foreignSpecifiers(bundle)).toStrictEqual(["dotenv/config", "pg"]);
   });
 
+  it("reports a driver a workflow body reached behind a dynamic import", () => {
+    // The form that compiles cleanly and fails only when the VM evaluates that
+    // path, which is the arrangement this check exists to catch.
+    const bundle = [
+      'const { Pool } = await import("pg");',
+      'const { serve } = await import("workflow/next");',
+      'const chunk = await import("./chunk-2f1a.js");',
+    ].join("\n");
+
+    expect(foreignSpecifiers(bundle)).toStrictEqual(["pg"]);
+  });
+
   it("deduplicates and sorts what it found, across import forms", () => {
     const bundle = [
       'import { Pool } from "pg";',
       'const again = require("pg");',
+      'const later = await import("pg");',
       'export { migrate } from "@reprove/control-plane";',
     ].join("\n");
 

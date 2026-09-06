@@ -80,6 +80,11 @@ export interface ControlPlaneGitHubConfig {
   /**
    * The REST root. Defaults to `https://api.github.com`; a GitHub Enterprise
    * Server deployment names its own.
+   *
+   * It must be `https:`, or `http:` on loopback (`127.0.0.1`, `localhost`,
+   * `::1`), because every request under it carries the App JWT or an
+   * installation token. Anything else is refused here, at composition, the way
+   * a missing field is.
    */
   readonly apiUrl?: string;
 }

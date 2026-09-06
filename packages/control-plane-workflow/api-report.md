@@ -93,6 +93,11 @@ export declare const ENVIRONMENT: {
      * Optional. GitHub's REST root, for a GitHub Enterprise Server deployment or
      * a build gate standing a canned GitHub up on loopback. Unset means
      * `https://api.github.com`.
+     *
+     * It must be `https:`, or `http:` on loopback (`127.0.0.1`, `localhost`,
+     * `::1`): every request under it carries an App credential, so
+     * `createControlPlane()` refuses a cleartext root off the machine rather than
+     * sending a token to it.
      */
     readonly githubApiUrl: "REPROVE_GITHUB_API_URL";
 };
