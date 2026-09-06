@@ -1,0 +1,271 @@
+name: qualify
+
+# The adversarial gate (issue #34, built in #53). It runs on demand, never on
+# a pull request: ordinary pull requests receive no Provider credential and
+# prove the corpus, scorer and contract tests under `verify` instead. A paid
+# evaluation runs only from a protected commit, behind the `qualification`
+# environment's manual approval, with a dedicated narrow credential.
+#
+# The workflow never combines `pull_request_target`, an untrusted checkout or
+# artifact, and Provider secrets. Every job checks out `github.sha`, the
+# commit the dispatch was made from, and the `run` jobs are the only ones that
+# can see the credential.
+on:
+  workflow_dispatch:
+    inputs:
+      kind:
+        description: >-
+          promotion compares this commit against the ledger baseline;
+          first-qualification and requalification judge absolute floors alone
+        type: choice
+        options:
+          - promotion
+          - first-qualification
+          - requalification
+        default: promotion
+      baseline:
+        description: >-
+          Baseline commit SHA (promotion only). Leave empty to use the ledger's
+          standing baseline.
+        type: string
+        default: ""
+      shards:
+        description: >-
+          How many runners share the fixed batch. Each shard is a slice of the
+          same seeded, interleaved plan.
+        type: choice
+        options:
+          - "8"
+          - "4"
+          - "2"
+          - "1"
+        default: "8"
+
+# One evaluation of the lineage at a time, and never cancelled: a paid batch
+# that is cut off has spent its budget without producing a record.
+concurrency:
+  group: ${{ github.workflow }}-codex-brokered
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      shards: ${{ steps.shards.outputs.list }}
+    steps:
+      # `fetch-depth: 0` so a baseline commit is reachable for the worktree
+      # the run jobs build it in.
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Activate the project pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          standalone: true
+
+      - name: Activate Node 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Install from the lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the packages
+        run: pnpm run verify:build
+
+      # Prints the exact cell revision, the corpus and scoring versions and
+      # the evaluation id before any credential is touched, so a reviewer
+      # approving the environment can see what is about to be spent.
+      - name: Plan the evaluation
+        run: >-
+          node tools/gate/qualify.mjs plan
+          --kind "${{ inputs.kind }}"
+          ${{ inputs.baseline != '' && format('--baseline {0}', inputs.baseline) || '' }}
+
+      - name: Enumerate the shards
+        id: shards
+        run: >-
+          echo "list=$(node -e 'console.log(JSON.stringify(Array.from({length:Number(process.argv[1])},(_,i)=>i+1)))' "${{ inputs.shards }}")"
+          >> "$GITHUB_OUTPUT"
+
+  run:
+    name: run ${{ matrix.shard }} of ${{ inputs.shards }}
+    needs: plan
+    # The environment carries the manual approval and the credential. Nothing
+    # outside this job can read the secret.
+    environment: qualification
+    runs-on: ubuntu-latest
+    # 576 trials split eight ways is 72 per runner, each a fresh Sandbox and a
+    # real Provider turn. The job limit is the budget's ceiling, not a target.
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Activate the project pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          standalone: true
+
+      - name: Activate Node 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Install from the lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the packages
+        run: pnpm run verify:build
+
+      # The credential enters as one environment variable and nowhere else.
+      # The gate hands it to the Adapter on this host; the Sandbox sees only
+      # the Adapter's placeholder (docs/codex-adapter.md).
+      - name: Run this shard of the batch
+        env:
+          REPROVE_GATE_OPENAI_API_KEY: ${{ secrets.REPROVE_GATE_OPENAI_API_KEY }}
+        run: >-
+          node tools/gate/qualify.mjs run
+          --kind "${{ inputs.kind }}"
+          ${{ inputs.baseline != '' && format('--baseline {0}', inputs.baseline) || '' }}
+          --shard "${{ matrix.shard }}/${{ inputs.shards }}"
+          --records "records/gate-records-${{ matrix.shard }}.json"
+
+      - name: Keep the shard's records
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gate-records-${{ matrix.shard }}
+          path: records/
+          if-no-files-found: error
+          retention-days: 90
+
+  score:
+    name: score
+    needs: [plan, run]
+    # Scores whatever the run jobs produced, so a lost shard is reported as
+    # INVALID against the commit rather than left as a red job nobody reads.
+    if: ${{ always() && needs.plan.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # The outcome is recorded on the commit it qualified, and a lineage that
+      # is not current keeps one issue open until it is again.
+      statuses: write
+      issues: write
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Activate the project pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          standalone: true
+
+      - name: Activate Node 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Install from the lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Collect the shards
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: gate-records-*
+          path: records/
+          merge-multiple: true
+
+      # Exit status 1 means "not promotable", which is a result rather than a
+      # broken step; the summary and the status below carry it.
+      - name: Score the evaluation
+        id: score
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          node tools/gate/qualify.mjs score \
+            --kind "${{ inputs.kind }}" \
+            --out gate-report.json \
+            --records records/gate-records-*.json \
+            | tee gate-summary.json
+
+      - name: Keep the report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gate-report
+          path: |
+            gate-report.json
+            gate-summary.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Record the outcome on the commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [ -s gate-summary.json ]; then
+            outcome=$(node -e 'const s=JSON.parse(require("fs").readFileSync("gate-summary.json","utf8"));console.log(`${s.outcome} - ${s.promotable ? "promotable" : s.reason}`)')
+            state=$(node -e 'const s=JSON.parse(require("fs").readFileSync("gate-summary.json","utf8"));console.log(s.promotable ? "success" : "failure")')
+          else
+            outcome="INVALID - the evaluation produced no report"
+            state="error"
+          fi
+          gh api "repos/${{ github.repository }}/statuses/${{ github.sha }}" \
+            -f state="$state" \
+            -f context="qualification/codex-brokered" \
+            -f description="${outcome:0:130}" \
+            -f target_url="$RUN_URL" > /dev/null
+          echo "$outcome"
+
+      # Provider drift and every other non-current state is surfaced here, as
+      # an issue, and nowhere in the runtime. A stale, failed or invalid
+      # lineage blocks promotion; it never Refuses a Run.
+      - name: Surface the lineage state
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          title="Qualification: codex/brokered lineage is not current"
+          status=$(node -e 'const s=JSON.parse(require("fs").readFileSync("gate-summary.json","utf8"));console.log(s.lineageStatus)' 2>/dev/null || echo invalid)
+          existing=$(gh issue list --repo "${{ github.repository }}" --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
+          if [ "$status" = "current" ]; then
+            if [ -n "$existing" ]; then
+              gh issue close "$existing" --repo "${{ github.repository }}" --comment "Qualification returned to current in $RUN_URL."
+            fi
+          else
+            body="The codex/brokered/openai/gpt-5.6-sol/verify/standard lineage is **$status** after $RUN_URL. Promotion is blocked until a scheduled absolute-floor requalification passes. Ordinary Runs are unaffected."
+            if [ -n "$existing" ]; then
+              gh issue comment "$existing" --repo "${{ github.repository }}" --body "$body"
+            else
+              gh issue create --repo "${{ github.repository }}" --title "$title" --body "$body"
+            fi
+          fi
+
+      - name: Fail the job when the candidate is not promotable
+        if: ${{ steps.score.outcome != 'success' }}
+        run: exit 1

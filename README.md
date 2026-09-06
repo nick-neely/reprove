@@ -97,6 +97,8 @@ Gateway.
 
 - [Product Requirements Document](docs/prd.md) - full product definition,
   architecture, roadmap, foundation decisions, and explicit deferrals.
+- [Adversarial gate](docs/adversarial-gate.md) - how a Codex revision is
+  qualified against a versioned adversarial corpus before it is trusted to review.
 - [Competitive landscape](docs/research/competitive-landscape.md) - a dated
   survey of who else reviews pull requests with coding-agent Harnesses.
 - [Provider auth and usage](docs/research/provider-auth-and-usage.md) - what
