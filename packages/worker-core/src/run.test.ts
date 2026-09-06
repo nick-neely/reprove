@@ -477,11 +477,11 @@ describe("the outcome set", () => {
     // `WorkerOutcome` and not to the list is a missing key here, and a fourth
     // key added here that the union does not admit is an excess one - both are
     // compile errors, and the assertion below then holds the order too.
-    const covered: Record<WorkerOutcome["kind"], true> = {
+    const covered = {
       result: true,
       refusal: true,
       failure: true,
-    };
+    } satisfies Record<WorkerOutcome["kind"], true>;
 
     expect(Object.keys(covered).toSorted()).toStrictEqual(
       [...WORKER_OUTCOME_KINDS].toSorted()

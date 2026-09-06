@@ -136,7 +136,11 @@ describe("the dispatch matrix", () => {
     // credential run here". The Worker is the only place it can bind, because
     // the control plane that read the key never saw the resolved Exposure.
     expect(
-      checkDispatch({ ...sound, exposure: "account", maximumExposure: "scoped" })
+      checkDispatch({
+        ...sound,
+        exposure: "account",
+        maximumExposure: "scoped",
+      })
     ).toStrictEqual({
       reason: "exposure_above_maximum",
       required: "no more than scoped",

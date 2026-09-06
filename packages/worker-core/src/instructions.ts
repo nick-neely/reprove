@@ -135,8 +135,7 @@ const TRAILING_PUNCTUATION = /[.,;:!?)\]}'"]+$/u;
 /** Whether a path sits under a directory the ADR names as never re-admitted. */
 const isDenied = (path: string): boolean =>
   DENIED_DIRECTORIES.some(
-    (directory) =>
-      path.startsWith(directory) || path.includes(`/${directory}`)
+    (directory) => path.startsWith(directory) || path.includes(`/${directory}`)
   );
 
 const isAllowlisted = (path: string): boolean => {

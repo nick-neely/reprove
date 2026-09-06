@@ -87,7 +87,7 @@ describe("the Evidence cross-check", () => {
       `a${emoji.repeat(protocolLimits.evidenceExcerptChars / 2 - 1)}`
     );
     expect(excerpt.length).toBeLessThan(protocolLimits.evidenceExcerptChars);
-    expect(Array.from(excerpt).at(-1)).toBe(emoji);
+    expect([...excerpt].at(-1)).toBe(emoji);
   });
 
   it("complains when a claimed command has no observed counterpart", () => {
