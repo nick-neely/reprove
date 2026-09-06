@@ -39,8 +39,15 @@ export type FailureReason =
   | "model_substituted"
   | "sandbox_teardown_incomplete";
 
-/** Where in the post-execution sequence the defect was found. */
-export type FailurePhase = "execution" | "acceptance" | "teardown";
+/**
+ * Where in the post-execution sequence the defect was found.
+ *
+ * `conformance` rather than acceptance: `CONTEXT.md` reserves Acceptance for
+ * the control plane's decision to absorb a Result into its Run and says
+ * outright that it happens only there, distinguishing it by name from the
+ * validation a Worker performs on its own output.
+ */
+export type FailurePhase = "execution" | "conformance" | "teardown";
 
 /**
  * A Failure, internal to Worker core.

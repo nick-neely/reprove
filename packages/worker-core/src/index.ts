@@ -17,7 +17,7 @@ export const composedFrom = {
 } as const;
 
 export type {
-  AcceptanceComplaint,
+  ConformanceComplaint,
   Adapter,
   AdapterPassOutput,
   Autonomy,

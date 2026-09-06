@@ -329,7 +329,7 @@ describe("a defect found before execution", () => {
 
 describe("a defect found after execution", () => {
   it("fails internally when a repair turn could not settle the Evidence", async () => {
-    // ADR 0005: an unsupported claim is a Result acceptance failure - repair
+    // ADR 0005: an unsupported claim is a Result conformance failure - repair
     // turn if available, Pass failure otherwise. This Adapter has no repair,
     // so the second half applies.
     const { run, adapter } = harness({
@@ -343,7 +343,7 @@ describe("a defect found after execution", () => {
     }
     expect(outcome.failure).toMatchObject({
       reason: "evidence_unsupported",
-      phase: "acceptance",
+      phase: "conformance",
     });
     expect(adapter.complaints).toHaveLength(1);
   });

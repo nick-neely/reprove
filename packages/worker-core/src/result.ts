@@ -3,8 +3,8 @@
  * leaves.
  *
  * One schema with a `completeness` discriminator, not a `Result` plus a
- * `PartialResult`: ADR 0006 makes acceptance one code path on purpose - one
- * schema, one validation, one dedupe - and a parallel type forks it. The
+ * `PartialResult`: ADR 0006 makes the shared code path one path on purpose -
+ * one schema, one validation, one dedupe - and a parallel type forks it. The
  * schema is `@reprove/protocol`'s and is not restated here; Worker core
  * composes the payload and asks the authoritative schema whether it is one.
  *
@@ -20,7 +20,7 @@ import type {
   RunSpec,
 } from "@reprove/protocol/v1";
 
-import type { AcceptanceComplaint, AdapterPassOutput } from "./adapter.js";
+import type { ConformanceComplaint, AdapterPassOutput } from "./adapter.js";
 
 export interface ResultInput {
   readonly spec: RunSpec;
@@ -35,7 +35,7 @@ export interface ResultInput {
 
 export type ComposedResult =
   | { readonly result: Result; readonly complaint: null }
-  | { readonly result: null; readonly complaint: AcceptanceComplaint };
+  | { readonly result: null; readonly complaint: ConformanceComplaint };
 
 /**
  * The Pass as the Result records it.

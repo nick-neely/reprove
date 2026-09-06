@@ -21,8 +21,15 @@
  * ADR 0005 puts one bounded repair turn inside the same Pass and the same
  * Sandbox, and also gives Reprove ownership of Result conformance. Only Worker
  * core can decide conformance - schema validation and the Evidence cross-check
- * are its - so the Pass request carries `accept`, and what an Adapter may do
+ * are its - so the Pass request carries `check`, and what an Adapter may do
  * about a complaint is run its one repair turn and ask again.
+ *
+ * The word is **conformance** rather than acceptance throughout. `CONTEXT.md`
+ * reserves Acceptance for the control plane's decision to absorb a submitted
+ * Result into its Run, states that it happens only there, and distinguishes it
+ * by name from the validation a Worker performs on its own output. Reusing it
+ * here would re-collapse the two operations ADR 0010's clarification of ADR
+ * 0006 separated.
  *
  * **The bundle is strictly narrower than a Result.** It carries candidate
  * Findings and *claimed* Evidence, and nothing here has crossed the Worker
@@ -150,7 +157,7 @@ export interface AdapterPassOutput {
 }
 
 /** What Worker core says about a bundle it will not build a Result from. */
-export interface AcceptanceComplaint {
+export interface ConformanceComplaint {
   readonly reason: "result_invalid" | "evidence_unsupported";
   readonly detail: string;
 }
@@ -171,10 +178,10 @@ export interface PassRequest {
   /** Pass budget enforcement, which no adapter offers on its own. */
   readonly signal: AbortSignal;
   /**
-   * Worker core's acceptance check, which the Adapter may answer with its one
-   * bounded repair turn. A `null` complaint means the bundle would be accepted.
+   * Worker core's conformance check, which the Adapter may answer with its one
+   * bounded repair turn. A `null` complaint means the bundle would survive it.
    */
-  readonly accept: (output: AdapterPassOutput) => AcceptanceComplaint | null;
+  readonly check: (output: AdapterPassOutput) => ConformanceComplaint | null;
 }
 
 export interface Adapter {

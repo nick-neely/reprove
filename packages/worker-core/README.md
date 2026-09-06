@@ -26,8 +26,8 @@ fourth. The pipeline is ordered, and the order is the contract:
  7 materialize the protected file      Refusal
  -- execution is authorized here and nowhere earlier --
  8 the Pass                            Failure
- 9 accept: cross-check, then validate  Failure
-10 the pinned-Model check              Failure
+ 9 the pinned-Model check              Failure
+10 conform: cross-check, then validate Failure
 11 teardown                            Failure
 ```
 
@@ -70,8 +70,13 @@ free of `@reprove/protocol`, which ADR 0010 requires.
 **The repair turn is the Adapter's mechanism and Worker core's decision.** ADR
 0005 keeps the bounded repair turn inside the Pass and also gives Reprove
 ownership of Result conformance, and only Worker core can decide conformance. So
-a `PassRequest` carries `accept`, and what an Adapter may do about a complaint
+a `PassRequest` carries `check`, and what an Adapter may do about a complaint
 is run its one repair turn and ask again.
+
+The word throughout is **conformance**, never acceptance. `CONTEXT.md` reserves
+Acceptance for the control plane's decision to absorb a submitted Result into
+its Run, says outright that it happens only there, and distinguishes it by name
+from the validation a Worker performs on its own output.
 
 **Any unsupported Evidence claim complains, not only a `verified` one.** ADR 0005
 names the `verified` case. The rule here is wider on purpose: a Finding claiming

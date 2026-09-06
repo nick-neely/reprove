@@ -26,7 +26,7 @@ import type {
 } from "@reprove/sandbox-container";
 
 import type {
-  AcceptanceComplaint,
+  ConformanceComplaint,
   Adapter,
   AdapterPassOutput,
   PassRequest,
@@ -160,8 +160,8 @@ export interface CodexScript {
 export interface CodexAdapterDouble extends Adapter {
   /** Every Pass request, so what was handed across the seam is assertable. */
   readonly requests: readonly PassRequest[];
-  /** Every complaint Worker core made through the acceptance callback. */
-  readonly complaints: readonly AcceptanceComplaint[];
+  /** Every complaint Worker core made through the conformance callback. */
+  readonly complaints: readonly ConformanceComplaint[];
 }
 
 /**
@@ -169,14 +169,14 @@ export interface CodexAdapterDouble extends Adapter {
  *
  * It models the one behaviour a real Adapter owns that Worker core depends on:
  * the bounded repair turn. Worker core decides conformance and the Adapter
- * decides what to do about a complaint, so the double asks `accept`, and offers
+ * decides what to do about a complaint, so the double asks `check`, and offers
  * its repaired bundle only where the script gave it one.
  */
 export const createCodexAdapterDouble = (
   script: CodexScript = {}
 ): CodexAdapterDouble => {
   const requests: PassRequest[] = [];
-  const complaints: AcceptanceComplaint[] = [];
+  const complaints: ConformanceComplaint[] = [];
 
   return {
     harness: "codex",
@@ -194,7 +194,7 @@ export const createCodexAdapterDouble = (
         return Promise.reject(script.throws);
       }
       const output = script.output ?? CLEAN_PASS;
-      const complaint = request.accept(output);
+      const complaint = request.check(output);
       if (complaint === null) {
         return Promise.resolve(output);
       }

@@ -11,10 +11,15 @@
  *  7 materialize the protected file      Refusal
  *  -- execution is authorized here and nowhere earlier --
  *  8 the Pass                            Failure
- *  9 accept: cross-check, then validate  Failure
- * 10 the pinned-Model check              Failure
+ *  9 the pinned-Model check              Failure
+ * 10 conform: cross-check, then validate Failure
  * 11 teardown                            Failure
  * ```
+ *
+ * The pinned-Model check precedes the conformance check for the reason ADR
+ * 0016 gave Acceptance's re-probe its order: a substituted Model is a stronger
+ * and clearer fact than a schema complaint, and no repair turn can un-substitute
+ * one.
  *
  * The line at step 7 is the whole design. Everything above it can only refuse,
  * and a Refusal crosses the boundary as a protocol message naming the
@@ -37,7 +42,7 @@ import type { Sandbox, SandboxProvider } from "@reprove/sandbox-container";
 
 import type {
   Adapter,
-  AcceptanceComplaint,
+  ConformanceComplaint,
   AdapterPassOutput,
   ResolvedCapability,
 } from "./adapter.js";
@@ -147,12 +152,12 @@ export const createWorkerCore = (options: WorkerCoreOptions): WorkerCore => {
   const { adapter, materialize, sandboxes, workerBuildVersion } = options;
 
   /**
-   * Worker core's acceptance decision over one bundle: cross-check first, then
+   * Worker core's conformance decision over one bundle: cross-check first, then
    * schema validation. The Adapter is handed this so its one bounded repair
    * turn answers the same question the final decision asks, rather than a
    * weaker one it invented.
    */
-  const accept = (
+  const checkConformance = (
     spec: RunSpec,
     output: AdapterPassOutput,
     passId: string,
@@ -197,8 +202,8 @@ export const createWorkerCore = (options: WorkerCoreOptions): WorkerCore => {
         instructions,
         sandbox,
         signal: input.signal ?? new AbortController().signal,
-        accept: (candidate): AcceptanceComplaint | null =>
-          accept(spec, candidate, passId, startedAt).complaint,
+        check: (candidate): ConformanceComplaint | null =>
+          checkConformance(spec, candidate, passId, startedAt).complaint,
       });
     } catch (error) {
       return fail({
@@ -227,21 +232,21 @@ export const createWorkerCore = (options: WorkerCoreOptions): WorkerCore => {
       // cross-harness comparison meaningless, which is the point of Reprove.
       return fail({
         reason: "model_substituted",
-        phase: "acceptance",
+        phase: "conformance",
         detail: `the Run pinned ${spec.model} and the Harness resolved ${output.resolvedModel ?? "nothing it reported"}`,
       });
     }
 
-    const accepted = accept(spec, output, passId, startedAt);
-    if (accepted.complaint !== null) {
+    const conformed = checkConformance(spec, output, passId, startedAt);
+    if (conformed.complaint !== null) {
       return fail({
-        reason: accepted.complaint.reason,
-        phase: "acceptance",
-        detail: accepted.complaint.detail,
+        reason: conformed.complaint.reason,
+        phase: "conformance",
+        detail: conformed.complaint.detail,
       });
     }
 
-    return { kind: "result", result: accepted.result };
+    return { kind: "result", result: conformed.result };
   };
 
   return {
