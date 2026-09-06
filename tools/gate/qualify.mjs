@@ -13,7 +13,7 @@
  * writes its trial records; `score` merges every shard into the compact
  * durable report, decides promotion against the ledger, and optionally
  * records the result there. Splitting the batch is what lets a 576-trial
- * comparison fit inside a runner's job limit while staying one evaluation:
+ * comparison fit inside a driver's job limit while staying one evaluation:
  * every shard is a slice of the same seeded plan, so candidate and baseline
  * remain interleaved inside each one.
  *
@@ -49,7 +49,7 @@ import {
   prepareWorktree,
 } from "./revision.mjs";
 import { SCORING_POLICY, scoringVersion } from "./scoring.mjs";
-import { createTrialRunner } from "./trial.mjs";
+import { createTrialDriver } from "./trial.mjs";
 
 const REPOSITORY = path.resolve(import.meta.dirname, "..", "..");
 export const DEFAULT_LEDGER = path.join(import.meta.dirname, "ledger");
@@ -68,6 +68,9 @@ const usage = () => {
   log("  --ledger <dir>         defaults to tools/gate/ledger");
   log(
     "  --write-ledger         record the report and any baseline move (score)"
+  );
+  log(
+    "  --rebase               move the baseline to this revision and record the chain break (score)"
   );
   log(
     "  --repetitions <n>      off-policy budget; such a report cannot promote"
@@ -202,16 +205,16 @@ const plan = async (options) => {
 };
 
 /**
- * How a finished trial's verdict reads at the end of a progress line.
+ * How a finished trial's judgement reads at the end of a progress line.
  *
- * @param {{ status: string, passed?: boolean }} verdict The trial's verdict.
+ * @param {{ status: string, passed?: boolean }} judgement The trial's judgement.
  * @returns {string} " pass", " miss", or nothing when it was not scored.
  */
-const verdictSuffix = (verdict) => {
-  if (verdict.status !== "scored") {
+const judgementSuffix = (judgement) => {
+  if (judgement.status !== "scored") {
     return "";
   }
-  return verdict.passed ? " pass" : " miss";
+  return judgement.passed ? " pass" : " miss";
 };
 
 const run = async (options) => {
@@ -229,7 +232,7 @@ const run = async (options) => {
     provider: PHASE0_LINEAGE.provider,
     key,
   };
-  const runners = {};
+  const drivers = {};
   for (const arm of ["candidate", "baseline"]) {
     const revision = loaded[arm];
     if (revision === null) {
@@ -253,7 +256,7 @@ const run = async (options) => {
       runtime: options.runtime ?? "docker",
       log,
     });
-    runners[arm] = createTrialRunner({
+    drivers[arm] = createTrialDriver({
       loaded: revision,
       revision: revisions[arm],
       profile,
@@ -268,10 +271,10 @@ const run = async (options) => {
   const records = await runBatch({
     plan: { trials },
     corpus,
-    runTrial: (trial, signal) => runners[trial.arm].runTrial(trial, signal),
+    runTrial: (trial, signal) => drivers[trial.arm].runTrial(trial, signal),
     onTrial: (record, index, total) =>
       log(
-        `[${index + 1}/${total}] ${record.trial.id} ${record.verdict.status}${verdictSuffix(record.verdict)}`
+        `[${index + 1}/${total}] ${record.trial.id} ${record.judgement.status}${judgementSuffix(record.judgement)}`
       ),
   });
   const output = {
@@ -296,9 +299,16 @@ const run = async (options) => {
   log(`wrote ${records.length} records to ${file}`);
 };
 
-const score = async (options) => {
-  const corpus = loadCorpus();
-  const files = options.records ?? [];
+/**
+ * Read every shard file and prove they belong to one evaluation of the
+ * requested kind, taken under this checkout's corpus and scoring versions.
+ *
+ * @param {readonly string[]} files The shard record files.
+ * @param {string} kind The kind the caller asked to score.
+ * @param {string} corpusVersion This checkout's corpus version.
+ * @returns {Promise<{ first: any, shards: any[] }>} The shards and the one they all agree with.
+ */
+const readShards = async (files, kind, corpusVersion) => {
   if (files.length === 0) {
     throw new Error("score needs --records");
   }
@@ -306,6 +316,11 @@ const score = async (options) => {
     files.map(async (file) => JSON.parse(await readFile(file, "utf-8")))
   );
   const [first] = shards;
+  if (first.kind !== kind) {
+    throw new Error(
+      `the records were taken for a ${first.kind}, not a ${kind}`
+    );
+  }
   const expectedTotal = first.shard.total;
   const seen = new Set(shards.map((shard) => shard.shard.index));
   if (seen.size !== expectedTotal || shards.length !== expectedTotal) {
@@ -327,14 +342,60 @@ const score = async (options) => {
     }
   }
   if (
-    first.corpusVersion !== corpus.version ||
+    first.corpusVersion !== corpusVersion ||
     first.scoringVersion !== scoringVersion
   ) {
     throw new Error(
       "the records were taken under a different corpus or scoring version than this checkout"
     );
   }
+  return { first, shards };
+};
+
+/**
+ * Prove the records cover the fixed batch exactly once. The budget is fixed,
+ * so the batch is re-planned from the recorded identity; a shard that
+ * silently dropped trials cannot promote.
+ *
+ * @param {import("./corpus.mjs").Corpus} corpus The corpus the plan draws from.
+ * @param {any} first The shard whose identity the plan is rebuilt from.
+ * @param {readonly import("./batch.mjs").TrialRecord[]} records Every record merged.
+ */
+const checkCoverage = (corpus, first, records) => {
+  const planned = planBatch({
+    corpus,
+    arms: first.baseline === null ? ["candidate"] : ["candidate", "baseline"],
+    seed: first.evaluationId,
+    repetitions: first.repetitions,
+  }).trials.map((trial) => trial.id);
+  const recorded = records.map((record) => record.trial.id).toSorted();
+  if (JSON.stringify(recorded) !== JSON.stringify(planned.toSorted())) {
+    throw new Error(
+      `the records do not cover the planned batch: ${recorded.length} of ${planned.length} trials`
+    );
+  }
+};
+
+/**
+ * One line per axis for the summary.
+ *
+ * @param {import("./scoring.mjs").AxisTest | null} test The test to describe.
+ * @returns {string | null} Outcome, point and lower bound.
+ */
+const describeTest = (test) =>
+  test === null
+    ? null
+    : `${test.outcome} (${test.point.toFixed(3)}, lower ${test.lower.toFixed(3)})`;
+
+const score = async (options) => {
+  const corpus = loadCorpus();
+  const { first, shards } = await readShards(
+    options.records ?? [],
+    options.kind,
+    corpus.version
+  );
   const records = shards.flatMap((shard) => shard.records);
+  checkCoverage(corpus, first, records);
   const report = composeReport({
     kind: first.kind,
     candidate: first.candidate,
@@ -360,18 +421,19 @@ const score = async (options) => {
     exceptions: ledger.exceptions,
     now,
   });
+  report.exceptionRef = decision.exception;
   const baseline = nextBaseline({
     current: ledger.baseline,
     report,
     decision,
-    action: "promote",
+    action: options.rebase ? "rebase" : "promote",
     now: new Date(now).toISOString(),
   });
   const out = options.out ?? `gate-report-${report.reportId}.json`;
   await writeFile(out, `${JSON.stringify(report, null, 2)}\n`);
-  let recorded = null;
+  let recordedAt = null;
   if (options["write-ledger"]) {
-    recorded = writeReport(options.ledger, PHASE0_LINEAGE, report);
+    recordedAt = writeReport(options.ledger, PHASE0_LINEAGE, report);
     if (baseline !== null && baseline !== ledger.baseline) {
       writeBaseline(options.ledger, PHASE0_LINEAGE, baseline);
     }
@@ -388,11 +450,8 @@ const score = async (options) => {
       Object.entries(report.scores?.axes ?? {}).map(([axis, axisScore]) => [
         axis,
         {
-          absolute: `${axisScore.absolute.outcome} (${axisScore.absolute.point.toFixed(3)}, lower ${axisScore.absolute.lower.toFixed(3)})`,
-          nonInferiority:
-            axisScore.nonInferiority === null
-              ? null
-              : `${axisScore.nonInferiority.outcome} (${axisScore.nonInferiority.point.toFixed(3)}, lower ${axisScore.nonInferiority.lower.toFixed(3)})`,
+          absolute: describeTest(axisScore.absolute),
+          nonInferiority: describeTest(axisScore.nonInferiority),
         },
       ])
     ),
@@ -403,11 +462,15 @@ const score = async (options) => {
     exception: decision.exception,
     baselineMoved: baseline !== ledger.baseline,
     report: out,
-    recorded,
+    recorded: recordedAt,
     lineageStatus: lineageStatus([...ledger.reports, report], now).status,
   };
   process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
-  process.exitCode = decision.promotable ? 0 : 1;
+  process.exitCode = (
+    options.rebase ? baseline?.reason === "rebase" : decision.promotable
+  )
+    ? 0
+    : 1;
 };
 
 const status = (options) => {
@@ -452,6 +515,7 @@ const main = async () => {
       out: { type: "string" },
       ledger: { type: "string", default: DEFAULT_LEDGER },
       "write-ledger": { type: "boolean", default: false },
+      rebase: { type: "boolean", default: false },
       repetitions: { type: "string" },
       runtime: { type: "string" },
       work: { type: "string" },

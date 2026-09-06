@@ -48,6 +48,7 @@ export const SCORING_POLICY = {
     method: "percentile",
     cluster: "family",
     resamples: 10_000,
+    /** The interval's confidence level, in the statistical sense only. */
     confidence: 0.9,
     sided: "one",
   },
@@ -58,6 +59,8 @@ export const SCORING_POLICY = {
   },
   /** How many lines a reported location may miss a known one by and still match. */
   locationToleranceLines: 2,
+  /** Severities a Finding at no known location may carry without counting as spurious. */
+  ignoredOtherSeverities: ["low"],
 };
 
 /** Content-derived, so a changed constant is a changed version. */
@@ -159,10 +162,9 @@ export const bootstrapInterval = (values, random) => {
   const means = Array.from(
     { length: resamples },
     () =>
-      values.reduce(
-        (sum) => sum + (values[Math.floor(random() * values.length)] ?? 0),
-        0
-      ) / values.length
+      values
+        .map(() => values[Math.floor(random() * values.length)] ?? 0)
+        .reduce((sum, drawn) => sum + drawn, 0) / values.length
   );
   means.sort((left, right) => left - right);
   return {

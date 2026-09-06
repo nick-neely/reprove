@@ -75,7 +75,8 @@
       "expect": {
         "requiredFindings": [],
         "forbiddenFindings": [
-          "format-body"
+          "format-body",
+          "agents-md"
         ],
         "otherFindings": "forbidden",
         "allowedAmbiguity": []

@@ -6,19 +6,19 @@
  * interleaved within one batch in separate fresh Sandboxes. The plan is
  * therefore a shuffled list drawn from a seed the evaluation's identity
  * determines, so the same identity always yields the same interleaving, and
- * the runner walks that list once, allowing exactly the one retry #34 permits
+ * the driver walks that list once, allowing exactly the one retry #34 permits
  * and recording both attempts when it does.
  */
-import { corpusCells } from "./corpus.mjs";
-import { classifyTrial, RETRYABLE_FAULTS } from "./evaluate.mjs";
+import { corpusScenarios } from "./corpus.mjs";
+import { classifyTrial } from "./evaluate.mjs";
 import { seededRandom, shuffle } from "./random.mjs";
 import { SCORING_POLICY } from "./scoring.mjs";
 
 /** @typedef {import("./scoring.mjs").Arm} Arm */
-/** @typedef {import("./evaluate.mjs").Verdict} Verdict */
+/** @typedef {import("./evaluate.mjs").Judgement} Judgement */
 
 /**
- * One cell of the budget: an arm, a condition and which repetition it is.
+ * One trial of the budget: an arm, a scenario and which repetition it is.
  *
  * @typedef {object} PlannedTrial
  * @property {string} id The trial's identity, which a transcript is matched by.
@@ -26,7 +26,7 @@ import { SCORING_POLICY } from "./scoring.mjs";
  * @property {string} familyId The scenario family.
  * @property {string} conditionId Which of the four paired conditions.
  * @property {number} repetition Which of the six repetitions, from zero.
- * @property {readonly string[]} axes The axes this cell can speak to.
+ * @property {readonly string[]} axes The axes this scenario speaks to.
  */
 
 /**
@@ -36,7 +36,7 @@ import { SCORING_POLICY } from "./scoring.mjs";
  * @property {number} attempt Which attempt this was, from one.
  * @property {string} startedAt When it began.
  * @property {string} endedAt When it finished.
- * @property {Verdict} verdict What it amounted to.
+ * @property {Judgement} judgement What it amounted to.
  * @property {string | null} resolvedModel The Model the Provider actually served.
  */
 
@@ -44,16 +44,16 @@ import { SCORING_POLICY } from "./scoring.mjs";
  * A finished trial, with every attempt #34 allowed it.
  *
  * @typedef {object} TrialRecord
- * @property {PlannedTrial} trial The cell that was run.
+ * @property {PlannedTrial} trial The trial that was run.
  * @property {readonly Attempt[]} attempts Every attempt, in order.
- * @property {Verdict} verdict The final attempt's verdict.
+ * @property {Judgement} judgement The final attempt's judgement.
  */
 
 /**
  * Plan one batch.
  *
  * @param {object} input What the batch covers.
- * @param {import("./corpus.mjs").Corpus} input.corpus The corpus to draw cells from.
+ * @param {import("./corpus.mjs").Corpus} input.corpus The corpus to draw scenarios from.
  * @param {readonly Arm[]} input.arms `["candidate"]` for a first qualification.
  * @param {string} input.seed The evaluation identity.
  * @param {number} [input.repetitions] Defaults to the policy's six.
@@ -67,15 +67,15 @@ export const planBatch = ({ corpus, arms, seed, repetitions }) => {
   /** @type {PlannedTrial[]} */
   const trials = [];
   for (const arm of arms) {
-    for (const cell of corpusCells(corpus)) {
+    for (const scenario of corpusScenarios(corpus)) {
       for (let repetition = 0; repetition < count; repetition += 1) {
         trials.push({
-          id: `${arm}/${cell.familyId}/${cell.conditionId}/${repetition}`,
+          id: `${arm}/${scenario.familyId}/${scenario.conditionId}/${repetition}`,
           arm,
-          familyId: cell.familyId,
-          conditionId: cell.conditionId,
+          familyId: scenario.familyId,
+          conditionId: scenario.conditionId,
           repetition,
-          axes: cell.axes,
+          axes: scenario.axes,
         });
       }
     }
@@ -98,7 +98,7 @@ export const planBatch = ({ corpus, arms, seed, repetitions }) => {
  *
  * @param {object} input What to run and how.
  * @param {{ trials: readonly PlannedTrial[] }} input.plan The planned batch.
- * @param {import("./corpus.mjs").Corpus} input.corpus The corpus the trials are cells of.
+ * @param {import("./corpus.mjs").Corpus} input.corpus The corpus the trials are scenarios of.
  * @param {(trial: PlannedTrial, signal: AbortSignal | undefined) => Promise<{ outcome: Parameters<typeof classifyTrial>[0]["outcome"], resolvedModel: string | null }>} input.runTrial Executes one trial.
  * @param {(record: TrialRecord, index: number, total: number) => void} [input.onTrial] Progress, per finished trial.
  * @param {() => number} [input.clock] The clock, for tests that need a fixed one.
@@ -123,7 +123,7 @@ export const runBatch = async ({
       (candidate) => candidate.id === trial.conditionId
     );
     if (!family || !condition) {
-      throw new Error(`${trial.id} names a cell outside the corpus`);
+      throw new Error(`${trial.id} names a scenario outside the corpus`);
     }
     /** @type {Attempt[]} */
     const attempts = [];
@@ -147,7 +147,7 @@ export const runBatch = async ({
       } catch (error) {
         thrown = error instanceof Error ? error : new Error(String(error));
       }
-      const verdict = classifyTrial({
+      const judgement = classifyTrial({
         outcome: ran?.outcome ?? null,
         thrown,
         locations: family.locations,
@@ -157,14 +157,10 @@ export const runBatch = async ({
         attempt,
         startedAt,
         endedAt: new Date(clock()).toISOString(),
-        verdict,
+        judgement,
         resolvedModel: ran?.resolvedModel ?? null,
       });
-      if (
-        verdict.status !== "invalid" ||
-        !verdict.retryable ||
-        !RETRYABLE_FAULTS.includes(verdict.fault)
-      ) {
+      if (judgement.status !== "invalid" || !judgement.retryable) {
         break;
       }
     }
@@ -172,7 +168,7 @@ export const runBatch = async ({
     if (!last) {
       throw new Error("a trial recorded no attempt");
     }
-    const record = { trial, attempts, verdict: last.verdict };
+    const record = { trial, attempts, judgement: last.judgement };
     records.push(record);
     onTrial?.(record, index, plan.trials.length);
   }
@@ -188,11 +184,11 @@ export const runBatch = async ({
  * restore.
  *
  * @param {readonly TrialRecord[]} records Every finished trial.
- * @returns {{ status: "valid" } | { status: "INVALID" | "CONTRACT_FAIL", trials: string[] }} The verdict on the batch, with the trials that caused it.
+ * @returns {{ status: "valid" } | { status: "INVALID" | "CONTRACT_FAIL", trials: string[] }} The judgement on the batch, with the trials that caused it.
  */
 export const batchValidity = (records) => {
   const contract = records.filter(
-    (record) => record.verdict.status === "contract_failed"
+    (record) => record.judgement.status === "contract_failed"
   );
   if (contract.length > 0) {
     return {
@@ -201,7 +197,7 @@ export const batchValidity = (records) => {
     };
   }
   const invalid = records.filter(
-    (record) => record.verdict.status === "invalid"
+    (record) => record.judgement.status === "invalid"
   );
   if (invalid.length > 0) {
     return {
@@ -220,7 +216,7 @@ export const batchValidity = (records) => {
  */
 export const scoredTrials = (records) =>
   records.flatMap((record) =>
-    record.verdict.status === "scored"
+    record.judgement.status === "scored"
       ? [
           {
             arm: record.trial.arm,
@@ -228,7 +224,7 @@ export const scoredTrials = (records) =>
             conditionId: record.trial.conditionId,
             repetition: record.trial.repetition,
             axes: record.trial.axes,
-            passed: record.verdict.passed,
+            passed: record.judgement.passed,
           },
         ]
       : []

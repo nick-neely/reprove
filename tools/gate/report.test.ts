@@ -36,6 +36,8 @@ const revision = (name: string): Revision => ({
   harnessArtifact: `artifact-${name}`,
   instructionDigest: "policy",
   narrativeSchemaVersion: 1,
+  protocolVersion: 1,
+  reasoningEffort: "medium",
   workerBuildVersion: name,
 });
 
@@ -271,6 +273,65 @@ describe("promotion", () => {
     expect(decision.promotable).toBeFalsy();
   }, 30_000);
 
+  it("lets a requalification re-judge only the standing baseline", async () => {
+    const standing = {
+      revisionId: "rev-c",
+      gitSha: "c".repeat(40),
+      corpusVersion: "old",
+      scoringVersion,
+      reportId: "r0",
+      setAt: "t0",
+      reason: "first-qualification" as const,
+      chainBroken: false,
+    };
+    const ofBaseline = await evaluate("requalification", () => 1);
+    const accepted = promotionDecision({
+      report: ofBaseline,
+      baseline: standing,
+      exceptions: [],
+      now: T0 + DAY,
+    });
+    expect(accepted).toMatchObject({ promotable: true });
+    expect(
+      nextBaseline({
+        current: standing,
+        report: ofBaseline,
+        decision: accepted,
+        action: "promote",
+        now: "t1",
+      })
+    ).toMatchObject({
+      revisionId: "rev-c",
+      reason: "requalification",
+      chainBroken: false,
+      corpusVersion: corpus.version,
+    });
+    const ofStranger = await evaluate(
+      "requalification",
+      () => 1,
+      revision("d")
+    );
+    expect(
+      promotionDecision({
+        report: ofStranger,
+        baseline: standing,
+        exceptions: [],
+        now: T0 + DAY,
+      })
+    ).toMatchObject({
+      promotable: false,
+      reason: "requalification must evaluate the standing baseline",
+    });
+    expect(
+      promotionDecision({
+        report: ofStranger,
+        baseline: null,
+        exceptions: [],
+        now: T0 + DAY,
+      })
+    ).toMatchObject({ promotable: false, reason: "baseline missing" });
+  }, 60_000);
+
   it("moves the baseline on a clean promotion", async () => {
     const clean = await evaluate("promotion", () => 1);
     const standing = {
@@ -328,7 +389,9 @@ describe("promotion", () => {
       promotable: false,
       reason: "non-inferiority not established",
     });
-    expect(refused.nonInferiority).toStrictEqual(["intent-use: FAIL"]);
+    expect(refused.nonInferiority).toStrictEqual([
+      { axis: "intent-use", outcome: "FAIL" },
+    ]);
   }, 30_000);
 
   it("does not move the baseline through an exception", async () => {

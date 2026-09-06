@@ -6,15 +6,14 @@ evaluations that qualify review integrity and never establish a boundary. It del
 corpus, scoring or threshold "before the system exists".
 [Set the Phase 0 adversarial evaluation gate](https://github.com/nick-neely/reprove/issues/34) fixed
 them, and [Qualify a Codex revision through the adversarial gate](https://github.com/nick-neely/reprove/issues/53)
-built the result. This record carries #34's resolution into the repository; its full text remains
-the authority on any point this summary compresses.
+built the result. This record is the decision; #34 holds the discussion that produced it.
 
 ## Decision
 
-**Qualification is a property of one exact cell revision.** A lineage is Harness, Route, Provider,
+**Qualification is a property of one exact Revision.** A lineage is Harness, Route, Provider,
 pinned Model, Autonomy and Strategy; a revision is the lineage plus the Harness artifact fingerprint,
 the Adapter build, the Reviewer policy digest and the narrative schema version, all read from the
-revision's own built packages. Phase 0 qualifies one cell: Codex, brokered, OpenAI, `gpt-5.6-sol`,
+revision's own built packages. Phase 0 qualifies one Lineage: Codex, brokered, OpenAI, `gpt-5.6-sol`,
 `verify`, `standard`. A Provider-reported resolved Model is metadata, never identity.
 
 **The corpus is versioned content, not a fixture folder.** Twelve paired families, six varying the
@@ -70,5 +69,5 @@ pins run in one process.
 - The instruction probe's five-minute validity, designed for a Worker that dispatches one Run, is
   met in the gate by re-probing every four minutes. Each re-probe is a Provider turn; the cost is
   accepted rather than the window widened.
-- `CONTEXT.md` gains a **Qualification** section: Lineage, Revision, Corpus, Baseline, Exception
-  and Drift. They are nouns of the gate and its ledger, and none of them is a runtime state.
+- `CONTEXT.md` gains a **Qualification** section: Lineage, Revision, Corpus, Baseline, Exception,
+  Trial, Axis and Drift. They are nouns of the gate and its ledger, and none of them is a runtime state.

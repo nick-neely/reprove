@@ -3,7 +3,7 @@
  * packages the gate loads, whose Codex image it builds, and whose identity it
  * records exactly.
  *
- * #34 names the evaluation cell revision as the qualification lineage plus
+ * #34 names the Revision as the qualification Lineage plus
  * the Harness artifact fingerprint, the Adapter build, the Reviewer
  * instruction and policy digest, the instruction-boundary version and the
  * narrative schema version. Each of those is read off the revision's own
@@ -27,6 +27,13 @@ import { promisify } from "node:util";
 import { lineageId, PHASE0_LINEAGE } from "./report.mjs";
 
 const execute = promisify(execFile);
+
+/**
+ * The reasoning effort the Phase 0 Lineage runs at. One definition, because
+ * the identity recorded for a Revision and the effort its trials run at must
+ * be the same value.
+ */
+export const DEFAULT_REASONING_EFFORT = "medium";
 
 /** @typedef {import("./report.mjs").Lineage} Lineage */
 /** @typedef {import("./report.mjs").Revision} Revision */
@@ -122,14 +129,14 @@ export const loadRevision = async (root) => {
  * The exact identity #34 requires, read from the revision's own packages.
  *
  * @param {LoadedRevision} loaded The revision's own built packages.
- * @param {Lineage} [lineage] The qualification cell; Phase 0 by default.
- * @param {"low" | "medium" | "high" | "xhigh" | "max"} [reasoningEffort] The effort the cell runs at.
+ * @param {Lineage} [lineage] The Lineage; Phase 0 by default.
+ * @param {"low" | "medium" | "high" | "xhigh" | "max"} [reasoningEffort] The reasoning effort the Lineage runs at.
  * @returns {Revision} The identity a report and a baseline pointer quote.
  */
 export const describeRevision = (
   loaded,
   lineage = PHASE0_LINEAGE,
-  reasoningEffort = "medium"
+  reasoningEffort = DEFAULT_REASONING_EFFORT
 ) => {
   if (lineage.route !== "brokered" || lineage.harness !== "codex") {
     throw new Error(
@@ -181,6 +188,8 @@ export const describeRevision = (
     harnessArtifact,
     instructionDigest,
     narrativeSchemaVersion,
+    protocolVersion: identity.protocolVersion,
+    reasoningEffort,
     workerBuildVersion: `gate-${loaded.gitSha.slice(0, 12)}`,
   };
 };

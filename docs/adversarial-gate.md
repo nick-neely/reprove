@@ -6,7 +6,7 @@ It lives in `tools/gate/` and touches nothing under `packages/`. A Run never con
 
 ## What is qualified
 
-The Phase 0 cell is one qualification lineage:
+Phase 0 has one qualification lineage:
 
 ```text
 codex / brokered / openai / gpt-5.6-sol / verify / standard
@@ -39,20 +39,20 @@ Every condition runs six times per arm: 288 candidate trials, 576 with a baselin
 
 Each trial runs the revision's own `createWorkerCore` with its own `createCodexAdapter` and a real Docker Sandbox from its own built image, tagged per revision so a candidate and a baseline with different pins never share one. The fixture Workspace is seeded root-owned and read-only, the narrative is materialized through the protected file, and the Result is validated and Evidence cross-checked before the evaluator reads it. Candidate and baseline trials are randomized and interleaved in one seeded plan; a baseline is checked out into a worktree at its recorded commit, installed from its lockfile and built, so it is rerun rather than remembered.
 
-Capability evidence expires after five minutes and a batch runs for hours, so the runner re-takes the instruction probe in a disposable Sandbox whenever its measurement is older than four minutes. Each probe spends a Provider turn.
+Capability evidence expires after five minutes and a batch runs for hours, so the gate re-takes the instruction probe in a disposable Sandbox whenever its measurement is older than four minutes. Each probe spends a Provider turn.
 
 ## Running it
 
-Ordinary pull requests run only the corpus, scorer and evaluator tests under `pnpm verify`, plus `tools/gate/trial.test.mjs`, which drives two trials through the real path against a fixture Provider. The paid evaluation is the `qualify` workflow, dispatched by hand from a protected commit:
+Ordinary pull requests run only the corpus, scorer and evaluator tests under `pnpm verify`, plus `tools/gate/trial.test.mjs`, which drives two trials through the real path against a fixture Provider. The paid evaluation is the `qualify` workflow, dispatched by hand from a protected commit, or proposed monthly by its schedule as a requalification of the standing baseline:
 
 ```text
-workflow_dispatch -> plan job prints the cell revision and evaluation id
+workflow_dispatch -> plan job prints the revision and evaluation id
   -> `qualification` environment: manual approval, REPROVE_GATE_OPENAI_API_KEY
   -> run jobs execute shards of one seeded batch in parallel
   -> score job merges the shards, writes the report, records a commit status
 ```
 
-The commit status `qualification/codex-brokered` on the evaluated SHA is where a result is recorded against the revision it qualified. The report and summary are uploaded as artifacts. To make a result durable, commit the report under `tools/gate/ledger/<lineage>/reports/` through a pull request; `node tools/gate/qualify.mjs score --write-ledger` does that locally and moves `baseline.json` when the report promotes. See [the ledger README](../tools/gate/ledger/README.md).
+The `qualification` environment must be configured in the repository settings with required reviewers and a deployment-branch rule limited to protected branches; the workflow relies on that rule for "protected commit" and cannot enforce it from inside the repository. The commit status `qualification/codex-brokered` on the evaluated SHA is where a result is recorded against the revision it qualified. The report and summary are uploaded as artifacts. To make a result durable, commit the report under `tools/gate/ledger/<lineage>/reports/` through a pull request; `node tools/gate/qualify.mjs score --write-ledger` does that locally and moves `baseline.json` when the report promotes. See [the ledger README](../tools/gate/ledger/README.md).
 
 Locally, with a maintainer credential:
 
@@ -63,7 +63,7 @@ node tools/gate/qualify.mjs score --kind promotion --records records.json --out 
 node tools/gate/qualify.mjs status
 ```
 
-`--repetitions` below the policy is allowed for a smoke run; the report records it and can never promote.
+`--repetitions` below the policy is allowed for a smoke run; the report records it and can never promote. A requalification may only judge the standing baseline; moving the baseline to any other revision is `score --rebase`, which records the comparison chain breaking. Retrying a lost shard is re-running its job: the score step refuses an incomplete batch, and a missing shard is the `ephemeral_runner_lost` fault of #34.
 
 ## Baselines, exceptions and drift
 

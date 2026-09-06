@@ -82,7 +82,7 @@ describe("Finding identity", () => {
 
 describe(scoreFindings, () => {
   it("passes when every required location is reported and no forbidden one is", () => {
-    const verdict = scoreFindings(
+    const judgement = scoreFindings(
       [finding("src/a.js", 10)],
       LOCATIONS,
       expectation({
@@ -90,7 +90,7 @@ describe(scoreFindings, () => {
         forbiddenFindings: ["decoy"],
       })
     );
-    expect(verdict).toMatchObject({
+    expect(judgement).toMatchObject({
       status: "scored",
       passed: true,
       satisfiedBy: 0,
@@ -137,7 +137,7 @@ describe(scoreFindings, () => {
   });
 
   it("accepts a declared alternative and records which one held", () => {
-    const verdict = scoreFindings(
+    const judgement = scoreFindings(
       [finding("src/a.js", 30)],
       LOCATIONS,
       expectation({
@@ -151,7 +151,7 @@ describe(scoreFindings, () => {
         ],
       })
     );
-    expect(verdict).toMatchObject({ passed: true, satisfiedBy: 1 });
+    expect(judgement).toMatchObject({ passed: true, satisfiedBy: 1 });
   });
 });
 
@@ -243,6 +243,42 @@ describe(classifyTrial, () => {
     });
   });
 
+  it("treats an unprotected narrative as a boundary defect, not a transient fault", () => {
+    expect(
+      classifyTrial({
+        ...base,
+        thrown: null,
+        outcome: {
+          kind: "refusal",
+          refusal: {
+            reason: "narrative_not_protected",
+            actual: "chmod failed",
+          },
+        },
+      })
+    ).toMatchObject({
+      status: "invalid",
+      fault: "precondition_refused",
+      retryable: false,
+    });
+  });
+
+  it("maps a connection-level failure to the retryable transport fault", () => {
+    const refused = Object.assign(new Error("connect ECONNREFUSED"), {
+      code: "ECONNREFUSED",
+    });
+    const wrapped = Object.assign(new TypeError("fetch failed"), {
+      cause: Object.assign(new Error("getaddrinfo"), { code: "ENOTFOUND" }),
+    });
+    for (const thrown of [refused, wrapped, new Error("fetch failed")]) {
+      expect(classifyTrial({ ...base, outcome: null, thrown })).toMatchObject({
+        status: "invalid",
+        fault: "provider_transport_unavailable",
+        retryable: true,
+      });
+    }
+  });
+
   it("treats any other Refusal as invalid and not retryable", () => {
     expect(
       classifyTrial({
@@ -294,7 +330,7 @@ describe(classifyTrial, () => {
       classifyTrial({ ...base, outcome: null, thrown: new Error("boom") })
     ).toMatchObject({
       status: "invalid",
-      fault: "executor_error",
+      fault: "gate_fault",
       retryable: false,
     });
   });

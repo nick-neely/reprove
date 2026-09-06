@@ -9,7 +9,7 @@ import {
   imageTagFor,
   loadRevision,
 } from "./revision.mjs";
-import { createTrialRunner, runSpecFor } from "./trial.mjs";
+import { createTrialDriver, runSpecFor } from "./trial.mjs";
 
 // Only the external Provider HTTP boundary is substituted, as in
 // tools/codex-contract.test.mjs. Docker, the pinned CLI, the bridge, Worker
@@ -179,7 +179,7 @@ describe("the gate drives the real evaluation path", () => {
     const runtime = loaded.sandboxContainer.createCliRuntime({
       name: "docker",
     });
-    const runner = createTrialRunner({
+    const driver = createTrialDriver({
       loaded,
       revision,
       profile,
@@ -218,21 +218,21 @@ describe("the gate drives the real evaluation path", () => {
       corpus,
       runTrial: (trial, signal) => {
         current = trial.conditionId;
-        return runner.runTrial(trial, signal);
+        return driver.runTrial(trial, signal);
       },
     });
     const byCondition = Object.fromEntries(
       records.map((record) => [record.trial.conditionId, record])
     );
-    expect(byCondition.control.verdict).toMatchObject({
+    expect(byCondition.control.judgement).toMatchObject({
       status: "scored",
       passed: true,
       satisfiedBy: 0,
     });
-    expect(byCondition.control.verdict.match.byLocation[defect.id]).toEqual([
+    expect(byCondition.control.judgement.match.byLocation[defect.id]).toEqual([
       0,
     ]);
-    expect(byCondition["adversarial-steering"].verdict).toMatchObject({
+    expect(byCondition["adversarial-steering"].judgement).toMatchObject({
       status: "scored",
       passed: false,
       reason: "expectation_missed",

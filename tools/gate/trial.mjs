@@ -24,6 +24,7 @@ import { createHash } from "node:crypto";
 
 import { TrialFaultError } from "./evaluate.mjs";
 import { PHASE0_LINEAGE } from "./report.mjs";
+import { DEFAULT_REASONING_EFFORT } from "./revision.mjs";
 
 /** Re-probe before the Worker would call the evidence stale. */
 const PROBE_REFRESH_MS = 4 * 60 * 1000;
@@ -40,17 +41,17 @@ const SEED_SCRIPT =
 /** @typedef {import("./revision.mjs").LoadedRevision} LoadedRevision */
 
 /**
- * Everything a runner needs to put one revision through the evaluation path.
+ * Everything a driver needs to put one revision through the evaluation path.
  *
- * @typedef {object} TrialRunnerOptions
+ * @typedef {object} TrialDriverOptions
  * @property {LoadedRevision} loaded The revision under evaluation.
  * @property {import("./report.mjs").Revision} revision Its identity.
  * @property {import("@reprove/worker-core").SandboxProfile} profile Its built image.
- * @property {Corpus} corpus The corpus the trials are cells of.
+ * @property {Corpus} corpus The corpus the trials are scenarios of.
  * @property {{ kind: "api-key", provider: "openai" | "gateway", key: string }} authentication The Provider credential.
  * @property {import("@reprove/sandbox-container").ContainerRuntime} runtime The container CLI to seed through.
  * @property {import("@reprove/sandbox-container").SandboxProvider} sandboxes Where Sandboxes come from.
- * @property {"low" | "medium" | "high" | "xhigh" | "max"} [reasoningEffort] The effort the cell runs at.
+ * @property {"low" | "medium" | "high" | "xhigh" | "max"} [reasoningEffort] The reasoning effort the trials run at.
  * @property {number} [timeoutMs] The Pass budget.
  * @property {(request: Request) => Promise<Response>} [fetch] Substitutable only at the Provider HTTP boundary.
  * @property {() => number} [clock] The clock, for tests that need a fixed one.
@@ -92,11 +93,11 @@ export const seedWorkspace = async (runtime, sandbox, files) => {
 
 /**
  * The fixed RunSpec every trial runs under. Only the ids vary, and those are
- * derived from the trial so a transcript can be matched to its cell.
+ * derived from the trial so a transcript can be matched to its scenario.
  *
- * @param {PlannedTrial} trial The cell being run, which the ids derive from.
- * @param {import("./report.mjs").Lineage} lineage The qualification cell.
- * @param {string} reasoningEffort The effort the cell runs at.
+ * @param {PlannedTrial} trial The trial, which the ids derive from.
+ * @param {import("./report.mjs").Lineage} lineage The Lineage.
+ * @param {string} reasoningEffort The reasoning effort the trials run at.
  * @param {string} createdAt When the Run claims to have been created.
  * @returns {object} The RunSpec Worker core executes.
  */
@@ -155,12 +156,12 @@ export const runSpecFor = (trial, lineage, reasoningEffort, createdAt) => {
 };
 
 /**
- * A runner for one revision. Returns `runTrial` as `runBatch` wants it.
+ * A driver for one revision. Returns `runTrial` as `runBatch` wants it.
  *
- * @param {TrialRunnerOptions} options What the runner runs against.
- * @returns {{ runTrial: (trial: PlannedTrial, signal: AbortSignal | undefined) => Promise<object>, freshProof: (signal: AbortSignal | undefined) => Promise<import("@reprove/adapters").InstructionProbe> }} The runner.
+ * @param {TrialDriverOptions} options What the driver runs against.
+ * @returns {{ runTrial: (trial: PlannedTrial, signal: AbortSignal | undefined) => Promise<object>, freshProof: (signal: AbortSignal | undefined) => Promise<import("@reprove/adapters").InstructionProbe> }} The driver.
  */
-export const createTrialRunner = (options) => {
+export const createTrialDriver = (options) => {
   const {
     loaded,
     revision,
@@ -173,7 +174,7 @@ export const createTrialRunner = (options) => {
     log,
   } = options;
   const clock = options.clock ?? Date.now;
-  const reasoningEffort = options.reasoningEffort ?? "medium";
+  const reasoningEffort = options.reasoningEffort ?? DEFAULT_REASONING_EFFORT;
   const lineage = revision.lineage ?? PHASE0_LINEAGE;
 
   /** @type {{ proof: import("@reprove/adapters").InstructionProbe, at: number } | null} */
@@ -268,9 +269,9 @@ export const createTrialRunner = (options) => {
   });
 
   /**
-   * Run one cell of the corpus through the whole evaluation path.
+   * Run one scenario of the corpus through the whole evaluation path.
    *
-   * @param {PlannedTrial} trial The cell to run.
+   * @param {PlannedTrial} trial The trial to run.
    * @param {AbortSignal | undefined} signal Cancels the Pass, if given.
    * @returns {Promise<{ outcome: object, resolvedModel: string | null }>} What Worker core returned.
    */
@@ -282,11 +283,11 @@ export const createTrialRunner = (options) => {
       (candidate) => candidate.id === trial.conditionId
     );
     if (!family || !condition) {
-      throw new Error(`${trial.id} names a cell outside the corpus`);
+      throw new Error(`${trial.id} names a scenario outside the corpus`);
     }
     // Worker core launches the Sandbox itself, so the fixture is parked under
     // a wildcard until the materialize port sees which instance came up. Trials
-    // in one runner execute sequentially, which is what makes this safe.
+    // in one driver execute sequentially, which is what makes this safe.
     // Warm the evidence before Worker core asks for it: its capability
     // resolution has a 30-second deadline, and a probe launches a Sandbox and
     // spends a Provider turn, which does not fit. The Adapter then sees a

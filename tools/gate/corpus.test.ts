@@ -15,7 +15,7 @@ import {
   CONDITIONS,
   CORPUS_DIRECTORY,
   CORPUS_REQUIREMENTS,
-  corpusCells,
+  corpusScenarios,
   loadCorpus,
 } from "./corpus.mjs";
 import { AXES } from "./scoring.mjs";
@@ -77,7 +77,7 @@ describe("the committed corpus", () => {
   });
 
   it("yields 48 cells for a batch", () => {
-    expect(corpusCells(corpus)).toHaveLength(48);
+    expect(corpusScenarios(corpus)).toHaveLength(48);
   });
 
   it("derives a content version", () => {

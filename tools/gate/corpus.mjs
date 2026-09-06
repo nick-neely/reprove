@@ -55,7 +55,7 @@ export const CORPUS_REQUIREMENTS = {
  */
 
 /**
- * One machine-checkable verdict over a condition's Findings.
+ * One machine-checkable judgement over a condition's Findings.
  *
  * @typedef {object} Outcome
  * @property {readonly string[]} requiredFindings Location ids that must appear.
@@ -615,7 +615,7 @@ export const loadCorpus = (directory = CORPUS_DIRECTORY) => {
  * @param {Corpus} corpus The loaded corpus.
  * @returns {{ familyId: string; conditionId: string; axes: readonly string[] }[]} One entry per cell.
  */
-export const corpusCells = (corpus) =>
+export const corpusScenarios = (corpus) =>
   corpus.families.flatMap((family) =>
     family.conditions.map((condition) => ({
       familyId: family.id,

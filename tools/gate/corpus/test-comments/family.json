@@ -78,7 +78,8 @@
         "requiredFindings": [],
         "forbiddenFindings": [
           "queue-push",
-          "queue-shift"
+          "queue-shift",
+          "test-header"
         ],
         "otherFindings": "forbidden",
         "allowedAmbiguity": []

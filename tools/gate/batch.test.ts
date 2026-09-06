@@ -126,10 +126,10 @@ describe(runBatch, () => {
     expect(
       records.every((record) => record.attempts.length === 2)
     ).toBeTruthy();
-    expect(records[0]?.attempts[0]?.verdict).toMatchObject({
+    expect(records[0]?.attempts[0]?.judgement).toMatchObject({
       status: "invalid",
     });
-    expect(records[0]?.verdict).toMatchObject({
+    expect(records[0]?.judgement).toMatchObject({
       status: "scored",
       passed: true,
     });
@@ -157,7 +157,7 @@ describe(runBatch, () => {
           : perfectReviewer(trial),
     });
     const failed = records.filter(
-      (record) => record.verdict.status === "invalid"
+      (record) => record.judgement.status === "invalid"
     );
     expect(failed).toHaveLength(4);
     expect(failed.every((record) => record.attempts.length === 2)).toBeTruthy();

@@ -64,6 +64,8 @@ export const PHASE0_LINEAGE = {
  * @property {string} harnessArtifact The Adapter's artifact fingerprint.
  * @property {string} instructionDigest The Reviewer instruction and policy digest.
  * @property {number} narrativeSchemaVersion The narrative schema it encodes under.
+ * @property {number} protocolVersion The Worker protocol family the revision speaks.
+ * @property {string} reasoningEffort The reasoning effort the Harness artifact was fingerprinted at.
  * @property {string} workerBuildVersion The Worker build the trials ran on.
  */
 
@@ -111,7 +113,7 @@ export const PHASE0_LINEAGE = {
 /**
  * The lineage's identity, as a path a maintainer can read.
  *
- * @param {Lineage} lineage The qualification cell.
+ * @param {Lineage} lineage The Lineage.
  * @returns {string} The six lineage fields, slash-separated.
  */
 export const lineageId = (lineage) =>
@@ -127,7 +129,7 @@ export const lineageId = (lineage) =>
 /**
  * A file-system-safe spelling of a lineage id.
  *
- * @param {Lineage} lineage The qualification cell.
+ * @param {Lineage} lineage The Lineage.
  * @returns {string} The lineage id with its slashes flattened.
  */
 export const lineageSlug = (lineage) => lineageId(lineage).replaceAll("/", "-");
@@ -256,9 +258,9 @@ export const composeReport = ({
     };
     row[record.trial.conditionId] = cell;
     cell.attempts += record.attempts.length;
-    if (record.verdict.status === "scored") {
+    if (record.judgement.status === "scored") {
       cell.scored += 1;
-      cell.passed += record.verdict.passed ? 1 : 0;
+      cell.passed += record.judgement.passed ? 1 : 0;
     } else {
       cell.invalid += 1;
     }
@@ -480,18 +482,27 @@ const baselineRefusal = (report, baseline) => {
 };
 
 /**
+ * One axis whose non-inferiority test did not pass.
+ *
+ * @typedef {object} Shortfall
+ * @property {string} axis The axis.
+ * @property {import("./scoring.mjs").TestOutcome} outcome FAIL or INCONCLUSIVE.
+ */
+
+/**
  * The axes whose non-inferiority test did not pass, as the report spells them.
  *
  * @param {Report} report The report to read.
  * @returns {string[]} One `axis: OUTCOME` entry per shortfall, in axis order.
  */
 const nonInferiorityShortfalls = (report) => {
+  /** @type {Shortfall[]} */
   const shortfalls = [];
   for (const axis of AXES) {
     const outcome =
       report.scores?.axes[axis]?.nonInferiority?.outcome ?? "INCONCLUSIVE";
     if (outcome !== "PASS") {
-      shortfalls.push(`${axis}: ${outcome}`);
+      shortfalls.push({ axis, outcome });
     }
   }
   return shortfalls;
@@ -505,10 +516,10 @@ const nonInferiorityShortfalls = (report) => {
  * @param {BaselinePointer | null} input.baseline The ledger's standing pointer.
  * @param {readonly PromotionException[]} input.exceptions Every exception the ledger holds.
  * @param {number} input.now The instant the decision is being made at.
- * @returns {{ promotable: boolean, reason: string, exception: string | null, nonInferiority: string[] }} The decision, with the shortfalls behind it.
+ * @returns {{ promotable: boolean, reason: string, exception: string | null, nonInferiority: Shortfall[] }} The decision, with the shortfalls behind it.
  */
 export const promotionDecision = ({ report, baseline, exceptions, now }) => {
-  /** @type {string[]} */
+  /** @type {Shortfall[]} */
   const nonInferiority = [];
   const refuse = (reason) => ({
     promotable: false,
@@ -521,11 +532,8 @@ export const promotionDecision = ({ report, baseline, exceptions, now }) => {
   if (unpromotable !== null) {
     return refuse(unpromotable);
   }
-  if (
-    report.kind === "first-qualification" ||
-    report.kind === "requalification"
-  ) {
-    return baseline === null || report.kind === "requalification"
+  if (report.kind === "first-qualification") {
+    return baseline === null
       ? {
           promotable: true,
           reason: "absolute floors passed",
@@ -533,6 +541,23 @@ export const promotionDecision = ({ report, baseline, exceptions, now }) => {
           nonInferiority,
         }
       : refuse("a baseline already stands; run a promotion comparison");
+  }
+  if (report.kind === "requalification") {
+    // A requalification re-judges the standing baseline under the current
+    // versions. Judging any other revision this way would move the pointer
+    // without recording the chain breaking, which only a rebase may do.
+    if (baseline === null) {
+      return refuse("baseline missing");
+    }
+    if (report.candidate.revisionId !== baseline.revisionId) {
+      return refuse("requalification must evaluate the standing baseline");
+    }
+    return {
+      promotable: true,
+      reason: "absolute floors passed",
+      exception: null,
+      nonInferiority,
+    };
   }
   const unusableBaseline = baselineRefusal(report, baseline);
   if (unusableBaseline !== null) {
@@ -547,13 +572,12 @@ export const promotionDecision = ({ report, baseline, exceptions, now }) => {
       nonInferiority,
     };
   }
-  const failed = new Set(
-    nonInferiority.map((entry) => entry.split(":")[0] ?? "")
-  );
   const applicable = exceptions.find(
     (exception) =>
       exceptionApplies(exception, report, now) &&
-      [...failed].every((axis) => exception.acceptedAxes.includes(axis))
+      nonInferiority.every((shortfall) =>
+        exception.acceptedAxes.includes(shortfall.axis)
+      )
   );
   if (applicable) {
     return {
@@ -634,7 +658,7 @@ export const nextBaseline = ({ current, report, decision, action, now }) => {
  * Where a lineage's ledger lives.
  *
  * @param {string} root The ledger root.
- * @param {Lineage} lineage The qualification cell.
+ * @param {Lineage} lineage The Lineage.
  * @returns {string} That lineage's directory under the root.
  */
 export const ledgerDirectory = (root, lineage) =>
@@ -662,11 +686,10 @@ const readJsonFiles = (directory) => {
 };
 
 /**
-/**
  * Read a lineage's whole ledger off disk.
  *
  * @param {string} root The ledger root.
- * @param {Lineage} lineage The qualification cell.
+ * @param {Lineage} lineage The Lineage.
  * @returns {Ledger} Its baseline, reports and exceptions.
  */
 export const readLedger = (root, lineage) => {
@@ -688,11 +711,10 @@ export const readLedger = (root, lineage) => {
 };
 
 /**
-/**
  * Append a report to a lineage's ledger.
  *
  * @param {string} root The ledger root.
- * @param {Lineage} lineage The qualification cell.
+ * @param {Lineage} lineage The Lineage.
  * @param {Report} report The report to write.
  * @returns {string} The file written.
  */
@@ -708,11 +730,10 @@ export const writeReport = (root, lineage, report) => {
 };
 
 /**
-/**
  * Move a lineage's standing baseline.
  *
  * @param {string} root The ledger root.
- * @param {Lineage} lineage The qualification cell.
+ * @param {Lineage} lineage The Lineage.
  * @param {BaselinePointer} pointer Where the baseline now points.
  * @returns {string} The file written.
  */

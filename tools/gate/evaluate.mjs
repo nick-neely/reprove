@@ -1,5 +1,5 @@
 /**
- * One trial's verdict, from what Worker core returned.
+ * One trial's judgement, from what Worker core returned.
  *
  * #34 keeps four outcomes distinct and this module is where they are told
  * apart:
@@ -26,17 +26,14 @@ export const RETRYABLE_FAULTS = [
   "sandbox_provisioning_transient",
 ];
 
-/** Severities that never count as a spurious "other" Finding. */
-export const IGNORED_OTHER_SEVERITIES = ["low"];
-
 /**
- * An executor's way of saying the trial never observed Reviewer behavior.
+ * The gate's way of saying the trial never observed Reviewer behavior.
  * Anything else it throws is an invalid trial with a non-retryable fault.
  */
 export class TrialFaultError extends Error {
   /**
    * @param {string} fault The closed fault code the trial is invalid under.
-   * @param {string} detail What the executor saw, for the record.
+   * @param {string} detail What the gate saw, for the record.
    */
   constructor(fault, detail) {
     super(detail);
@@ -71,7 +68,7 @@ export class TrialFaultError extends Error {
  * @typedef {{ status: "scored", passed: true, satisfiedBy: number, match: Match }
  *   | { status: "scored", passed: false, reason: string, match: Match | null }
  *   | { status: "invalid", fault: string, retryable: boolean, detail: string }
- *   | { status: "contract_failed", reason: string, detail: string }} Verdict
+ *   | { status: "contract_failed", reason: string, detail: string }} Judgement
  */
 
 /**
@@ -158,7 +155,9 @@ export const outcomeSatisfied = (outcome, match, findings) => {
   if (outcome.otherFindings === "forbidden") {
     const spurious = match.unmatched.filter(
       (index) =>
-        !IGNORED_OTHER_SEVERITIES.includes(findings[index]?.severity ?? "")
+        !SCORING_POLICY.ignoredOtherSeverities.includes(
+          findings[index]?.severity ?? ""
+        )
     );
     if (spurious.length > 0) {
       return false;
@@ -177,7 +176,7 @@ export const outcomeSatisfied = (outcome, match, findings) => {
  * @param {readonly FindingLike[]} findings What the Reviewer reported.
  * @param {readonly Location[]} locations The family's declared locations.
  * @param {Expectation} expectation What a correct review must and must not say.
- * @returns {Verdict} A scored pass or miss.
+ * @returns {Judgement} A scored pass or miss.
  */
 export const scoreFindings = (findings, locations, expectation) => {
   const match = matchFindings(findings, locations);
@@ -197,23 +196,50 @@ export const scoreFindings = (findings, locations, expectation) => {
 };
 
 /** Refusals that mean the Sandbox never came up, which is transient by #34's list. */
-const PROVISIONING_REFUSALS = new Set([
-  "sandbox_refused",
-  "narrative_not_protected",
+const PROVISIONING_REFUSALS = new Set(["sandbox_refused"]);
+
+/**
+ * Error codes and messages by which Node reports that the Provider could not
+ * be reached at all: no request was made, so no Reviewer behavior was lost.
+ */
+const TRANSPORT_CODES = new Set([
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "ETIMEDOUT",
+  "EPIPE",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_SOCKET",
 ]);
 
 /**
- * Classify what Worker core returned, or what the executor threw.
+ * Whether a thrown error is the transport failing before any Provider turn.
+ * Node attaches `code` to system errors and wraps them as `cause` on a fetch
+ * failure; both are read as plain properties.
+ *
+ * @param {Error & { code?: unknown, cause?: { code?: unknown } }} error What was thrown.
+ * @returns {boolean} True for a connection-level failure.
+ */
+const isTransportFailure = (error) => {
+  const code = error.cause?.code ?? error.code;
+  return (
+    TRANSPORT_CODES.has(String(code)) || /fetch failed/iu.test(error.message)
+  );
+};
+
+/**
+ * Classify what Worker core returned, or what the gate threw.
  *
  * @param {object} input What the trial produced.
  * @param {{ kind: "result", result: { completeness: string, findings: readonly FindingLike[] } }
  *   | { kind: "refusal", refusal: { reason: string, actual: string | null } }
  *   | { kind: "failure", failure: { reason: string, detail: string } }
  *   | null} input.outcome What Worker core returned, or null if nothing did.
- * @param {Error | null} input.thrown What the executor threw, if it threw.
+ * @param {Error | null} input.thrown What the gate threw, if it threw.
  * @param {readonly Location[]} input.locations The family's declared locations.
  * @param {Expectation} input.expectation What a correct review must and must not say.
- * @returns {Verdict} The trial's verdict.
+ * @returns {Judgement} The trial's judgement.
  */
 export const classifyTrial = ({ outcome, thrown, locations, expectation }) => {
   if (thrown !== null) {
@@ -225,9 +251,17 @@ export const classifyTrial = ({ outcome, thrown, locations, expectation }) => {
         detail: thrown.message,
       };
     }
+    if (isTransportFailure(thrown)) {
+      return {
+        status: "invalid",
+        fault: "provider_transport_unavailable",
+        retryable: true,
+        detail: thrown.message,
+      };
+    }
     return {
       status: "invalid",
-      fault: "executor_error",
+      fault: "gate_fault",
       retryable: false,
       detail: String(thrown),
     };
@@ -235,9 +269,9 @@ export const classifyTrial = ({ outcome, thrown, locations, expectation }) => {
   if (outcome === null) {
     return {
       status: "invalid",
-      fault: "executor_error",
+      fault: "gate_fault",
       retryable: false,
-      detail: "the executor returned nothing",
+      detail: "the gate returned nothing",
     };
   }
   if (outcome.kind === "refusal") {

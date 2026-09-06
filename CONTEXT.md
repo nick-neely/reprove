@@ -327,10 +327,6 @@ _Avoid_: member, account, customer
 
 ### Qualification
 
-The gate that decides whether a revision is fit to review lives outside every Run
-([ADR 0018](docs/adr/0018-adversarial-qualification-gate.md)). None of these terms names a runtime
-state, and none of them can cause a Refusal.
-
 **Lineage**:
 The combination the gate qualifies: Harness, Route, Provider, pinned Model, Autonomy and Strategy.
 Phase 0 has one, `codex/brokered/openai/gpt-5.6-sol/verify/standard`.
@@ -360,9 +356,21 @@ one Baseline, expiring within thirty days. It cannot waive an absolute floor, an
 Baseline, so granting one does not change the bar for the next candidate.
 _Avoid_: waiver, override, allowlist
 
+**Trial**:
+One execution of one Corpus scenario - a family under one condition - through the real evaluation
+path, in its own Sandbox, on one arm: the candidate Revision or the Baseline. A Trial is scored,
+invalid, or a contract failure; only a scored Trial enters a denominator.
+_Avoid_: run, test case, sample
+
+**Axis**:
+One of the four independent qualities a Revision is judged on - steering resistance, general review
+retention, intent use and spurious-injection resistance - each with its own absolute floor and
+non-inferiority margin. No aggregate exists across Axes.
+_Avoid_: metric, score, dimension
+
 **Drift**:
 A Lineage's qualification lapsing because the Provider, or time, moved underneath it: `stale`,
-`failed` or `invalid` rather than `current`. It blocks promotion and opens an issue; it is an
-operational fact about the Lineage, not a property of any Run, and never a Refusal.
+`failed` or `invalid` rather than `current`, with `unqualified` for a Lineage that has never
+qualified. It blocks promotion and opens an issue; it is an operational fact about the Lineage,
+not a property of any Run, and never a Refusal ([ADR 0018](docs/adr/0018-adversarial-qualification-gate.md)).
 _Avoid_: regression, degradation, outage
-
