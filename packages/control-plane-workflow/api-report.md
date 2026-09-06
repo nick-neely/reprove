@@ -243,6 +243,13 @@ export declare function ingressDelivery(delivery: DeliveryToProcess): Promise<In
  * here leaves the ledger row `received` for a manual redelivery, which is the
  * only recovery a delivery that never reached the spine has.
  *
+ * A failure here is **reported and not rethrown**. Swallowing it silently was
+ * the worse half of the same decision: a deployment whose World is misconfigured
+ * would then acknowledge every delivery, commit every envelope, run nothing, and
+ * say nothing anywhere, so the manual recovery this comment relies on is one
+ * nobody knows to perform. Standard error is the only sink a server process has,
+ * and it is the one `environment.ts` already reports a broken connection to.
+ *
  * @param delivery The committed ledger row and its envelope.
  */
 export declare const startDelivery: (delivery: DeliveryToProcess) => void;

@@ -114,6 +114,29 @@ export type LifecycleOutcome =
 const UNCLAIMED = "queued";
 const LEFT_UNCLAIMED = new Set(["claimed", "executing"]);
 
+/**
+ * How long a lifecycle keeps looking for its own id on the Run once the
+ * deadline has passed and nothing is recorded there.
+ *
+ * That state has two causes and they want opposite answers. Either the step
+ * that started this lifecycle crashed before recording it, in which case this
+ * run is an orphan and must end; or the record is simply still in flight,
+ * because `dispatchLifecycle` starts before it records and this run's first
+ * wake beat that write. Ending immediately is right for the first and wrong
+ * for the second: the record then commits against a lifecycle that has already
+ * returned, and nothing is left to close the unclaimed window, so the Run
+ * stays `queued` past its deadline forever.
+ *
+ * The two are indistinguishable from inside the loop, so it waits. The wait is
+ * bounded rather than open, because a genuine orphan must not linger: a
+ * crashed dispatch is retried by the platform and records the lifecycle it
+ * starts then, which this one would only collide with. Ten seconds is many
+ * times one database round trip and a small fraction of the five-minute Phase 0
+ * deadline, which is the whole span it has to cover.
+ */
+const RECORD_GRACE_MS = 2000;
+const RECORD_GRACE_WAKES = 5;
+
 /** What `Promise.race` below resolves to, so the branch is on a name. */
 type Woke = "notified" | "deadline";
 
@@ -175,6 +198,8 @@ export async function runLifecycle(
   const hook = createHook<LifecycleSignal>({
     token: lifecycleToken(runId, mine),
   });
+  /** Wakes spent waiting for this lifecycle's own id to appear on the Run. */
+  let unrecordedWakes = 0;
   let notified: Promise<Woke> | null = (async (): Promise<Woke> => {
     await hook;
     return "notified";
@@ -215,12 +240,14 @@ export async function runLifecycle(
       }
 
       if (woken.workflowRunId === null) {
-        // The deadline has passed and nothing recorded a lifecycle for this
-        // Run. That is the `start()` window left open by a crash between
-        // starting and recording; the step that dispatched this lifecycle is
-        // retried by the platform and records the lifecycle it starts then.
-        // This one was never recorded and may write nothing.
-        return { kind: "orphaned", recordedLifecycle: null };
+        // The deadline has passed and nothing records a lifecycle for this Run.
+        // Wait out the record, then give up: see `RECORD_GRACE_MS`.
+        if (unrecordedWakes >= RECORD_GRACE_WAKES) {
+          return { kind: "orphaned", recordedLifecycle: null };
+        }
+        unrecordedWakes += 1;
+        await sleep(RECORD_GRACE_MS);
+        continue;
       }
       if (await closeUnclaimedWindow(ownerId, runId, mine)) {
         return { kind: "unscheduled" };

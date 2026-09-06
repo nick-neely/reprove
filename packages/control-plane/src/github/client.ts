@@ -182,8 +182,12 @@ export const createGitHubClient = (
   config: GitHubClientConfig
 ): GitHubClient => {
   // Without a trailing slash, so the paths below join onto it the same way
-  // whether the root arrived as `https://host` or `https://host/`.
-  const apiUrl = (config.apiUrl ?? GITHUB_API_URL).replace(/\/+$/u, "");
+  // whether the root arrived as `https://host` or `https://host/`. An empty
+  // string means the default too, not a relative URL: this is published API,
+  // and an unset environment variable read into it would otherwise build
+  // `"/app/installations/.../access_tokens"` and fail inside `new Request()`
+  // rather than at composition.
+  const apiUrl = (config.apiUrl || GITHUB_API_URL).replace(/\/+$/u, "");
   const send = (url: string, method: string, authorization: string) =>
     config.fetch(
       new Request(url, {

@@ -131,8 +131,6 @@ allowBuilds:
   # network is the surface issue #30 closed, and denying it costs nothing here:
   # `drizzle-kit --version` and `drizzle-kit generate` both work with all three
   # denied. Each key pins an exact version, so a bump is reviewed again.
-  '@swc/core': set this to true or false
-  cbor-extract: set this to true or false
   esbuild@0.18.20: false
   esbuild@0.25.12: false
   esbuild@0.28.2: false

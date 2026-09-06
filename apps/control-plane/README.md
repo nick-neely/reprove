@@ -16,7 +16,7 @@ It owns route wiring and deployment configuration, and nothing else. Even the en
 Reprove's own configuration is read in one place, and it is not this app:
 [ADR 0014](../../docs/adr/0014-workflow-orchestration-seam.md) puts all step configuration in
 `@reprove/control-plane-workflow`, whose `ENVIRONMENT` names every variable below, and
-`@reprove/control-plane` reads none. A deployment sets:
+`@reprove/control-plane`'s library code reads none - only its operator CLI does. A deployment sets:
 
 | Variable | What it is |
 |---|---|

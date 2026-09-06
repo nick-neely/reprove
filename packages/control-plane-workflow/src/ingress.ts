@@ -199,16 +199,25 @@ export async function ingressDelivery(
  * here leaves the ledger row `received` for a manual redelivery, which is the
  * only recovery a delivery that never reached the spine has.
  *
+ * A failure here is **reported and not rethrown**. Swallowing it silently was
+ * the worse half of the same decision: a deployment whose World is misconfigured
+ * would then acknowledge every delivery, commit every envelope, run nothing, and
+ * say nothing anywhere, so the manual recovery this comment relies on is one
+ * nobody knows to perform. Standard error is the only sink a server process has,
+ * and it is the one `environment.ts` already reports a broken connection to.
+ *
  * @param delivery The committed ledger row and its envelope.
  */
 export const startDelivery = (delivery: DeliveryToProcess): void => {
   void (async () => {
     try {
       await start(ingressDelivery, [delivery]);
-    } catch {
-      // Deliberately swallowed. The envelope is durable, this package holds no
-      // logger, and an unhandled rejection would take the process down for a
-      // delivery that is already recoverable by hand.
+    } catch (error) {
+      // Not rethrown: an unhandled rejection would take the process down for a
+      // delivery whose envelope is durable and recoverable by hand.
+      process.stderr.write(
+        `reprove: delivery ${delivery.deliveryId} did not reach the durable spine: ${error instanceof Error ? error.message : String(error)}\n`
+      );
     }
   })();
 };

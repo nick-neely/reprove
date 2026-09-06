@@ -14,9 +14,10 @@
  *
  * ```text
  * a database of the gate's own, bootstrapped and migrated, plus the World's schema
- *   -> next build, from clean
- *   -> the workflow bundle exists and imports nothing but the workflow runtime
- *   -> the output trace carries what the steps need: pg, and the migration folder
+ *   -> next build, from clean, which is where the builder's own plugin refuses
+ *      a Node built-in reached from a workflow body
+ *   -> the workflow bundle exists and names no module but the workflow runtime
+ *   -> the output trace carries what the steps need: pg, and the migrations
  *   -> next start
  *   -> a signed delivery, against a canned GitHub on loopback
  *   -> the Run is queued and records a lifecycle that is running in the World
@@ -70,6 +71,13 @@ const DATABASE = "reprove_gate";
 
 /** Where the built application listens. Override with `REPROVE_GATE_PORT`. */
 const PORT = Number(process.env.REPROVE_GATE_PORT ?? "3939");
+if (!(Number.isInteger(PORT) && PORT > 0 && PORT < 65_536)) {
+  // Refused here rather than ninety seconds later in `untilServing`, whose
+  // timeout message would name a deadline instead of the mistake.
+  throw new Error(
+    `REPROVE_GATE_PORT is ${JSON.stringify(process.env.REPROVE_GATE_PORT)}, which is not a port`
+  );
+}
 
 /** The generated workflow route, as the Workflow build writes it into the app tree. */
 const FLOW_ROUTE = path.join(
@@ -90,10 +98,19 @@ const FLOW_ROUTE = path.join(
  */
 const TRACED_ROUTES = ["api/github/webhook", ".well-known/workflow/v1/step"];
 
-/** What the steps need shipped, as fragments of a traced path. */
+/**
+ * What the steps need shipped, as fragments of a traced path.
+ *
+ * The journal alone is not enough: the boot assertion joins the hashes Drizzle
+ * stored against the `.sql` files that produced them, so a trace carrying the
+ * index and none of what it indexes would pass while a deployment refused to
+ * boot. `0001_` is named because migration history is append-only, so the first
+ * migration is the one file that is always there.
+ */
 const REQUIRED_IN_TRACE = {
   "the Postgres driver": "/node_modules/pg/",
   "the migration journal": "/drizzle/meta/_journal.json",
+  "the first migration": "/drizzle/0001_",
 };
 
 const WEBHOOK_SECRET = "a-webhook-secret-that-is-not-a-real-one";
@@ -122,6 +139,17 @@ const BARE_IMPORT = /^\s*import\s*["'](?<specifier>[^"'./][^"']*)["']/gmu;
  * built-in, a Postgres driver, one of Reprove's own packages - is a module the
  * VM cannot load, and its presence means a workflow body reached code that
  * only a step may reach.
+ *
+ * **Where the teeth actually are, measured against `workflow@4.8.5`.** The
+ * builder deliberately compiles a workflow bundle with no `external` list,
+ * precisely because the VM has no `require`, so today's output inlines its
+ * whole graph and names almost nothing. What refuses a Node built-in is the
+ * builder's own plugin, which fails `next build` - and this gate builds from
+ * clean, so that refusal is a gate failure rather than a lint someone might
+ * skip. This check is the **backstop for the other arrangement**: a builder
+ * version that emits externals instead, where the same defect would compile
+ * cleanly and break in the VM. It is written over specifiers rather than over
+ * a chunk layout for the same reason ADR 0014 forbids asserting bundle size.
  *
  * @param {string} source The bundle's text.
  * @returns {string[]} Every offending specifier, deduplicated and sorted.
@@ -272,7 +300,9 @@ const buildFromClean = () => {
   // The generated workflow routes are stale-prone across builds, and a stale
   // artifact silently invalidates every check below.
   rmSync(path.join(APP, ".next"), { recursive: true, force: true });
-  rmSync(path.join(APP, "src", "app", ".well-known"), {
+  // Only the generated tree. `.well-known` is a route namespace an application
+  // is entitled to put committed source in, and this runs on a working copy.
+  rmSync(path.join(APP, "src", "app", ".well-known", "workflow"), {
     recursive: true,
     force: true,
   });
@@ -405,6 +435,10 @@ const startBuiltApp = (githubUrl, key) => {
       WORKFLOW_LOCAL_BASE_URL: origin,
     },
     stdio: ["ignore", "pipe", "pipe"],
+    // Its own process group, so the signals below reach the render workers
+    // `next start` forks as well as the process this spawned. Killing only the
+    // direct child leaves a worker holding the port for the next run.
+    detached: true,
   });
   let log = "";
   server.stdout.on("data", (chunk) => {
@@ -413,17 +447,46 @@ const startBuiltApp = (githubUrl, key) => {
   server.stderr.on("data", (chunk) => {
     log += String(chunk);
   });
+  // A spawn that never starts - no `next` binary, no permission - emits `error`
+  // asynchronously, and an unhandled one is an uncaught exception outside every
+  // `try` here, so nothing would be torn down. Recorded like any other failure
+  // and left to `untilServing` to report.
+  server.on("error", (error) => {
+    log += `spawn failed: ${error.message}\n`;
+  });
+  /**
+   * Signals the whole group, ignoring the case where it has already gone.
+   *
+   * @param {NodeJS.Signals} signal The signal.
+   */
+  const signalGroup = (signal) => {
+    try {
+      process.kill(-(server.pid ?? 0), signal);
+    } catch {
+      // Already reaped, or never started.
+    }
+  };
   return {
     origin,
     log: () => log.slice(-4000),
     stop: async () => {
-      if (server.exitCode !== null) {
+      if (server.exitCode !== null || server.pid === undefined) {
         return;
       }
-      server.kill("SIGTERM");
-      await Promise.race([once(server, "exit"), sleep(5000)]);
+      signalGroup("SIGTERM");
+      const abandon = new AbortController();
+      await Promise.race([
+        once(server, "exit"),
+        // Aborted on a clean exit, so a five-second timer does not keep the
+        // event loop referenced after the gate is done.
+        sleep(5000, undefined, { signal: abandon.signal }).catch(() => {
+          // Aborted, which is the good case.
+        }),
+      ]);
+      abandon.abort();
       if (server.exitCode === null) {
-        server.kill("SIGKILL");
+        signalGroup("SIGKILL");
+        await Promise.race([once(server, "exit"), sleep(2000)]);
       }
     },
   };
@@ -507,7 +570,7 @@ const checkBundle = () => {
   }
   const foreign = foreignSpecifiers(readFileSync(FLOW_ROUTE, "utf-8"));
   if (foreign.length === 0) {
-    ok("the workflow bundle imports nothing but the workflow runtime");
+    ok("the workflow bundle names no module but the workflow runtime");
   } else {
     bad(
       `the workflow bundle reaches modules the workflow VM cannot load: ${foreign.join(", ")}. A workflow body reached code only a step may reach.`
@@ -598,12 +661,26 @@ const checkExecution = async () => {
       `${error instanceof Error ? error.message : String(error)}\nServer said: ${app.log()}`
     );
   } finally {
-    await app.stop();
-    await github.close();
+    // Settled rather than sequenced: a `stop()` that rejects must not leave the
+    // canned server listening, whose open handle would hang the gate instead of
+    // letting it exit.
+    await Promise.allSettled([app.stop(), github.close()]);
   }
 };
 
-const main = async () => {
+const dropDatabase = () => {
+  try {
+    psql(
+      MAINTENANCE_DATABASE,
+      `drop database if exists "${DATABASE}" with (force)`
+    );
+  } catch {
+    // The stack is down, which is what the failure being reported already says.
+    // The next run recreates this database from a known-clean state regardless.
+  }
+};
+
+const run = async () => {
   process.stdout.write("\nReal-builder workflow gate\n\n");
   requireStack();
   await recreateDatabase();
@@ -620,15 +697,9 @@ const main = async () => {
   if (failures === 0) {
     await checkExecution();
   } else {
-    bad(
-      "skipped executing a workflow: the artifact checks above already failed"
-    );
-  }
-
-  if (!keep) {
-    psql(
-      MAINTENANCE_DATABASE,
-      `drop database if exists "${DATABASE}" with (force)`
+    // Not a failure of its own: the count below names what actually broke.
+    process.stdout.write(
+      "  ----  skipped executing a workflow: the artifact checks above already failed\n"
     );
   }
 
@@ -640,6 +711,21 @@ const main = async () => {
   }
   process.stdout.write(`\n${failures} workflow build gate failure(s).\n`);
   process.exitCode = 1;
+};
+
+/**
+ * The gate, and the database it owns either way. A build that throws left the
+ * database behind before this wrapper existed, which contradicts `--keep` being
+ * the thing that leaves state to inspect.
+ */
+const main = async () => {
+  try {
+    await run();
+  } finally {
+    if (!keep) {
+      dropDatabase();
+    }
+  }
 };
 
 if (

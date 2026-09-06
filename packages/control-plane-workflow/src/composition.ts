@@ -41,18 +41,22 @@ let composed: Promise<ControlPlane> | undefined;
  * The workflow module is loaded when the first delivery arrives rather than
  * imported at the top, because it imports this module for its steps: a static
  * import each way would be a cycle, and the kick is the one edge that can be
- * deferred without changing what it does. Like every kick it is synchronous
- * and swallows its own rejection - the envelope is durable, this package holds
- * no logger, and a delivery that never reached the spine is recoverable by
- * hand.
+ * deferred without changing what it does. Like every kick it is synchronous and
+ * does not rethrow - the envelope is durable and a delivery that never reached
+ * the spine is recoverable by hand - but it reports, because a recovery nobody
+ * is told to perform is not one.
  */
 const kick = (delivery: DeliveryToProcess): void => {
   void (async () => {
     try {
       const { startDelivery } = await import("./ingress.js");
       startDelivery(delivery);
-    } catch {
-      // Nothing to do, and nothing to log with. The ledger row is `received`.
+    } catch (error) {
+      // Only the import can fail here; `startDelivery` reports its own. The
+      // ledger row is `received`, so the delivery stays recoverable.
+      process.stderr.write(
+        `reprove: the durable spine could not be loaded for delivery ${delivery.deliveryId}: ${error instanceof Error ? error.message : String(error)}\n`
+      );
     }
   })();
 };
@@ -77,10 +81,18 @@ const compose = async (): Promise<ControlPlane> =>
  */
 export const controlPlane = async (): Promise<ControlPlane> => {
   composed ??= compose();
+  const attempted = composed;
   try {
-    return await composed;
+    return await attempted;
   } catch (error) {
-    composed = undefined;
+    // Only the attempt that failed is cleared. Clearing unconditionally would
+    // let a second caller awaiting the same failed promise discard a later
+    // caller's healthy composition, which then holds a connection pool nothing
+    // will ever reach again - one leaked pool per interleaving, on exactly the
+    // recovering deployment the memo above is written for.
+    if (composed === attempted) {
+      composed = undefined;
+    }
     throw error;
   }
 };
