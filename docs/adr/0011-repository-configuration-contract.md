@@ -278,7 +278,9 @@ review:
     test: pnpm test
     typecheck: pnpm typecheck
   baseConventions: true      # ADR 0009's re-admission switch; quality control, default on
-  harnessOptions: {}         # ADR 0005's typed advanced options; empty at launch
+  harnessOptions:
+    codex:
+      reasoningEffort: medium # low | medium | high | xhigh | max; Model-dependent
   overrides:
     - paths: [packages/web/**]
       threshold: { severity: high }
@@ -299,9 +301,19 @@ the glossary term is Project commands. ADR 0004's finding stands unchanged: they
 from the base ref and are hygiene rather than a control, since under `verify` the
 Reviewer holds a shell.
 
-`harnessOptions` **ships empty**. ADR 0005 admitted a small typed set *added deliberately
-as real use cases appear*, and reserving the shape without inventing keys is the honest
-foundation move.
+`harnessOptions` initially reserved an empty shape. Issue #52 now admits
+`codex.reasoningEffort`, an explicit request for repeatable Model reasoning control:
+`low`, `medium` (the default), `high`, `xhigh`, or `max`. These are the levels exposed by
+the pinned Codex bridge; the control-plane Model catalogue narrows the choices for
+each Model. Unknown keys and unsupported enum values are rejected. Other Harness
+option objects remain empty.
+
+The resolved effort belongs to the immutable Run configuration and its digest. Worker
+core carries it into capability resolution and the Pass. The Adapter includes it in
+its behavioral-probe fingerprint and refuses a mismatched selection before execution.
+Both authentication routes set it explicitly, including the same-thread repair turn.
+This is ADR 0005's small typed option set added for a real use case, not an arbitrary
+CLI/config passthrough.
 
 The file carries **no version key**: strict rejection of unknown keys plus additive-only
 evolution keeps old files valid, and `resolvedConfig` carries the `schemaVersion` that

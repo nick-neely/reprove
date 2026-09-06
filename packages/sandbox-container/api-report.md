@@ -3,6 +3,33 @@
 
 # @reprove/sandbox-container
 
+## dist/access.d.ts
+
+```ts
+import type { PortEndpoint } from "./ports.js";
+import type { SandboxProxy } from "./proxy-relay.js";
+import type { ProxyOptions } from "./proxy.js";
+import type { ContainerRuntime, RuntimeProcess } from "./runtime.js";
+export interface CommandOptions {
+    readonly directory?: string;
+    readonly environment?: Readonly<Record<string, string>>;
+    readonly signal?: AbortSignal;
+}
+/** Host-side access to an already attested instance. Commands run as uid 1000. */
+export interface SandboxAccess {
+    readonly streaming: boolean;
+    readonly openProxy: (options: ProxyOptions) => Promise<SandboxProxy>;
+    readonly exposePort: (port: number) => Promise<PortEndpoint>;
+    readonly close: () => Promise<void>;
+    readonly start: (command: readonly string[], options?: CommandOptions) => RuntimeProcess;
+    readonly read: (path: string) => Promise<Uint8Array | null>;
+    readonly write: (path: string, content: Uint8Array) => Promise<void>;
+    /** Root owns both the file and its parent; the Reviewer cannot replace either. */
+    readonly protect: (path: string, content: Uint8Array) => Promise<void>;
+}
+export declare const createSandboxAccess: (runtime: ContainerRuntime, id: string, directory: string) => SandboxAccess;
+```
+
 ## dist/arguments.d.ts
 
 ```ts
@@ -430,7 +457,7 @@ export declare const checkQuarantine: (reason?: string) => RequirementOutcome;
 
 ```ts
 import type { RuntimeName } from "./request.js";
-import type { ContainerRuntime } from "./runtime.js";
+import type { StreamingContainerRuntime } from "./runtime.js";
 export interface CliRuntimeOptions {
     readonly name: RuntimeName;
     /** Defaults to the runtime's own name, resolved on `PATH`. */
@@ -439,7 +466,7 @@ export interface CliRuntimeOptions {
     readonly timeoutMs?: number;
     readonly maxBufferBytes?: number;
 }
-export declare const createCliRuntime: (options: CliRuntimeOptions) => ContainerRuntime;
+export declare const createCliRuntime: (options: CliRuntimeOptions) => StreamingContainerRuntime;
 ```
 
 ## dist/dialect.d.ts
@@ -497,6 +524,7 @@ export declare const PODMAN_DIALECT: RuntimeDialect;
  * pipeline is the only supported path from a request to a running Sandbox.
  */
 export declare const packageName: "@reprove/sandbox-container";
+export type { CommandOptions, SandboxAccess } from "./access.js";
 export { SANDBOX_LABEL } from "./arguments.js";
 export { attestInstance } from "./attestation.js";
 export type { Attestation, AttestationInput, InstanceReport, ObservedMount, } from "./attestation.js";
@@ -515,13 +543,30 @@ export { checkRequest, HARD_REQUIREMENTS } from "./requirements.js";
 export type { RequirementName, RequirementOutcome } from "./requirements.js";
 export { SandboxTeardownError } from "./residue.js";
 export type { Residue } from "./residue.js";
-export type { ContainerRuntime, RuntimeInvocation, RuntimeOutcome, } from "./runtime.js";
+export type { ContainerRuntime, RuntimeInvocation, RuntimeOutcome, RuntimeProcess, RuntimeSpawn, StreamingContainerRuntime, } from "./runtime.js";
 export { RuntimeUnavailableError } from "./runtime-unavailable.js";
+export { createHostProxy } from "./proxy.js";
+export type { HostProxy, ProxyOptions, ProxyRule, ProxyCredential, } from "./proxy.js";
+export type { PortEndpoint } from "./ports.js";
+export type { SandboxProxy } from "./proxy-relay.js";
+```
+
+## dist/ports.d.ts
+
+```ts
+import type { SandboxAccess } from "./access.js";
+export interface PortEndpoint {
+    readonly url: string;
+    readonly close: () => Promise<void>;
+}
+/** Reach one loopback port without giving the Sandbox a network interface. */
+export declare const exposePort: (start: SandboxAccess["start"], port: number) => Promise<PortEndpoint>;
 ```
 
 ## dist/provider.d.ts
 
 ```ts
+import type { SandboxAccess } from "./access.js";
 import type { Attestation } from "./attestation.js";
 import type { CapabilityCache, HostCapability } from "./capability.js";
 import type { RuntimeDialect } from "./dialect.js";
@@ -558,6 +603,7 @@ export interface Sandbox {
     readonly attestation: Attestation;
     readonly workspace: WorkspaceHandle;
     readonly exec: (command: readonly string[]) => Promise<ExecOutcome>;
+    readonly access?: SandboxAccess;
     readonly teardown: () => Promise<TeardownReceipt>;
 }
 export interface SandboxProvider {
@@ -596,6 +642,52 @@ export declare const createSandboxProvider: (options: SandboxProviderOptions) =>
 export declare const createDockerProvider: (options: RuntimeProviderOptions) => SandboxProvider;
 /** A provider driving Podman through the injected runtime. */
 export declare const createPodmanProvider: (options: RuntimeProviderOptions) => SandboxProvider;
+```
+
+## dist/proxy-relay.d.ts
+
+```ts
+import type { SandboxAccess } from "./access.js";
+import type { ProxyCredential, ProxyOptions } from "./proxy.js";
+export interface SandboxProxy {
+    readonly environment: Readonly<Record<string, string>>;
+    readonly credentials: (credentials: readonly ProxyCredential[]) => void;
+    readonly close: () => Promise<void>;
+}
+export declare const openSandboxProxy: (access: SandboxAccess, options: ProxyOptions) => Promise<SandboxProxy>;
+```
+
+## dist/proxy.d.ts
+
+```ts
+export interface ProxyRule {
+    readonly origin: string;
+    readonly method: string;
+    readonly path: string;
+}
+export interface ProxyCredential {
+    readonly origin: string;
+    readonly placeholder: string;
+    readonly secret: string;
+}
+export interface ProxyOptions {
+    readonly rules: readonly ProxyRule[];
+    readonly maxRequests: number;
+    readonly maxRequestBytes: number;
+    readonly maxResponseBytes: number;
+    readonly maxConcurrency: number;
+    readonly signal: AbortSignal;
+    /** The external HTTP boundary; production uses the platform fetch. */
+    readonly fetch?: (request: Request) => Promise<Response>;
+}
+export interface HostProxy {
+    readonly port: number;
+    readonly certificate: Uint8Array;
+    readonly credentials: (credentials: readonly ProxyCredential[]) => void;
+    readonly close: () => Promise<void>;
+}
+/** A fixed host/method/path allowlist, enforced after TLS termination. */
+export declare const createHostProxy: (options: ProxyOptions) => Promise<HostProxy>;
 ```
 
 ## dist/refusal.d.ts
@@ -937,5 +1029,29 @@ export interface RuntimeOutcome {
 export interface ContainerRuntime {
     readonly name: RuntimeName;
     readonly invoke: (invocation: RuntimeInvocation) => Promise<RuntimeOutcome>;
+    readonly spawn?: (invocation: RuntimeSpawn) => RuntimeProcess;
 }
+export interface RuntimeSpawn {
+    readonly arguments: readonly string[];
+    readonly signal?: AbortSignal;
+}
+export interface RuntimeProcess {
+    readonly stdin: WritableStream<Uint8Array>;
+    readonly stdout: ReadableStream<Uint8Array>;
+    readonly stderr: ReadableStream<Uint8Array>;
+    readonly wait: () => Promise<{
+        readonly exitCode: number;
+    }>;
+    readonly kill: () => Promise<void>;
+}
+export interface StreamingContainerRuntime extends ContainerRuntime {
+    readonly spawn: (invocation: RuntimeSpawn) => RuntimeProcess;
+}
+```
+
+## dist/tcp.d.ts
+
+```ts
+import type { Server } from "node:net";
+export declare const boundPort: (server: Server) => number;
 ```

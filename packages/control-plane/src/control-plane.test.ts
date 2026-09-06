@@ -374,6 +374,31 @@ describe("the control plane's GitHub webhook, end to end", () => {
     ).rejects.toThrow("ControlPlaneConfig.github.runProfile");
   });
 
+  it.each(["gpt-5", "unknown-model"])(
+    "refuses unsupported Codex Model/effort %s/max at composition",
+    async (model) => {
+      await expect(
+        createControlPlane({
+          database: { connectionString: database.runtimeUrl },
+          github: {
+            ...githubConfig,
+            runProfile: {
+              ...PHASE_0_RUN_PROFILE,
+              model,
+              resolvedConfig: {
+                ...PHASE_0_RUN_PROFILE.resolvedConfig,
+                review: {
+                  ...PHASE_0_RUN_PROFILE.resolvedConfig.review,
+                  harnessOptions: { codex: { reasoningEffort: "max" } },
+                },
+              },
+            },
+          },
+        })
+      ).rejects.toThrow(/Model.*reasoning effort/u);
+    }
+  );
+
   it("refuses a composition that could not read GitHub back", async () => {
     await expect(
       createControlPlane({

@@ -6,6 +6,7 @@
  * Refusal, and what was found **after** it does not cross at all. Neither is
  * ever reported as the other, and there is no third thing to report.
  */
+import { createCodexAdapter, codexFingerprint } from "@reprove/adapters";
 import { SandboxRefusalError, checkRequest } from "@reprove/sandbox-container";
 import { describe, expect, it } from "vitest";
 
@@ -127,6 +128,98 @@ const partial = (): AdapterPassOutput => ({
   outcome: "partial",
   stoppedBy: "budget_exhausted",
   summary: "Reviewed 2 of 4 changed files before the Pass budget ran out.",
+});
+
+describe("real Codex authentication at dispatch", () => {
+  it.each(["initial", "instance"])(
+    "cancels an unresponsive %s capability resolution",
+    async (stage) => {
+      const adapter = createCodexAdapterDouble();
+      const sandboxes = createSandboxProviderDouble();
+      const started = Promise.withResolvers<boolean>();
+      const controller = new AbortController();
+      const core = createWorkerCore({
+        adapter: {
+          ...adapter,
+          capability: (request) => {
+            if (!request && stage === "instance") {
+              return adapter.capability();
+            }
+            started.resolve(true);
+            return Promise.withResolvers<never>().promise;
+          },
+        },
+        sandboxes,
+        materialize: () => Promise.resolve(),
+        workerBuildVersion: "test",
+        clock: () => NOW,
+      });
+      const result = core.execute({
+        spec: RUN_SPEC,
+        narrative: { title: "Review", description: "" },
+        conventions: [],
+        exposure: "scoped",
+        signal: controller.signal,
+      });
+      await started.promise;
+      controller.abort();
+      await expect(result).resolves.toMatchObject({
+        kind: "refusal",
+        refusal: { reason: "capability_unresolved" },
+      });
+      expect(sandboxes.teardowns()).toBe(stage === "instance" ? 1 : 0);
+      expect(adapter.requests).toHaveLength(0);
+    },
+    1000
+  );
+
+  it("uses the launched isolation when host and instance differ", async () => {
+    const { run, adapter, sandboxes } = harness(
+      {},
+      { instanceIsolation: "container" }
+    );
+    const result = await run({ exposure: "account" });
+    expect(result).toMatchObject({
+      kind: "refusal",
+      refusal: { reason: "isolation_insufficient" },
+    });
+    expect(adapter.requests).toHaveLength(0);
+    expect(sandboxes.teardowns()).toBe(1);
+  });
+
+  it("refuses native account Exposure on a rootful container even when the caller says none", async () => {
+    const authentication = {
+      kind: "native",
+      authJson: JSON.stringify({ OPENAI_API_KEY: "synthetic" }),
+    } as const;
+    const adapter = createCodexAdapter({
+      model: RUN_SPEC.model,
+      authentication,
+      instructionProbe: () =>
+        Promise.resolve({
+          fingerprint: codexFingerprint(authentication, RUN_SPEC.model),
+          probedAt: Date.now(),
+          satisfied: true,
+          runtimeFingerprint: "a".repeat(64),
+        }),
+    });
+    const core = createWorkerCore({
+      adapter,
+      sandboxes: createSandboxProviderDouble({ isolation: "container" }),
+      materialize: () => Promise.resolve(),
+      workerBuildVersion: "test",
+    });
+    const result = await core.execute({
+      spec: RUN_SPEC,
+      narrative: { title: "Review", description: "" },
+      conventions: [],
+      exposure: "none",
+    });
+    expect(result).toMatchObject({
+      kind: "refusal",
+      refusal: { reason: "isolation_insufficient" },
+    });
+  });
 });
 
 describe("a clean Pass", () => {
@@ -671,7 +764,7 @@ describe("the Sandbox it asks for", () => {
     // Instruction suppression is a Sandbox-provisioning concern: a per-command
     // environment merges over the Sandbox's own, so a lever set per command can
     // be shadowed and one set here cannot.
-    const { run, sandboxes } = harness();
+    const { run, sandboxes } = harness({ harness: "claude-code" });
     await run({ spec: { ...RUN_SPEC, harness: "claude-code" } });
 
     expect(sandboxes.launched[0]?.environment).toStrictEqual(
@@ -679,7 +772,7 @@ describe("the Sandbox it asks for", () => {
     );
   });
 
-  it("asks for no egress, because the proxy that would terminate it does not exist", async () => {
+  it("keeps the network namespace isolated when proxy access is supplied over pipes", async () => {
     const { run, sandboxes } = harness();
     await run();
 

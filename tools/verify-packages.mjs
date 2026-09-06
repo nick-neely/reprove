@@ -828,14 +828,22 @@ const checkConsumerFixture = (rootDir, packages, fixtureDir, violations) => {
   }
 
   // One install for the whole fixture: the consumers are one pnpm workspace.
-  const installed = run("pnpm", ["install", "--ignore-scripts", "--offline"], {
-    cwd: fixtureDir,
-  });
+  // Exact tarballs can be installed at the root without caching registry metadata.
+  // The clean fixture needs that metadata even when every tarball is local.
+  // Prefer the cache, but permit filling missing metadata; all edges remain pinned.
+  const installed = run(
+    "pnpm",
+    ["install", "--ignore-scripts", "--prefer-offline"],
+    {
+      cwd: fixtureDir,
+      timeout: 120_000,
+    }
+  );
   if (installed !== RAN) {
     add(
       installed === ABSENT
         ? notOnPath("pnpm", "installs the packed tarballs with it")
-        : "the consumer fixture did not install from the local store. Run `pnpm install` at the repository root so every packed dependency is in the store, then run this step again."
+        : "the consumer fixture could not install the pinned dependency graph. Run `pnpm install` at the repository root so every packed dependency is in the store, then run this step again."
     );
     return;
   }

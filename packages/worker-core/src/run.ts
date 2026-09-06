@@ -32,6 +32,8 @@
  * eligibility away. Neither authorizes itself, and neither is reached at all
  * until every gate above it has passed.
  */
+import { addAbortListener } from "node:events";
+
 import { protocolVersion, refusalSchema } from "@reprove/protocol/v1";
 import type { Exposure, Refusal, RunSpec } from "@reprove/protocol/v1";
 import {
@@ -45,6 +47,7 @@ import type {
   ConformanceComplaint,
   AdapterPassOutput,
   ResolvedCapability,
+  PassProgress,
 } from "./adapter.js";
 import { checkDispatch } from "./dispatch.js";
 import type { IsolationLevel, RefusalCause } from "./dispatch.js";
@@ -62,12 +65,10 @@ import type { SandboxProfile } from "./sandbox.js";
  * Materializes the exact encoded bytes inside the Sandbox, under an identity
  * the Reviewer can read but cannot chmod, unlink, rename or replace.
  *
- * A port rather than a call, because `@reprove/sandbox-container` exposes no
- * write primitive yet and the alternative would be shelling the bytes through
- * an argument vector - which ADR 0012 forbids by name, since the path,
- * filename, arguments and environment must contain no Author-controlled value.
- * Throwing is the Refusal: failure to establish the protected representation is
- * not a degraded Run.
+ * The composition root supplies Workspace materialization and can use the
+ * production `materializeNarrative` helper for the protected representation.
+ * Author bytes travel on stdin, never in argument vectors or environment.
+ * Throwing is a Refusal, before any Reviewer executes.
  */
 export type Materialize = (
   sandbox: Sandbox,
@@ -93,6 +94,7 @@ export interface WorkerCoreOptions {
  * untrusted channels are distinguishable here rather than assumed upstream.
  */
 export interface RunInput {
+  readonly onProgress?: (event: PassProgress) => void;
   readonly spec: RunSpec;
   readonly narrative: NarrativeInput;
   readonly conventions: readonly ConventionSource[];
@@ -157,6 +159,26 @@ const isolationOf = async (
   return host.isolation;
 };
 
+const resolveWithinDeadline = async <T>(
+  resolve: (signal: AbortSignal) => Promise<T>,
+  caller?: AbortSignal
+): Promise<T> => {
+  const signal = AbortSignal.any([
+    AbortSignal.timeout(30_000),
+    ...(caller ? [caller] : []),
+  ]);
+  signal.throwIfAborted();
+  const cancelled = Promise.withResolvers<never>();
+  const subscription = addAbortListener(signal, () =>
+    cancelled.reject(signal.reason)
+  );
+  try {
+    return await Promise.race([resolve(signal), cancelled.promise]);
+  } finally {
+    subscription[Symbol.dispose]();
+  }
+};
+
 export const createWorkerCore = (options: WorkerCoreOptions): WorkerCore => {
   const profile = options.profile ?? PHASE0_SANDBOX_PROFILE;
   const clock = options.clock ?? Date.now;
@@ -207,9 +229,15 @@ export const createWorkerCore = (options: WorkerCoreOptions): WorkerCore => {
     let output: AdapterPassOutput;
     try {
       output = await adapter.pass({
+        onProgress: input.onProgress,
         runId: spec.runId,
         passId,
         model: spec.model,
+        reasoningEffort:
+          spec.harness === "codex"
+            ? (spec.resolvedConfig.review.harnessOptions.codex
+                ?.reasoningEffort ?? "medium")
+            : undefined,
         autonomy: spec.autonomy,
         instructions,
         sandbox,
@@ -268,8 +296,18 @@ export const createWorkerCore = (options: WorkerCoreOptions): WorkerCore => {
       let capability: ResolvedCapability;
       let isolation: IsolationLevel;
       try {
-        capability = await adapter.capability();
-        isolation = await isolationOf(sandboxes);
+        if (adapter.harness !== spec.harness) {
+          throw new Error(
+            "the selected Adapter does not match the pinned Harness"
+          );
+        }
+        ({ capability, isolation } = await resolveWithinDeadline(
+          async () => ({
+            capability: await adapter.capability(),
+            isolation: await isolationOf(sandboxes),
+          }),
+          input.signal
+        ));
       } catch (error) {
         return refuse(
           spec,
@@ -287,7 +325,7 @@ export const createWorkerCore = (options: WorkerCoreOptions): WorkerCore => {
         provenance: spec.provenance,
         allowExternalProvenance:
           spec.resolvedConfig.security.allowExternalProvenance,
-        exposure: input.exposure,
+        exposure: capability.exposure ?? input.exposure,
         maximumExposure: spec.resolvedConfig.security.maxExposure,
         isolation,
         capability,
@@ -360,6 +398,51 @@ export const createWorkerCore = (options: WorkerCoreOptions): WorkerCore => {
           },
           workerBuildVersion
         );
+      }
+
+      // Resolve again against the actual attested instance. Artifact or
+      // Workspace mismatches are Refusals, before any Reviewer executes.
+      let instanceRefusal: RefusalCause | null;
+      try {
+        capability = await resolveWithinDeadline(
+          (signal) =>
+            adapter.capability({
+              sandbox,
+              model: spec.model,
+              signal,
+              reasoningEffort:
+                spec.harness === "codex"
+                  ? (spec.resolvedConfig.review.harnessOptions.codex
+                      ?.reasoningEffort ?? "medium")
+                  : undefined,
+            }),
+          input.signal
+        );
+        instanceRefusal = checkDispatch({
+          autonomy: spec.autonomy,
+          provenance: spec.provenance,
+          allowExternalProvenance:
+            spec.resolvedConfig.security.allowExternalProvenance,
+          exposure: capability.exposure ?? input.exposure,
+          maximumExposure: spec.resolvedConfig.security.maxExposure,
+          isolation: sandbox.isolation,
+          capability,
+          now: clock(),
+        });
+      } catch {
+        instanceRefusal = {
+          reason: "capability_unresolved",
+          required: "a capability for the actual Sandbox",
+          actual: "instance resolution failed",
+        };
+      }
+      if (instanceRefusal) {
+        try {
+          await sandbox.teardown();
+        } catch {
+          /* Provider quarantines uncertain cleanup. */
+        }
+        return refuse(spec, instanceRefusal, workerBuildVersion);
       }
 
       // Nothing between here and teardown may throw past this point. The Pass

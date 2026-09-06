@@ -161,6 +161,26 @@ describe.each(DIALECTS)(
   "a $dialect.name Sandbox provider",
   ({ dialect, infoStdout }) => {
     describe("a launch that is authorized", () => {
+      it("closes an endpoint whose registration races teardown", async () => {
+        const { provider } = arrange(dialect, infoStdout);
+        const sandbox = await provider.launch(REQUEST);
+        if (!sandbox.access) {
+          throw new Error("expected Sandbox access");
+        }
+        const opening = sandbox.access.exposePort(3000);
+        const closing = sandbox.teardown();
+        await expect(opening).rejects.toThrow("Sandbox access is closed");
+        await expect(closing).resolves.toStrictEqual({ residue: [] });
+      });
+
+      it("refuses streaming when the runtime cannot keep a process attached", async () => {
+        const { provider } = arrange(dialect, infoStdout);
+        const sandbox = await provider.launch(REQUEST);
+        expect(() => sandbox.access?.start(["codex", "exec"])).toThrow(
+          /streaming/u
+        );
+      });
+
       it("renders every hard requirement as an argument, and nothing else", async () => {
         const { provider, runtime } = arrange(dialect, infoStdout);
         await provider.launch(REQUEST);

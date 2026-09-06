@@ -36,4 +36,22 @@ export interface RuntimeOutcome {
 export interface ContainerRuntime {
   readonly name: RuntimeName;
   readonly invoke: (invocation: RuntimeInvocation) => Promise<RuntimeOutcome>;
+  readonly spawn?: (invocation: RuntimeSpawn) => RuntimeProcess;
+}
+
+export interface RuntimeSpawn {
+  readonly arguments: readonly string[];
+  readonly signal?: AbortSignal;
+}
+
+export interface RuntimeProcess {
+  readonly stdin: WritableStream<Uint8Array>;
+  readonly stdout: ReadableStream<Uint8Array>;
+  readonly stderr: ReadableStream<Uint8Array>;
+  readonly wait: () => Promise<{ readonly exitCode: number }>;
+  readonly kill: () => Promise<void>;
+}
+
+export interface StreamingContainerRuntime extends ContainerRuntime {
+  readonly spawn: (invocation: RuntimeSpawn) => RuntimeProcess;
 }

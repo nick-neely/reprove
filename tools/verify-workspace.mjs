@@ -16,6 +16,7 @@ import { builtinModules } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { valid } from "semver";
 import { createScanner } from "typescript/unstable/ast/scanner";
 
 import {
@@ -121,6 +122,7 @@ const WORKSPACES = {
       "@ai-sdk/harness-codex",
       "@ai-sdk/harness-claude-code",
       "@ai-sdk/harness-opencode",
+      "zod",
     ],
     forbidden: [
       "@reprove/*",
@@ -137,7 +139,7 @@ const WORKSPACES = {
     internal: [],
     // `@ai-sdk/harness` core only, never the per-Harness bridges. A container
     // runtime library is permitted by the ADR but must be named here first.
-    external: ["@ai-sdk/harness"],
+    external: ["@ai-sdk/harness", "zod"],
     forbidden: [
       "@reprove/*",
       "@ai-sdk/harness-codex",
@@ -866,6 +868,15 @@ const checkDeclaredDependencies = (workspace, spec, manifest, violations) => {
 
   for (const field of DEPENDENCY_FIELDS) {
     for (const [dependency, range] of Object.entries(manifest[field] ?? {})) {
+      if (
+        dependency.startsWith("@ai-sdk/harness") &&
+        range !== "catalog:harness"
+      ) {
+        add(
+          "harness-pin",
+          `${field} declares "${dependency}": "${range}"; the Harness family must use the coordinated exact-pin catalog.`
+        );
+      }
       if (dependency.startsWith("@reprove/")) {
         if (spec.internal.includes(dependency)) {
           if (!range.startsWith("workspace:")) {
@@ -1032,6 +1043,49 @@ const checkImports = (rootDir, workspace, spec, manifest, violations) => {
  */
 export const verifyWorkspace = ({ rootDir }) => {
   const violations = [];
+
+  // This deliberately accepts only a literal, quoted coordinated catalog. A
+  // missing, renamed or syntactically indirect set must fail, not skip the gate.
+  const config = readFileSync(
+    path.join(rootDir, "pnpm-workspace.yaml"),
+    "utf-8"
+  );
+  const catalogs = [
+    ...config.matchAll(/^ {2}harness:\n(?<entries>(?:    [^\n]*\n)+)/gmu),
+  ];
+  const pins = new Map();
+  for (const line of catalogs[0]?.groups.entries.trimEnd().split("\n") ?? []) {
+    const entry =
+      /^ {4}"(?<dependency>@ai-sdk\/harness[^"]*)": (?<version>\S+)$/u.exec(
+        line
+      );
+    if (
+      !entry ||
+      valid(entry.groups.version) !== entry.groups.version ||
+      pins.has(entry.groups.dependency)
+    ) {
+      violations.push({
+        workspace: ".",
+        rule: "harness-pin",
+        message:
+          "Harness catalog entries must be unique quoted package names with literal exact versions.",
+      });
+    } else {
+      pins.set(entry.groups.dependency, entry.groups.version);
+    }
+  }
+  if (
+    catalogs.length !== 1 ||
+    !pins.has("@ai-sdk/harness") ||
+    !pins.has("@ai-sdk/harness-codex")
+  ) {
+    violations.push({
+      workspace: ".",
+      rule: "harness-pin",
+      message:
+        "The coordinated Harness catalog must contain the core and Codex bridge pins.",
+    });
+  }
 
   checkRootManifest(rootDir, violations);
   checkSupplyChainExceptions(rootDir, violations);

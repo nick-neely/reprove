@@ -36,6 +36,11 @@ import { createHash } from "node:crypto";
 import type { ResolvedConfig, RunSpec } from "@reprove/protocol/v1";
 import { resolvedConfigSchema } from "@reprove/protocol/v1";
 
+import {
+  availableReasoningEfforts,
+  DEFAULT_CODEX_MODEL,
+  DEFAULT_CODEX_REASONING_EFFORT,
+} from "../models.js";
 import type { JsonValue } from "./json.js";
 
 /** ADR 0014's Phase 0 unclaimed window, which ADR 0016 restates as a fixture. */
@@ -135,15 +140,54 @@ export const normalizeResolvedConfig = (
  */
 export const PHASE_0_RUN_PROFILE: Phase0RunProfile = {
   harness: "codex",
-  model: "gpt-5",
+  model: DEFAULT_CODEX_MODEL,
   strategy: "standard",
   autonomy: "verify",
   placement: "hosted",
   allowHostedFallback: false,
   resolvedConfig: normalizeResolvedConfig({
     schemaVersion: 1,
-    review: {},
+    review: {
+      harnessOptions: {
+        codex: { reasoningEffort: DEFAULT_CODEX_REASONING_EFFORT },
+      },
+    },
     security: {},
   }),
   claimableForMs: PHASE_0_CLAIMABLE_FOR_MS,
+};
+
+/** Resolve the trusted composition profile before any Run can be created. */
+export const normalizeRunProfile = (
+  profile: Phase0RunProfile
+): Phase0RunProfile => {
+  const resolvedConfig = normalizeResolvedConfig(profile.resolvedConfig);
+  if (profile.harness !== "codex") {
+    return { ...profile, resolvedConfig };
+  }
+  const reasoningEffort =
+    resolvedConfig.review.harnessOptions.codex?.reasoningEffort ??
+    DEFAULT_CODEX_REASONING_EFFORT;
+  if (
+    !availableReasoningEfforts(profile.harness, profile.model).includes(
+      reasoningEffort
+    )
+  ) {
+    throw new TypeError(
+      `Phase0RunProfile Model ${profile.model} does not support reasoning effort ${reasoningEffort}`
+    );
+  }
+  return {
+    ...profile,
+    resolvedConfig: {
+      ...resolvedConfig,
+      review: {
+        ...resolvedConfig.review,
+        harnessOptions: {
+          ...resolvedConfig.review.harnessOptions,
+          codex: { reasoningEffort },
+        },
+      },
+    },
+  };
 };

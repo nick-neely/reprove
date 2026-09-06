@@ -145,6 +145,7 @@ export const CLEAN_PASS: AdapterPassOutput = {
 
 /** How the Adapter double answers. Every field is an opt-in deviation. */
 export interface CodexScript {
+  readonly harness?: Adapter["harness"];
   readonly capability?: Partial<ResolvedCapability>;
   readonly capabilityThrows?: Error;
   readonly output?: AdapterPassOutput;
@@ -185,7 +186,7 @@ export const createCodexAdapterDouble = (
   const complaints: ConformanceComplaint[] = [];
 
   return {
-    harness: "codex",
+    harness: script.harness ?? "codex",
     requests,
     complaints,
     capability: () => {
@@ -219,6 +220,7 @@ export const createCodexAdapterDouble = (
 
 /** How the Sandbox provider double answers. */
 export interface SandboxScript {
+  readonly instanceIsolation?: Isolation;
   readonly isolation?: Isolation;
   /** A provider that refuses rather than returning a Sandbox. */
   readonly refuses?: Error;
@@ -264,7 +266,8 @@ export const createSandboxProviderDouble = (
       if (script.refuses) {
         return Promise.reject(script.refuses);
       }
-      const isolation = script.isolation ?? CAPABILITY.isolation;
+      const isolation =
+        script.instanceIsolation ?? script.isolation ?? CAPABILITY.isolation;
       const sandbox: Sandbox = {
         id: "reprove-sbx-double",
         isolation,

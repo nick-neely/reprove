@@ -8,13 +8,13 @@ Security problems do **not** go in a public issue - see [SECURITY.md](SECURITY.m
 
 ## Getting started
 
-The stack is TypeScript on Node 22 (ESM), pnpm workspaces with Turborepo,
+The stack is TypeScript on Node 22.19 or newer (ESM), pnpm workspaces with Turborepo,
 Vitest for tests (Playwright later), and Oxlint/Oxfmt through Ultracite.
 
 A clean clone installs and proves itself in five steps:
 
 ```text
-install Node 22
+install Node 22.19 or newer and OpenSSL 3
 corepack enable
 pnpm install --frozen-lockfile
 pnpm db:up                          Docker; see "Database" below
@@ -49,6 +49,13 @@ agree only when those are the same place. Those tests use the local stack's
 maintenance database, because the package may depend on no Postgres driver and
 so cannot create one of its own; rows accumulate there between runs and
 `pnpm db:down` is what clears them.
+
+The root tests also build the pinned Codex image and exercise the real CLI and
+bridge through both authentication implementations. Docker and OpenSSL 3 must
+be available. The first image build downloads its pinned base and bootstrap
+dependencies; subsequent builds reuse Docker's cache. Provider HTTP responses
+are fixture data, so tests need no paid credentials. See
+[Codex execution](docs/codex-adapter.md) for the capability and credential proof.
 
 `verify:workflow` is the **real-builder gate**
 [ADR 0014](docs/adr/0014-workflow-orchestration-seam.md) mandates, and it is the
@@ -91,8 +98,9 @@ then puts `publint` and `attw` over the same tarballs. Giving each package a
 consumer of its own is what makes a dependency a package uses but never declared
 fail: module resolution walks up from the importing file, so a consumer holding
 every tarball would let the siblings satisfy it. It runs after the build because
-it packs `dist`, and it needs no network: the fixture installs `--offline` from
-the store your `pnpm install` already filled.
+it packs `dist`. The fixture uses `--prefer-offline`: all dependency edges stay
+pinned to the root install, while missing registry metadata can be fetched.
+Exact tarball installs do not always populate that metadata.
 
 It also owns the two checks that guard the published TypeScript surface:
 

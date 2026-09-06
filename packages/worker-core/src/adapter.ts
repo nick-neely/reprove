@@ -37,6 +37,7 @@
  */
 import type {
   Autonomy,
+  CodexReasoningEffort,
   Harness,
   Severity,
   Usage,
@@ -55,6 +56,8 @@ export type { Autonomy, Harness } from "@reprove/protocol/v1";
  * against.
  */
 export interface ResolvedCapability {
+  /** Resolved from the credential; callers cannot lower this Exposure. */
+  readonly exposure?: "none" | "scoped" | "account";
   /** The levels this resolved invocation can actually enforce. */
   readonly supportedAutonomy: readonly Autonomy[];
   /**
@@ -166,7 +169,27 @@ export interface ConformanceComplaint {
  * Everything a Pass is given. Note what is absent: no credential, no GitHub
  * authority, no raw narrative, and no repository-supplied instructions.
  */
+/** Live, untrusted progress metadata. Observer exceptions fail the Pass. */
+export type PassProgress =
+  | { readonly type: "started" | "repair-started" }
+  | {
+      readonly type: "tool-completed";
+      readonly tool: {
+        readonly kind: "command";
+        readonly exitCode: number | null;
+      };
+    }
+  | { readonly type: "usage"; readonly usage: Usage }
+  | {
+      readonly type: "finished";
+      readonly outcome: PassOutcome;
+      readonly failureReason: string | null;
+    };
+
 export interface PassRequest {
+  readonly reasoningEffort?: CodexReasoningEffort;
+  /** Synchronous subscription; events arrive while the Pass is running. */
+  readonly onProgress?: (event: PassProgress) => void;
   readonly runId: string;
   readonly passId: string;
   readonly model: string;
@@ -187,6 +210,11 @@ export interface PassRequest {
 export interface Adapter {
   readonly harness: Harness;
   /** The resolved view, taken fresh per dispatch. */
-  readonly capability: () => Promise<ResolvedCapability>;
+  readonly capability: (
+    request?: Pick<
+      PassRequest,
+      "sandbox" | "model" | "signal" | "reasoningEffort"
+    >
+  ) => Promise<ResolvedCapability>;
   readonly pass: (request: PassRequest) => Promise<AdapterPassOutput>;
 }

@@ -45,6 +45,7 @@ import type {
 } from "./delivery.js";
 import type { IngressEnvelope } from "./envelope.js";
 import { settleDelivery } from "./ledger.js";
+import { normalizeRunProfile } from "./profile.js";
 import type { Phase0RunProfile } from "./profile.js";
 import type { RunCreationConfig, RunDecision } from "./run-creation.js";
 import { settlePullRequest } from "./run-creation.js";
@@ -230,7 +231,7 @@ export const createDeliveryProcessor = (
 ): ((delivery: DeliveryToProcess) => Promise<ProcessedDelivery>) => {
   const runCreation: RunCreationConfig = {
     canonicalPullRequest: config.canonicalPullRequest,
-    profile: config.profile,
+    profile: normalizeRunProfile(config.profile),
     now: config.now ?? (() => new Date()),
   };
 

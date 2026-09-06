@@ -88,11 +88,22 @@ of a Finding that ADR 0002 forbids.
 
 - **No checkout and no Workspace materialization.** The Sandbox is launched with
   an empty sandbox-owned volume; putting a stripped repository on it is Phase 1's.
-- **No `@ai-sdk/harness` Adapter.** The Codex Adapter double is test-only, lives
-  in `boundary.test-support.ts`, and never reaches `dist`.
+- **Codex is implemented in `@reprove/adapters`.** The double in
+  `boundary.test-support.ts` remains test-only and never reaches `dist`.
+  The real contract runs through this Worker boundary too.
 - **Base conventions are neutralized rather than expanded.** Resolving an
   `@`-import against the pinned base SHA needs the host-side checkout above, so
   this implements the safe subset of ADR 0009's decision 6.
-- **`materialize` is a port.** `@reprove/sandbox-container` exposes no write
-  primitive, and shelling the narrative bytes through an argument vector is what
-  ADR 0012 forbids by name.
+- **`materialize` remains the composition port.** `materializeNarrative` now
+  supplies protected stdin file I/O. The host must populate the pinned Workspace
+  before calling it; no Author bytes belong in arguments or environment.
+
+
+## Real Codex execution
+
+Use `CODEX_SANDBOX_PROFILE` with the image built by `tools/build-codex-image.mjs`.
+Worker core uses the Adapter's credential-derived Exposure and resolves its
+capability against the actual attested Sandbox after materialization. Native
+account credentials cannot be relabelled as `none`, and an incompatible image
+or writable Workspace is refused before execution. See
+[Codex execution](../../docs/codex-adapter.md) for fresh probes and composition.

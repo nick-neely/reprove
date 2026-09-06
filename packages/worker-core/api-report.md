@@ -43,7 +43,7 @@
  * Findings and *claimed* Evidence, and nothing here has crossed the Worker
  * boundary yet. Everything that leaves the Sandbox is attacker-controlled.
  */
-import type { Autonomy, Harness, Severity, Usage, Verification } from "@reprove/protocol/v1";
+import type { Autonomy, CodexReasoningEffort, Harness, Severity, Usage, Verification } from "@reprove/protocol/v1";
 import type { Sandbox } from "@reprove/sandbox-container";
 import type { TrustedInstructions } from "./instructions.js";
 export type { Autonomy, Harness } from "@reprove/protocol/v1";
@@ -54,6 +54,8 @@ export type { Autonomy, Harness } from "@reprove/protocol/v1";
  * against.
  */
 export interface ResolvedCapability {
+    /** Resolved from the credential; callers cannot lower this Exposure. */
+    readonly exposure?: "none" | "scoped" | "account";
     /** The levels this resolved invocation can actually enforce. */
     readonly supportedAutonomy: readonly Autonomy[];
     /**
@@ -157,7 +159,27 @@ export interface ConformanceComplaint {
  * Everything a Pass is given. Note what is absent: no credential, no GitHub
  * authority, no raw narrative, and no repository-supplied instructions.
  */
+/** Live, untrusted progress metadata. Observer exceptions fail the Pass. */
+export type PassProgress = {
+    readonly type: "started" | "repair-started";
+} | {
+    readonly type: "tool-completed";
+    readonly tool: {
+        readonly kind: "command";
+        readonly exitCode: number | null;
+    };
+} | {
+    readonly type: "usage";
+    readonly usage: Usage;
+} | {
+    readonly type: "finished";
+    readonly outcome: PassOutcome;
+    readonly failureReason: string | null;
+};
 export interface PassRequest {
+    readonly reasoningEffort?: CodexReasoningEffort;
+    /** Synchronous subscription; events arrive while the Pass is running. */
+    readonly onProgress?: (event: PassProgress) => void;
     readonly runId: string;
     readonly passId: string;
     readonly model: string;
@@ -177,7 +199,7 @@ export interface PassRequest {
 export interface Adapter {
     readonly harness: Harness;
     /** The resolved view, taken fresh per dispatch. */
-    readonly capability: () => Promise<ResolvedCapability>;
+    readonly capability: (request?: Pick<PassRequest, "sandbox" | "model" | "signal" | "reasoningEffort">) => Promise<ResolvedCapability>;
     readonly pass: (request: PassRequest) => Promise<AdapterPassOutput>;
 }
 ```
@@ -329,7 +351,7 @@ export declare const composedFrom: {
     readonly protocolVersion: 1;
     readonly sandboxContainer: "@reprove/sandbox-container";
 };
-export type { ConformanceComplaint, Adapter, AdapterPassOutput, Autonomy, CandidateFinding, CandidateLocation, ClaimedEvidence, Harness, ObservedToolCall, PassOutcome, PassRequest, ResolvedCapability, } from "./adapter.js";
+export type { ConformanceComplaint, Adapter, AdapterPassOutput, Autonomy, CandidateFinding, CandidateLocation, ClaimedEvidence, Harness, ObservedToolCall, PassOutcome, PassRequest, PassProgress, ResolvedCapability, } from "./adapter.js";
 export { checkDispatch, permittedProvenance, PROBE_MAX_AGE_MS, } from "./dispatch.js";
 export type { DispatchInput, IsolationLevel, RefusalCause, RefusalReason, } from "./dispatch.js";
 export { crossCheckEvidence } from "./evidence.js";
@@ -343,8 +365,9 @@ export type { FailurePhase, FailureReason, InternalFailure, WorkerOutcome, Worke
 export { composeResult } from "./result.js";
 export type { ComposedResult, ResultInput } from "./result.js";
 export { createWorkerCore } from "./run.js";
+export { materializeNarrative } from "./materialize.js";
 export type { Materialize, RunInput, WorkerCore, WorkerCoreOptions, } from "./run.js";
-export { PHASE0_SANDBOX_PROFILE, sandboxRequestFor, suppressionEnvironment, } from "./sandbox.js";
+export { PHASE0_SANDBOX_PROFILE, CODEX_SANDBOX_PROFILE, sandboxRequestFor, suppressionEnvironment, } from "./sandbox.js";
 export type { SandboxProfile } from "./sandbox.js";
 ```
 
@@ -455,6 +478,14 @@ export declare const composeInstructions: (request: InstructionRequest) => Trust
  * contract tests are about.
  */
 export declare const renderInstructions: (instructions: TrustedInstructions) => string;
+```
+
+## dist/materialize.d.ts
+
+```ts
+import type { Materialize } from "./run.js";
+/** Author bytes travel on stdin. The protected writer establishes root ownership. */
+export declare const materializeNarrative: Materialize;
 ```
 
 ## dist/narrative.d.ts
@@ -664,7 +695,7 @@ export declare const composeResult: (input: ResultInput) => ComposedResult;
 ```ts
 import type { Exposure, RunSpec } from "@reprove/protocol/v1";
 import type { Sandbox, SandboxProvider } from "@reprove/sandbox-container";
-import type { Adapter } from "./adapter.js";
+import type { Adapter, PassProgress } from "./adapter.js";
 import type { ConventionSource } from "./instructions.js";
 import type { NarrativeInput, ProtectedFile } from "./narrative.js";
 import type { WorkerOutcome } from "./outcome.js";
@@ -673,12 +704,10 @@ import type { SandboxProfile } from "./sandbox.js";
  * Materializes the exact encoded bytes inside the Sandbox, under an identity
  * the Reviewer can read but cannot chmod, unlink, rename or replace.
  *
- * A port rather than a call, because `@reprove/sandbox-container` exposes no
- * write primitive yet and the alternative would be shelling the bytes through
- * an argument vector - which ADR 0012 forbids by name, since the path,
- * filename, arguments and environment must contain no Author-controlled value.
- * Throwing is the Refusal: failure to establish the protected representation is
- * not a degraded Run.
+ * The composition root supplies Workspace materialization and can use the
+ * production `materializeNarrative` helper for the protected representation.
+ * Author bytes travel on stdin, never in argument vectors or environment.
+ * Throwing is a Refusal, before any Reviewer executes.
  */
 export type Materialize = (sandbox: Sandbox, file: ProtectedFile) => Promise<void>;
 export interface WorkerCoreOptions {
@@ -699,6 +728,7 @@ export interface WorkerCoreOptions {
  * untrusted channels are distinguishable here rather than assumed upstream.
  */
 export interface RunInput {
+    readonly onProgress?: (event: PassProgress) => void;
     readonly spec: RunSpec;
     readonly narrative: NarrativeInput;
     readonly conventions: readonly ConventionSource[];
@@ -744,7 +774,13 @@ export interface SandboxProfile {
     /** Writable scratch, which a read-only root filesystem otherwise denies. */
     readonly scratchPath: string;
     readonly scratchSizeBytes: number;
+    readonly runtimeMounts?: readonly {
+        readonly path: string;
+        readonly sizeBytes: number;
+    }[];
 }
+/** The pinned Codex image is built by tools/build-codex-image.mjs. */
+export declare const CODEX_SANDBOX_PROFILE: SandboxProfile;
 export declare const PHASE0_SANDBOX_PROFILE: SandboxProfile;
 /**
  * ADR 0009's suppression levers, per Harness, as the Sandbox's own environment.
