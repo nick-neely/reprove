@@ -22,7 +22,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@ai-sdk/harness": "catalog:harness"
+    "@ai-sdk/harness": "catalog:harness",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@types/node": "catalog:",

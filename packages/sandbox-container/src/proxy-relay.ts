@@ -4,6 +4,8 @@ import type { Socket } from "node:net";
 import { createInterface } from "node:readline";
 import { Readable } from "node:stream";
 
+import { z } from "zod";
+
 import type { SandboxAccess } from "./access.js";
 import { createHostProxy } from "./proxy.js";
 import type { ProxyCredential, ProxyOptions } from "./proxy.js";
@@ -37,45 +39,28 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
 }).on('close',()=>process.exit(0));
 `;
 
-interface Frame {
-  readonly ready?: number;
-  readonly id?: number;
-  readonly data?: string;
-  readonly open?: boolean;
-  readonly end?: boolean;
-  readonly close?: boolean;
-}
-
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- This guard is the parser at the untrusted pipe I/O boundary.
-const isFrame = (value: unknown): value is Frame => {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-  // SAFETY: this assertion only gives names to fields validated in this guard.
-  const frame = value as Frame;
-  if (frame.ready !== undefined) {
-    return (
-      typeof frame.ready === "number" &&
-      Number.isInteger(frame.ready) &&
-      frame.ready > 0 &&
-      frame.ready < 65_536
-    );
-  }
-  if (
-    typeof frame.id !== "number" ||
-    !Number.isSafeInteger(frame.id) ||
-    frame.id < 1
-  ) {
-    return false;
-  }
-  if (frame.data !== undefined) {
-    return (
-      typeof frame.data === "string" &&
-      /^[A-Za-z0-9+/]*={0,2}$/u.test(frame.data)
-    );
-  }
-  return frame.open === true || frame.end === true || frame.close === true;
-};
+const frameSchema = z
+  .object({
+    ready: z.number().int().min(1).max(65_535).optional(),
+    id: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+    data: z
+      .string()
+      .regex(/^[A-Za-z0-9+/]*={0,2}$/u)
+      .optional(),
+    open: z.literal(true).optional(),
+    end: z.literal(true).optional(),
+    close: z.literal(true).optional(),
+  })
+  .strict()
+  .refine((frame) => {
+    const actions = [frame.data, frame.open, frame.end, frame.close].filter(
+      (value) => value !== undefined
+    ).length;
+    return frame.ready === undefined
+      ? frame.id !== undefined && actions === 1
+      : frame.id === undefined && actions === 0;
+  });
+type Frame = z.infer<typeof frameSchema>;
 
 export const openSandboxProxy = async (
   access: SandboxAccess,
@@ -145,11 +130,7 @@ export const openSandboxProxy = async (
         if (line.length > 262_144) {
           throw new Error("proxy frame too large");
         }
-        const value: unknown = JSON.parse(line);
-        if (!isFrame(value)) {
-          throw new Error("invalid proxy frame");
-        }
-        const frame = value;
+        const frame = frameSchema.parse(JSON.parse(line));
         if (frame.ready !== undefined) {
           ready.resolve(frame.ready);
           continue;

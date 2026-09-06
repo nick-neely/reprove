@@ -176,6 +176,19 @@ describe(verifyWorkspace, () => {
     ).toBeTruthy();
   });
 
+  it.each([
+    ['"@ai-sdk/harness": 1.0.102', "@ai-sdk/harness: ^1.0.102"],
+    ["  harness:", "  accidental-other-catalog:"],
+    ['    "@ai-sdk/harness": 1.0.102\n', ""],
+  ])("rejects an absent or ambiguous coordinated pin (%s)", (before, after) => {
+    const root = copyRepository();
+    const file = path.join(root, "pnpm-workspace.yaml");
+    writeFileSync(file, readFileSync(file, "utf-8").replace(before, after));
+    expect(
+      broke(verifyWorkspace({ rootDir: root }), "harness-pin", ".")
+    ).toBeTruthy();
+  });
+
   it("rejects an extra workspace", () => {
     const root = copyRepository();
     mkdirSync(path.join(root, "packages/extra/src"), { recursive: true });
