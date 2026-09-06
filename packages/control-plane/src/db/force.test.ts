@@ -62,6 +62,10 @@ describe("the committed migration history", () => {
       // inside `withOwner` can see. Classification is untouched, so the
       // generator had nothing to append after it either.
       ["0004_owner_scoped_run_indexes", "drizzle"],
+      // ADR 0014's lifecycle column on `run`: the durable run that schedules
+      // the Run, written once by whichever writer gets there first.
+      // Classification is untouched, so the generator had nothing to append.
+      ["0005_run_lifecycle", "drizzle"],
     ]);
   });
 

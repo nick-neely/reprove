@@ -18,7 +18,9 @@ jobs:
   verify:
     name: verify
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # The real-builder gate (`verify:workflow`) builds the app from clean and
+    # then runs it, which costs two to three minutes on top of the rest.
+    timeout-minutes: 30
     steps:
       # `fetch-depth: 0` because `tools/verify-migrations.mjs` compares the
       # migration folder against the merge-base with the base ref, and against

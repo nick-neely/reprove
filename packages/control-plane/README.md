@@ -69,6 +69,8 @@ The effective state is then a walk of the journal in order: `0001 FORCE` followe
 `0004` puts `owner_id` at the front of both Run indexes, so an index that is global stops being
 scoped differently from the queries that check it. `0003` completes ADR 0013's Run spec and is drizzle-kit's own output too. It adds `resolved_config` and `allow_hosted_fallback` as `NOT NULL` with no default, tightens `claimable_until` to `NOT NULL`, and adds the conditional unique index behind the automatic-trigger no-op. The same argument makes all four safe: nothing created a Run before #49, so every database at `0002` has `run` empty. The two new columns are ADR 0013's own words - "`Phase0RunProfile`'s config must persist" and "`claimableUntil` lives in immutable `spec`, so it is written at creation" - and a nullable deadline would let a `queued` Run exist that nothing ever moves off `queued`.
 
+`0005_run_lifecycle` adds `run.workflow_run_id` and is drizzle-kit's own output as well - one nullable `text` column, so it meets an existing row without needing anything of it. **It classifies nothing.** A column changes no table's tenancy and `run` was already a tenant table, so the classification the FORCE generator derives its delta from is the one it was already at, and it emits nothing where the two agree: **no FORCE delta follows `0005`**, and the absence is the generator's own answer rather than a step someone skipped.
+
 All of it is ordinary Vitest - `declared.test.ts`, `force.test.ts`, `force-generate.test.ts` - beside `tools/verify-migrations.mjs`, which is the Git-aware half that proves history was only appended to. None of it sees a database: what actually deployed is `createRuntimeDb()`'s seven checks, and that division is ADR 0017's, not an omission.
 
 ## GitHub ingress
@@ -141,10 +143,27 @@ the lock cannot reopen a concluded delivery and hand a re-drive work that must n
 The kick is **fire-and-forget and synchronous**, so the acknowledgement is never held behind the
 advisory lock and the canonical fetch. `processDelivery` is also exposed on `createControlPlane()`'s
 return value, because ADR 0013 makes an automatic re-drive of `contended` and `transient`
-dispositions a Phase 0 exit condition and hands the *mechanism* to
-[#38](https://github.com/nick-neely/reprove/issues/38) - so the durable scheduler needs a way in
-that is not a webhook request. **There is no sweeper here**, deliberately: a second recovery system
-competing with the durable one is worse than none.
+dispositions a Phase 0 exit condition and handed the *mechanism* forward - so the durable scheduler
+needs a way in that is not a webhook request.
+[ADR 0014](../../docs/adr/0014-workflow-orchestration-seam.md) settles what that mechanism is: **the
+Workflow step retry**, in `@reprove/control-plane-workflow`. The processing step of its
+`ingressDelivery` workflow throws `RetryableError` whenever the settlement came back nonterminal -
+after 2s for `contended`, whose holder releases the lock within one transaction at most, and after
+30s for `transient`, which is GitHub answering `5xx`, `429` or a rate limit and clears on its own
+but not in a second - for at most five retries after the first attempt, and throws a fatal error for
+`operator_attention`, because that reaches the same answer on every attempt. All three numbers are
+Phase 0 fixtures chosen to be observable rather than to be right, and nothing measures them yet.
+**There is no sweeper here**, deliberately: a second recovery system competing with the durable one
+is worse than none.
+
+**What the delivery is kicked *to* is configuration**, and that is what keeps this package free of
+`workflow`. `ControlPlaneConfig.kick` is handed the committed ledger row and its envelope after the
+acknowledgement and without being awaited; the hosted composition passes a kick that calls
+`startDelivery` from `@reprove/control-plane-workflow`, which hands the delivery to a durable run
+and so puts the step retry above behind it. Left unset the delivery is processed **in this
+process**, once, with the ledger row as the only recovery - which is ADR 0013's minimum and what a
+composition holding no durable runtime, such as a test, gets. It is not what a deployment should
+run.
 
 `intentOf()` reads ADR 0013's trigger table. `opened`, `synchronize`, `reopened` and
 `ready_for_review` can produce a Run; `closed` and `converted_to_draft` can only end one;
@@ -175,8 +194,8 @@ pg_try_advisory_xact_lock(hash of repository id and pull request number)
 
 **The ledger read is under the lock and before the fetch**, and it is what separates a re-drive from
 a second Run. `settleDelivery()` already refuses to reopen a terminal row, but it runs *after* the
-decision, so by the time it declined the work was done: a `done` delivery driven again - by #38's
-step retry, or by a manual GitHub redelivery, which reuses `X-GitHub-Delivery` and which the
+decision, so by the time it declined the work was done: a `done` delivery driven again - by the
+Workflow step retry, or by a manual GitHub redelivery, which reuses `X-GitHub-Delivery` and which the
 ledger's deliberately non-unique index accepts a second row for - would take the lock, observe a
 head that had since moved, supersede the live Run and insert a replacement no ledger row records.
 
@@ -228,6 +247,16 @@ Run. Both consequences are ADR 0013's and are documented rather than hidden.
 exchanges it for an installation token and issues `GET /repos/{owner}/{repo}/pulls/{number}` through
 an **injected `fetch`**. That is ADR 0016's seam: GitHub is substituted "only at the transport", so
 the JWT, the exchange, the request shape and the response parse all execute for real.
+
+`github.apiUrl` is the REST root both of those requests are built against, and it is optional: unset
+means `https://api.github.com`, which the package spells once and no consumer repeats. A GitHub
+Enterprise Server deployment names its own root, and so does a build gate -
+[`tools/verify-workflow-build.mjs`](../../tools/verify-workflow-build.mjs) stands a canned GitHub up
+on loopback and points the built application at it, which is the transport substitution above
+reaching all the way through a real `next start` rather than only through a test. The root must be
+`https:`, or `http:` on loopback, and `createGitHubClient()` throws on anything else at composition:
+both requests carry a credential in an `Authorization` header, so a cleartext root off the machine
+is a token on the wire, and a deployment that named one should fail to boot rather than leak it.
 
 Octokit is rejected for what it does rather than for its size. Its app plugin brings a token cache,
 a retry plugin and a throttling plugin, and each contradicts a decision already made: ADR 0013
@@ -321,6 +350,48 @@ The App subscribes to exactly `pull_request`. `installation`, `installation_repo
 their absence from the manifest says nothing about whether they are recorded: the handler
 normalizes whatever event it is sent rather than assuming an unsubscribed one never arrives, and
 `intentOf()` dispatches on the event name the ledger row carries.
+
+## The Run's lifecycle is a port, and the Run row arbitrates it
+
+`createControlPlane()` returns a `lifecycle` beside the webhook, and it is the whole reach the
+durable lifecycle in `@reprove/control-plane-workflow` has into a Run - three operations and no
+fourth, each composed over a `withOwner` transaction so the Owner is an argument rather than
+ambient state:
+
+```text
+record(owner, run, workflowRunId)   writes the id where none is written yet
+schedule(owner, run)                status, claimableUntil and the recorded lifecycle
+expireUnclaimed(owner, run, id)     queued -> unscheduled, and no other transition
+```
+
+**Every write is conditional on the writer being the lifecycle the Run records**, which is
+[ADR 0014](../../docs/adr/0014-workflow-orchestration-seam.md)'s arbitration between an orphan and
+the recorded lifecycle. `start()` takes neither an idempotency key nor a caller-supplied run id, so
+the window between starting a lifecycle and recording it cannot be closed and a crash inside it
+orphans a durable run nothing can find. The Run row decides instead: `record` matches on
+`workflow_run_id IS NULL`, so the first writer wins and the write happens once and only once - a
+predicate letting the recorded lifecycle re-assert its own id is the same predicate that lets a
+different one through after a crash and a retry. The loser cancels its own run, and an orphan that
+wakes anyway finds every predicate naming someone else and ends having changed nothing. `schedule`
+is the state a lifecycle re-reads on each wake rather than trusting the timestamp it slept toward
+([ADR 0015](../../docs/adr/0015-execution-ownership-and-worker-liveness.md)).
+
+`expireUnclaimed` writes **exactly one transition**, `queued` to `unscheduled`, over a Run that was
+never claimed. The status predicate is what keeps that honest: ADR 0007 defines `unscheduled` as
+"never dispatched" and `CONTEXT.md` reserves Failure for a Run that began executing, so writing
+either over a claimed or executing Run would state something false about it. **An executing Run
+whose deadline passes is deliberately left alone** - `claimableUntil` bounds the unclaimed window
+and nothing else, and the liveness of a Run that is actually executing is ADR 0015's subject rather
+than this deadline's.
+
+`ProcessedDelivery.endedRuns` is the other half of the same seam. It carries the id and the terminal
+status - `superseded` or `cancelled` - of every live Run the delivery ended, in the transaction that
+ended it, and the status is already written by the time a caller reads it. A caller needs the list
+because the lifecycle scheduling an ended Run is asleep until its deadline and would otherwise wake
+only then: ADR 0014 has that lifecycle "resumed through its cancel hook so it terminates
+reportably", and this is what the resumer reads. Reporting the Runs rather than performing the
+notification is what lets the orchestration layer do the waking while this package still depends on
+no `workflow`.
 
 ## Authentication
 

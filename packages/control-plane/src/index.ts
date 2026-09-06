@@ -32,10 +32,17 @@ export { migrate } from "./db/migrate.js";
 export type { CommittedMigration } from "./db/migrations.js";
 export { MIGRATIONS_FOLDER, readCommittedMigrations } from "./db/migrations.js";
 export type { CheckName, CheckOutcome } from "./db/refusal.js";
+export type {
+  IngressDisposition,
+  IngressRetryClass,
+  IngressState,
+  RunStatus,
+} from "./db/schema-values.js";
 export { BootRefusalError } from "./db/refusal.js";
 export { RUNTIME_ROLE } from "./db/roles.js";
 export type {
   DeliveryToProcess,
+  EndedRun,
   IngressOutcome,
   ProcessedDelivery,
 } from "./github/delivery.js";
@@ -53,7 +60,9 @@ export {
   githubAppManifest,
   WEBHOOK_PATH,
 } from "./github/manifest.js";
+export type { KickProcessing } from "./github/webhook.js";
 export { WEBHOOK_STATUS } from "./github/webhook.js";
+export type { RunLifecyclePort, RunSchedule } from "./run/schedule.js";
 
 export const packageName = "@reprove/control-plane" as const;
 

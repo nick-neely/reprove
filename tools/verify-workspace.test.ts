@@ -490,6 +490,103 @@ describe(verifyWorkspace, () => {
     ).toBeFalsy();
   });
 
+  it("rejects a shipped file importing the workflow test builder", () => {
+    // The reason `@workflow/vitest` is a `testExternal` rather than an
+    // `external`: the package-wide row would have let a shipped file import a
+    // devDependency, which a consumer of the published package cannot resolve.
+    const root = copyRepository();
+    writeSource(
+      root,
+      "packages/control-plane-workflow/src/shipped.ts",
+      'import { testWorkflow } from "@workflow/vitest";\nexport const shipped = testWorkflow;\n'
+    );
+
+    expect(
+      broke(
+        verifyWorkspace({ rootDir: root }),
+        "import-boundary",
+        "packages/control-plane-workflow",
+        "@workflow/vitest"
+      )
+    ).toBeTruthy();
+  });
+
+  it("permits the workspace's own vitest config importing it", () => {
+    const root = copyRepository();
+    writeSource(
+      root,
+      "packages/control-plane-workflow/vitest.config.ts",
+      'import { workflow } from "@workflow/vitest";\nexport default workflow;\n'
+    );
+
+    expect(
+      broke(
+        verifyWorkspace({ rootDir: root }),
+        "import-boundary",
+        "packages/control-plane-workflow",
+        "@workflow/vitest"
+      )
+    ).toBeFalsy();
+  });
+
+  it("rejects the workflow test builder declared as a runtime dependency", () => {
+    const root = copyRepository();
+    editManifest(root, "packages/control-plane-workflow", (manifest) => {
+      manifest.dependencies = {
+        ...manifest.dependencies,
+        "@workflow/vitest": "^1.0.0",
+      };
+    });
+
+    expect(
+      broke(
+        verifyWorkspace({ rootDir: root }),
+        "dependency-allowlist",
+        "packages/control-plane-workflow",
+        "@workflow/vitest"
+      )
+    ).toBeTruthy();
+  });
+
+  it("rejects a forbidden import in a hand-written .well-known route", () => {
+    // The generated route tree lives at `.well-known/workflow`, and only that
+    // subtree is build output. A `security.txt` route beside it is source, and
+    // skipping `.well-known` by name would have hidden it.
+    const root = copyRepository();
+    writeSource(
+      root,
+      "apps/control-plane/src/app/.well-known/security.txt/route.ts",
+      'import { Pool } from "pg";\nexport const GET = () => new Response(String(Pool));\n'
+    );
+
+    expect(
+      broke(
+        verifyWorkspace({ rootDir: root }),
+        "import-boundary",
+        "apps/control-plane",
+        "pg"
+      )
+    ).toBeTruthy();
+  });
+
+  it("does not scan the routes the workflow build generates", () => {
+    const root = copyRepository();
+    writeSource(
+      root,
+      "apps/control-plane/src/app/.well-known/workflow/v1/flow/route.js",
+      'import { Pool } from "pg";\nexport const POST = Pool;\n'
+    );
+
+    expect(
+      broke(
+        verifyWorkspace({ rootDir: root }),
+        "import-boundary",
+        "apps/control-plane",
+        "pg"
+      )
+    ).toBeFalsy();
+  });
+
   it("rejects a package shipping a runtime asset the matrix does not name", () => {
     const root = copyRepository();
     editManifest(root, "packages/worker", (manifest) => {

@@ -40,7 +40,7 @@ import { appJwt, readInstallationToken } from "./app-auth.js";
 import type { CanonicalPullRequest } from "./canonical.js";
 import { readPullRequest } from "./canonical.js";
 
-/** GitHub's REST root. */
+/** GitHub's REST root, which is the default when a deployment names none. */
 export const GITHUB_API_URL = "https://api.github.com";
 
 /**
@@ -75,12 +75,32 @@ const REASON_LIMIT = 300;
  */
 const FULL_NAME = /^[\w.-]+\/[\w.-]+$/u;
 
+/**
+ * The hostnames a cleartext root may name, in every spelling a URL has for this
+ * machine. `new URL("http://[::1]/").hostname` keeps the brackets, so both
+ * forms of the IPv6 loopback are listed rather than one being normalised into
+ * the other.
+ */
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
+
 /** The injected transport. One `Request` in, one `Response` out. */
 export type GitHubFetch = (request: Request) => Promise<Response>;
 
 /** What the client is composed over. No value here is read from anywhere. */
 export interface GitHubClientConfig extends AppCredentials {
   readonly fetch: GitHubFetch;
+  /**
+   * The REST root every request is addressed under. Defaults to
+   * {@link GITHUB_API_URL}; a GitHub Enterprise Server deployment names its
+   * own, and so does a build gate standing a canned GitHub up on loopback.
+   *
+   * It must be `https:`, or `http:` on loopback (`127.0.0.1`, `localhost`,
+   * `::1`). Anything else throws from {@link createGitHubClient}: every request
+   * built on this root carries the App JWT or an installation token in an
+   * `Authorization` header, and a cleartext root off this machine puts both on
+   * the wire.
+   */
+  readonly apiUrl?: string;
 }
 
 /** Which pull request, reached through which grant. */
@@ -167,14 +187,62 @@ const classify = (
 };
 
 /**
+ * The REST root, checked before anything is addressed under it.
+ *
+ * Both requests below carry a credential in an `Authorization` header - the App
+ * JWT to the exchange, the installation token to everything after it - so a
+ * cleartext root is a decision to put those on the wire. It is refused here,
+ * synchronously at composition, for the reason `createControlPlane()` refuses a
+ * missing field there: a deployment that got this wrong should fail to boot
+ * rather than leak a token on its first delivery.
+ *
+ * Loopback is the one exception, and it is a real one rather than a
+ * convenience: ADR 0016's acceptance scenario substitutes GitHub "only at the
+ * transport", which the build gate does by standing a canned GitHub up on
+ * `http://127.0.0.1`. Nothing leaves the machine, so nothing is exposed.
+ *
+ * @param configured The root a deployment named, if it named one.
+ * @returns The root without its trailing slash, so the paths below join onto it
+ *   the same way whether it arrived as `https://host` or `https://host/`.
+ * @throws {TypeError} When the root is unparsable, or cleartext off this
+ *   machine.
+ */
+const restRoot = (configured: string | undefined): string => {
+  // An empty string means the default too, not a relative URL: this is
+  // published API, and an unset environment variable read into it would
+  // otherwise build `"/app/installations/.../access_tokens"`.
+  const root = configured || GITHUB_API_URL;
+  let parsed: URL;
+  try {
+    parsed = new URL(root);
+  } catch {
+    throw new TypeError(
+      `GitHubClientConfig.apiUrl is not a URL: ${quote(root)}`
+    );
+  }
+  const encrypted =
+    parsed.protocol === "https:" ||
+    (parsed.protocol === "http:" && LOOPBACK_HOSTS.has(parsed.hostname));
+  if (!encrypted) {
+    throw new TypeError(
+      `GitHubClientConfig.apiUrl must be https:, or http: on loopback, and is ${quote(root)}. Every request under it carries an App credential.`
+    );
+  }
+  return root.replace(/\/+$/u, "");
+};
+
+/**
  * Composes the client over an App's credentials and a transport.
  *
  * @param config The App id, its private key and the injected `fetch`.
  * @returns A client that resolves canonical pull request state.
+ * @throws {TypeError} When `config.apiUrl` is not a root a credential may
+ *   travel to. See {@link restRoot}.
  */
 export const createGitHubClient = (
   config: GitHubClientConfig
 ): GitHubClient => {
+  const apiUrl = restRoot(config.apiUrl);
   const send = (url: string, method: string, authorization: string) =>
     config.fetch(
       new Request(url, {
@@ -213,7 +281,7 @@ export const createGitHubClient = (
     }
 
     const response = await send(
-      `${GITHUB_API_URL}/app/installations/${installationId}/access_tokens`,
+      `${apiUrl}/app/installations/${installationId}/access_tokens`,
       "POST",
       `Bearer ${assertion}`
     );
@@ -249,7 +317,7 @@ export const createGitHubClient = (
       }
 
       const response = await send(
-        `${GITHUB_API_URL}/repos/${request.repositoryNameWithOwner}/pulls/${request.pullRequestNumber}`,
+        `${apiUrl}/repos/${request.repositoryNameWithOwner}/pulls/${request.pullRequestNumber}`,
         "GET",
         `Bearer ${authorized.token}`
       );

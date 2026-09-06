@@ -352,6 +352,24 @@ export const run = pgTable(
     claimableUntil: timestamp("claimable_until", {
       withTimezone: true,
     }).notNull(),
+    /**
+     * The durable run that schedules this Run - ADR 0014's **lifecycle**,
+     * which outlives any Worker. Vercel Workflow's `runId` is qualified at the
+     * seam (`CONTEXT.md` naming rule 4), so it is never a bare `runId` here.
+     *
+     * Nullable and written **once**, by whichever writer gets there first:
+     * `start()` takes no idempotency key, so the window between starting a
+     * lifecycle and recording it cannot be closed, and this column is the
+     * arbiter that makes the orphan inert. Every write a lifecycle performs is
+     * conditional on this column naming it, so a lifecycle that lost the race
+     * matches nothing and ends.
+     *
+     * The pass - one hosted Worker's attempt at the Run - is a different
+     * durable run and gets a column of its own when the hosted placement is
+     * composed (#57). Conflating the two cancels the schedule and leaves the
+     * Worker running.
+     */
+    workflowRunId: text("workflow_run_id"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

@@ -265,6 +265,94 @@ describe("the control plane's GitHub webhook, end to end", () => {
     expect(rows[0]?.count).toBe("2");
   });
 
+  it("hands a committed delivery to the kick it was composed with, and processes nothing itself", async () => {
+    // The composition that owns the durable spine passes the function that
+    // starts the ingress workflow (ADR 0014); this stands in for it and holds
+    // what it was handed.
+    const handed: { deliveryId: string; guid: string }[] = [];
+    const guid = "handed-to-the-spine";
+    const spined = await createControlPlane({
+      database: { connectionString: database.runtimeUrl },
+      github: githubConfig,
+      kick: (delivery) => {
+        handed.push({
+          deliveryId: delivery.deliveryId,
+          guid: delivery.envelope.deliveryGuid,
+        });
+      },
+    });
+
+    try {
+      const response = await spined.handleGitHubWebhook(
+        signedDelivery({
+          deliveryGuid: guid,
+          body: deliveryBytes({
+            ...OPENED_PULL_REQUEST,
+            number: 13,
+            pull_request: { number: 13 },
+          }),
+        })
+      );
+
+      expect(response.status).toBe(WEBHOOK_STATUS.acknowledged);
+      const [row] = await database.admin<{
+        id: string;
+        state: string;
+        attempt_count: number;
+      }>(
+        `select id, state, attempt_count from ingress_delivery where delivery_guid = '${guid}'`
+      );
+      expect(handed).toStrictEqual([{ deliveryId: row?.id, guid }]);
+      // Nothing in this process took the delivery further: the row is exactly
+      // as the commit left it, which is the state the spine picks up.
+      expect(row).toMatchObject({ state: "received", attempt_count: 0 });
+      await expect(runsFor(13)).resolves.toStrictEqual([]);
+      // `untilKicksLand()` in `afterAll` waits for every row to be attempted,
+      // so drive this one through the exposed entry point the spine uses.
+      await spined.processDelivery({
+        deliveryId: row?.id ?? "",
+        envelope: {
+          deliveryGuid: guid,
+          event: "pull_request",
+          action: "opened",
+          ownerId: ACME,
+          ownerLogin: "acme",
+          ownerType: "organization",
+          installationId: 42,
+          repositoryId: 3001,
+          repositoryNameWithOwner: "acme/reprove",
+          pullRequestNumber: 13,
+        },
+      });
+    } finally {
+      await spined.close();
+    }
+  });
+
+  it("exposes the lifecycle's reach into a Run, scoped to the Owner", async () => {
+    // Composed over `withOwner`, so the three operations see exactly what the
+    // tenant sees. The conditional statements themselves are measured in
+    // `run/lifecycle.test.ts`; this is the composition edge.
+    await untilRunExists(OPENED_PULL_REQUEST.number);
+    const [created] = await database.admin<{ id: string }>(
+      `select id from run where pull_request_number = ${OPENED_PULL_REQUEST.number}`
+    );
+    const runId = created?.id ?? "";
+
+    await expect(
+      controlPlane.lifecycle.schedule(9999, runId)
+    ).resolves.toBeNull();
+    await expect(
+      controlPlane.lifecycle.record(ACME, runId, "wrun_composed")
+    ).resolves.toBeTruthy();
+    await expect(
+      controlPlane.lifecycle.schedule(ACME, runId)
+    ).resolves.toMatchObject({
+      status: "queued",
+      workflowRunId: "wrun_composed",
+    });
+  });
+
   it("refuses a composition with no webhook secret", async () => {
     await expect(
       createControlPlane({

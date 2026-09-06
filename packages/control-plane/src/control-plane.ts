@@ -30,7 +30,14 @@ import type {
 import { recordDelivery } from "./github/ledger.js";
 import { createDeliveryProcessor } from "./github/processing.js";
 import type { Phase0RunProfile } from "./github/profile.js";
+import type { KickProcessing } from "./github/webhook.js";
 import { createGitHubWebhookHandler } from "./github/webhook.js";
+import {
+  expireUnclaimed,
+  readSchedule,
+  recordLifecycle,
+} from "./run/lifecycle.js";
+import type { RunLifecyclePort } from "./run/schedule.js";
 
 /** The database connection, as configuration rather than as a client. */
 export interface ControlPlaneDatabaseConfig {
@@ -70,12 +77,35 @@ export interface ControlPlaneGitHubConfig {
    * parsing all execute for real against a canned body.
    */
   readonly fetch?: GitHubFetch;
+  /**
+   * The REST root. Defaults to `https://api.github.com`; a GitHub Enterprise
+   * Server deployment names its own.
+   *
+   * It must be `https:`, or `http:` on loopback (`127.0.0.1`, `localhost`,
+   * `::1`), because every request under it carries the App JWT or an
+   * installation token. Anything else is refused here, at composition, the way
+   * a missing field is.
+   */
+  readonly apiUrl?: string;
 }
 
 /** Everything the control plane is composed over. */
 export interface ControlPlaneConfig {
   readonly database: ControlPlaneDatabaseConfig;
   readonly github: ControlPlaneGitHubConfig;
+  /**
+   * What the webhook hands a committed delivery to, after the acknowledgement
+   * and without awaiting it.
+   *
+   * ADR 0014 makes the durable spine the mechanism: the composition that owns
+   * Workflow passes the function that starts the ingress workflow, and the
+   * platform's step retry is then the re-drive of `contended` and `transient`
+   * dispositions. Left unset, the delivery is processed **in this process**,
+   * once, with the ledger row as the only recovery - which is ADR 0013's
+   * minimum and what a composition with no durable runtime, such as a test,
+   * gets. It is not what a deployment should run.
+   */
+  readonly kick?: KickProcessing;
 }
 
 /** The composed control plane, as the app holds it. */
@@ -90,16 +120,23 @@ export interface ControlPlane {
    *
    * The webhook kicks this and does not await it, which is ADR 0013's order.
    * It is **also** exposed here on purpose: the ADR makes an automatic re-drive
-   * of `contended` and `transient` dispositions a Phase 0 exit condition and
-   * hands the mechanism to
-   * [#38](https://github.com/nick-neely/reprove/issues/38), so the durable
-   * scheduler needs a way in that is not a webhook request. Calling it twice
+   * of `contended` and `transient` dispositions a Phase 0 exit condition, and
+   * [ADR 0014](../../../docs/adr/0014-workflow-orchestration-seam.md) makes
+   * that re-drive the platform's own step retry, so the durable scheduler in
+   * `@reprove/control-plane-workflow` needs a way in that is not a webhook
+   * request. Calling it twice
    * for one delivery is safe: the second attempt settles nothing, because
    * `done` and `discarded` are terminal.
    */
   readonly processDelivery: (
     delivery: DeliveryToProcess
   ) => Promise<ProcessedDelivery>;
+  /**
+   * The lifecycle's reach into a Run: record which durable run schedules it,
+   * read what to do next, and close the unclaimed window (ADR 0014). Every
+   * write is conditional on the writer being the recorded lifecycle.
+   */
+  readonly lifecycle: RunLifecyclePort;
   /** Drains the connection pool. */
   readonly close: () => Promise<void>;
 }
@@ -153,6 +190,7 @@ export const createControlPlane = async (
     appId,
     privateKey,
     fetch: config.github.fetch ?? ((request) => fetch(request)),
+    apiUrl: config.github.apiUrl,
   });
 
   const processDelivery = createDeliveryProcessor({
@@ -161,33 +199,49 @@ export const createControlPlane = async (
     profile: runProfile,
   });
 
+  // The in-process fallback. Started and not awaited, so the acknowledgement
+  // is not held behind the advisory lock and the canonical fetch. A rejection
+  // is swallowed rather than crashing the process on an unhandled rejection:
+  // the envelope is durable and the ledger row is still `received`, which is
+  // the state a re-drive picks up - and, with no durable spine composed, the
+  // state a manual redelivery finds it in.
+  const processInProcess: KickProcessing = (delivery) => {
+    void (async () => {
+      try {
+        await processDelivery(delivery);
+      } catch {
+        // Nothing to do, and nothing to log with: this package holds no
+        // logger.
+      }
+    })();
+  };
+
   const handleGitHubWebhook = createGitHubWebhookHandler({
     secret: webhookSecret,
     maximumBytes: config.github.maximumDeliveryBytes,
     commit: (envelope) =>
       runtime.withOwner(envelope.ownerId, (tx) => recordDelivery(tx, envelope)),
-    // Started and not awaited, so the acknowledgement is not held behind the
-    // advisory lock and the canonical fetch. A rejection is swallowed here
-    // rather than crashing the process on an unhandled rejection: the envelope
-    // is durable and the ledger row is still `received`, which is exactly the
-    // state #38's re-drive picks up.
-    kick: (delivery) => {
-      void (async () => {
-        try {
-          await processDelivery(delivery);
-        } catch {
-          // Nothing to do, and nothing to log with: this package holds no
-          // logger. The ledger row is still `received`, which is exactly the
-          // state #38's re-drive picks up.
-        }
-      })();
-    },
+    kick: config.kick ?? processInProcess,
   });
+
+  const lifecycle: RunLifecyclePort = {
+    record: (ownerId, runId, workflowRunId) =>
+      runtime.withOwner(ownerId, (tx) =>
+        recordLifecycle(tx, runId, workflowRunId)
+      ),
+    schedule: (ownerId, runId) =>
+      runtime.withOwner(ownerId, (tx) => readSchedule(tx, runId)),
+    expireUnclaimed: (ownerId, runId, workflowRunId) =>
+      runtime.withOwner(ownerId, (tx) =>
+        expireUnclaimed(tx, runId, workflowRunId)
+      ),
+  };
 
   return {
     checks: runtime.checks,
     handleGitHubWebhook,
     processDelivery,
+    lifecycle,
     close: runtime.close,
   };
 };

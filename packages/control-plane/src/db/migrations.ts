@@ -16,12 +16,40 @@ import { fileURLToPath } from "node:url";
 import { readMigrationFiles } from "drizzle-orm/migrator";
 
 /**
+ * Where this module sits, which is what the migration folder is resolved from.
+ *
+ * **Three spellings of "beside this module" exist and only this one works
+ * under a bundler**, which is why the long form is written out rather than
+ * tidied:
+ *
+ * - `new URL("../../drizzle", import.meta.url)` is read by a bundler as a
+ *   reference to a single asset it should copy into its output, and the build
+ *   fails on a reference that names a directory.
+ * - `import.meta.dirname` is `undefined` in a Turbopack-compiled module, so the
+ *   join throws `ERR_INVALID_ARG_TYPE` while the page's configuration is being
+ *   collected. Measured against Next.js 16.3; the lint rule that prefers it is
+ *   disabled below for exactly that reason.
+ * - `path.dirname(fileURLToPath(import.meta.url))` survives, because the
+ *   bundler rewrites `import.meta.url` to the module's original location. The
+ *   folder is then found beside the shipped `dist/` whether the module runs
+ *   from the package or from a bundle.
+ *
+ * The deployment still has to ship the folder, which is a file-tracing concern
+ * the app's `next.config.ts` states and the real-builder gate asserts.
+ */
+// oxlint-disable-next-line unicorn/prefer-import-meta-properties -- `import.meta.dirname` is undefined under Turbopack; see above.
+const MODULE_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
+
+/**
  * The folder `drizzle-kit generate` writes to, resolved from this module's own
  * location. `src/db/` and `dist/db/` sit the same distance below the package
  * root, so one expression serves the source tree and the packed artifact.
  */
-export const MIGRATIONS_FOLDER = fileURLToPath(
-  new URL("../../drizzle", import.meta.url)
+export const MIGRATIONS_FOLDER = path.join(
+  MODULE_DIRECTORY,
+  "..",
+  "..",
+  "drizzle"
 );
 
 /** One committed migration, joined to the journal entry that names it. */

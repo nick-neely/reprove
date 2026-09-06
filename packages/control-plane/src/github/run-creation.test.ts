@@ -404,6 +404,12 @@ describe("Run creation", () => {
         headSha: NEXT_HEAD,
         status: "queued",
       });
+      // Reported, so the lifecycle scheduling the superseded Run can be woken
+      // rather than left to find out at its deadline.
+      expect(second.endedRuns).toStrictEqual([
+        { runId: first.runId, status: "superseded" },
+      ]);
+      expect(first.endedRuns).toStrictEqual([]);
     });
 
     it("supersedes a live Run at a stale head even when the new head is a duplicate", async () => {
@@ -446,6 +452,9 @@ describe("Run creation", () => {
         status: "cancelled",
         cancellationReason: "pull_request_closed",
       });
+      expect(closed.endedRuns).toStrictEqual([
+        { runId: opened.runId, status: "cancelled" },
+      ]);
     });
 
     it("cancels the live Run when the pull request has become a draft", async () => {

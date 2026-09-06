@@ -70,6 +70,10 @@ request path and then handed to a durable run; the ingress step throws `Retryabl
 `contended` and `transient`, and **Workflow's own step retry is the re-drive**. `unauthorized`
 throws a fatal error and stops.
 
+> **Corrected by [#50](https://github.com/nick-neely/reprove/issues/50)** on a name only. The
+> third disposition ADR 0013 defines is `operator_attention`, not `unauthorized`; that is what
+> the implemented step throws `FatalError` on, and the decision is unchanged.
+
 No Reprove-owned sweeper, backoff table or second job system appears beside the orchestrator
 [#6](https://github.com/nick-neely/reprove/issues/6) already settled. That was the constraint
 ADR 0006 stated as "ingress must not write a parallel queue that bypasses the Workflow", and
@@ -184,6 +188,16 @@ shape. The SDK promises workflow-mode transformation and dead-code elimination; 
 promise one shared bundle or its externalization behaviour, so canonising today's output
 would make CI brittle against a dependency upgrade while protecting nothing extra. The
 runtime execution is the check that survives such an upgrade.
+
+> **Implemented by [#50](https://github.com/nick-neely/reprove/issues/50)** as
+> `tools/verify-workflow-build.mjs`, sequenced inside `pnpm verify` as `verify:workflow`. One
+> thing this section did not anticipate: the trace assertion is not only about `pg`. ADR 0017's
+> migration folder is a runtime asset that no import points at, so it reaches a deployment only
+> by being named in `outputFileTracingIncludes`, and the gate asserts the journal is traced
+> beside the driver. Making the folder survive a bundler at all required resolving it by a path
+> join over `import.meta.url` rather than by `new URL(..., import.meta.url)`, which a bundler
+> reads as an asset reference and fails on. That amendment is recorded in
+> [ADR 0017](0017-authoring-time-tenancy-boundary.md).
 
 ## Consequences
 

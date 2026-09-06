@@ -39,6 +39,7 @@
 import type { RuntimeDb } from "../db/runtime.js";
 import type {
   DeliveryToProcess,
+  EndedRun,
   IngressOutcome,
   ProcessedDelivery,
 } from "./delivery.js";
@@ -161,6 +162,26 @@ const outcomeFor = (decision: RunDecision): IngressOutcome | null => {
   }
 };
 
+/** The live Runs a decision ended, read off the decision rather than the table. */
+const endedBy = (decision: RunDecision): EndedRun[] => {
+  switch (decision.kind) {
+    case "created":
+    case "duplicate_head": {
+      return decision.supersededRunId === null
+        ? []
+        : [{ runId: decision.supersededRunId, status: "superseded" }];
+    }
+    case "ineligible": {
+      return decision.cancelledRunId === null
+        ? []
+        : [{ runId: decision.cancelledRunId, status: "cancelled" }];
+    }
+    default: {
+      return [];
+    }
+  }
+};
+
 /**
  * The locator an acting delivery needs, or the disposition that stands in for
  * it. Both answers are reached from the envelope alone, which is what makes
@@ -220,6 +241,7 @@ export const createDeliveryProcessor = (
   ): Promise<ProcessedDelivery> => ({
     outcome,
     runId,
+    endedRuns: [],
     settled: await config.withOwner(delivery.envelope.ownerId, (tx) =>
       settleDelivery(tx, delivery.deliveryId, outcome)
     ),
@@ -249,7 +271,7 @@ export const createDeliveryProcessor = (
     }
 
     try {
-      const { outcome, runId, settled } = await config.withOwner(
+      const { outcome, runId, endedRuns, settled } = await config.withOwner(
         envelope.ownerId,
         async (tx) => {
           const decision = await settlePullRequest(tx, runCreation, {
@@ -261,6 +283,7 @@ export const createDeliveryProcessor = (
           return {
             outcome: made,
             runId: decision.kind === "created" ? decision.runId : null,
+            endedRuns: endedBy(decision),
             // Same transaction as the decision, so the Run and the conclusion
             // about the delivery that created it commit together or not at all.
             settled:
@@ -269,7 +292,7 @@ export const createDeliveryProcessor = (
           };
         }
       );
-      return { outcome, settled, runId };
+      return { outcome, settled, runId, endedRuns };
     } catch (error) {
       // The transaction rolled back, so there is no Run and the ledger row is
       // exactly as it was - `received`, with no attempt counted and no class

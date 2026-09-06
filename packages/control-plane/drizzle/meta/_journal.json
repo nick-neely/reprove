@@ -36,6 +36,13 @@
       "when": 1788631422922,
       "tag": "0004_owner_scoped_run_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1788638969714,
+      "tag": "0005_run_lifecycle",
+      "breakpoints": true
     }
   ]
 }
