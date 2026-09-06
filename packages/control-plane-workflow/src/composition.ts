@@ -13,17 +13,11 @@
  * tries again, because a boot refusal is usually a deployment being repaired,
  * and a permanently poisoned module would need a redeploy to clear.
  *
- * `@reprove/control-plane` is loaded through Node's own resolution rather than
- * bundled, and the magic comment is what arranges that under Turbopack. ADR
- * 0017 makes that package's `drizzle/` folder a **runtime asset**: the boot
- * assertion joins the hashes Drizzle stored against the committed files that
- * produced them, and the package resolves the folder relative to its own
- * module. Bundled, the relative base becomes the bundle's location and the
- * files are not beside it. `serverExternalPackages` is the configuration built
- * for this and cannot express it, because Next matches the *resolved* path
- * against `/node_modules/<package>/` and a pnpm workspace link resolves through
- * to `packages/control-plane`. Every other builder ignores the comment and
- * resolves the import normally, which is also correct.
+ * `@reprove/control-plane` is imported here like any other dependency and is
+ * bundled or externalized as the consuming builder sees fit. What it needs at
+ * run time beyond its code is its `drizzle/` folder - ADR 0017's runtime asset,
+ * resolved relative to its own module - and the app's `next.config.ts` is where
+ * a deployment states that the folder ships.
  *
  * Under a builder that gives a step its own module registry, this module runs
  * twice in one process and composes twice. That costs a second pool and a
@@ -31,18 +25,12 @@
  * holds state the other needs.
  */
 import type { ControlPlane, DeliveryToProcess } from "@reprove/control-plane";
+import {
+  createControlPlane,
+  PHASE_0_RUN_PROFILE,
+} from "@reprove/control-plane";
 
 import { configFromEnvironment } from "./environment.js";
-
-/**
- * Node's own resolution, not the bundler's. See the module comment for why the
- * comment is load-bearing rather than decorative.
- */
-const controlPlaneModule = async () =>
-  await import(
-    /* turbopackIgnore: true */
-    "@reprove/control-plane"
-  );
 
 let composed: Promise<ControlPlane> | undefined;
 
@@ -69,10 +57,8 @@ const kick = (delivery: DeliveryToProcess): void => {
   })();
 };
 
-const compose = async (): Promise<ControlPlane> => {
-  const { createControlPlane, PHASE_0_RUN_PROFILE } =
-    await controlPlaneModule();
-  return await createControlPlane(
+const compose = async (): Promise<ControlPlane> =>
+  await createControlPlane(
     configFromEnvironment(process.env, {
       // Injected by name rather than read from the environment, which is the
       // whole point of ADR 0013's profile.
@@ -80,7 +66,6 @@ const compose = async (): Promise<ControlPlane> => {
       kick,
     })
   );
-};
 
 /**
  * The composed control plane, built on first use from the environment.
