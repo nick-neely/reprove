@@ -9,7 +9,7 @@
 import { SandboxRefusalError, checkRequest } from "@reprove/sandbox-container";
 import { describe, expect, it } from "vitest";
 
-import type { AdapterPassOutput } from "./adapter.js";
+import type { AdapterPassOutput, PassRequest } from "./adapter.js";
 import {
   CLEAN_PASS,
   createCodexAdapterDouble,
@@ -105,6 +105,22 @@ const unreadable = (): AdapterPassOutput => ({
     throw new TypeError("the bundle carried no findings");
   },
 });
+
+/**
+ * The Pass request, or a failure saying there was none.
+ *
+ * The channel-separation cases prove what did not reach the channel, and a Run
+ * that refused before the Pass has an empty channel for the uninteresting
+ * reason. Falling back to a synthetic empty one would let every assertion in
+ * them pass with nothing under test.
+ */
+const passRequest = (adapter: Harnessed["adapter"]): PassRequest => {
+  const [request] = adapter.requests;
+  if (request === undefined) {
+    throw new Error("expected a Pass to have started");
+  }
+  return request;
+};
 
 const partial = (): AdapterPassOutput => ({
   ...CLEAN_PASS,
@@ -575,16 +591,10 @@ describe("the channel separation", () => {
   it("keeps an injection shipped in the pull request out of the channel", async () => {
     const { run, adapter } = harness();
     await run({ conventions: [headConvention] });
-    const rendered = renderInstructions(
-      adapter.requests[0]?.instructions ?? {
-        policy: "",
-        conventions: [],
-        narrativePath: NARRATIVE_PATH,
-      }
-    );
+    const request = passRequest(adapter);
 
-    expect(rendered).not.toContain(INJECTION);
-    expect(adapter.requests[0]?.instructions.conventions).toStrictEqual([]);
+    expect(renderInstructions(request.instructions)).not.toContain(INJECTION);
+    expect(request.instructions.conventions).toStrictEqual([]);
   });
 
   it("admits a base convention and neutralizes what it points at", async () => {
@@ -593,7 +603,7 @@ describe("the channel separation", () => {
     // is the head Workspace.
     const { run, adapter } = harness();
     await run({ conventions: [baseConvention] });
-    const admitted = adapter.requests[0]?.instructions.conventions[0];
+    const [admitted] = passRequest(adapter).instructions.conventions;
 
     expect(admitted?.path).toBe("CLAUDE.md");
     expect(admitted?.content).toContain("[unresolved import: docs/errors.md]");
@@ -605,18 +615,10 @@ describe("the channel separation", () => {
     await run({
       narrative: { title: INJECTION, description: INJECTION },
     });
-    const [request] = adapter.requests;
+    const request = passRequest(adapter);
 
-    expect(
-      renderInstructions(
-        request?.instructions ?? {
-          policy: "",
-          conventions: [],
-          narrativePath: NARRATIVE_PATH,
-        }
-      )
-    ).not.toContain(INJECTION);
-    expect(JSON.stringify(request?.instructions)).not.toContain(INJECTION);
+    expect(renderInstructions(request.instructions)).not.toContain(INJECTION);
+    expect(JSON.stringify(request.instructions)).not.toContain(INJECTION);
     // It reaches the Reviewer as data at a fixed path, labelled with the
     // authority it carries, and nowhere else.
     expect(written[0]?.path).toBe(NARRATIVE_PATH);
