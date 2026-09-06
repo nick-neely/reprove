@@ -343,6 +343,20 @@ is a 26-star beta, cited here as an existence proof rather than a dependency.
   > and a pnpm workspace link resolves through to `packages/control-plane`, where that pattern never
   > matches - so the opt-out is per import instead. Whatever eventually deploys this has the same
   > obligation, and it is a load-time one rather than a packing one.
+
+  > **Amended by [#50](https://github.com/nick-neely/reprove/issues/50).** The per-import opt-out
+  > above is withdrawn, because ADR 0014's orchestration seam made it unaffordable: a dynamic
+  > import the bundler is told to ignore is invisible to Next's output file tracing, so `pg` never
+  > reached the trace and the deployment shipped without a driver. The package is bundled instead,
+  > and the folder is resolved by a **path join over `import.meta.url`** rather than by
+  > `new URL(..., import.meta.url)`. The join survives bundling - the bundler rewrites
+  > `import.meta.url` to the original module's path, so the relative base is still where the files
+  > are - while neither of the two tidier spellings does: a bundler reads `new URL` as an asset
+  > reference and fails the build on one that names a directory, and `import.meta.dirname` is
+  > `undefined` in a Turbopack-compiled module, so the join throws while page data is collected. What a deployment then owes is a *packing* obligation after all, discharged by naming
+  > the folder in `outputFileTracingIncludes` for every route that composes the control plane. That
+  > this holds for the build actually produced is asserted by `tools/verify-workflow-build.mjs`,
+  > which fails when the trace lacks the migration journal.
 - **#31's `verify` job gains `fetch-depth: 0`** and a second root-sequenced verifier. The required
   check set is unchanged at two.
 - **`CONTEXT.md` is unchanged.** No noun is added: this is verification machinery, and `Owner`,

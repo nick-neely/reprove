@@ -115,10 +115,11 @@ export interface ControlPlane {
    *
    * The webhook kicks this and does not await it, which is ADR 0013's order.
    * It is **also** exposed here on purpose: the ADR makes an automatic re-drive
-   * of `contended` and `transient` dispositions a Phase 0 exit condition and
-   * hands the mechanism to
-   * [#38](https://github.com/nick-neely/reprove/issues/38), so the durable
-   * scheduler needs a way in that is not a webhook request. Calling it twice
+   * of `contended` and `transient` dispositions a Phase 0 exit condition, and
+   * [ADR 0014](../../../docs/adr/0014-workflow-orchestration-seam.md) makes
+   * that re-drive the platform's own step retry, so the durable scheduler in
+   * `@reprove/control-plane-workflow` needs a way in that is not a webhook
+   * request. Calling it twice
    * for one delivery is safe: the second attempt settles nothing, because
    * `done` and `discarded` are terminal.
    */

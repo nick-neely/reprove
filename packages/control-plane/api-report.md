@@ -152,6 +152,8 @@ import type { CheckOutcome } from "./db/refusal.js";
 import type { GitHubFetch } from "./github/client.js";
 import type { DeliveryToProcess, ProcessedDelivery } from "./github/delivery.js";
 import type { Phase0RunProfile } from "./github/profile.js";
+import type { KickProcessing } from "./github/webhook.js";
+import type { RunLifecyclePort } from "./run/schedule.js";
 /** The database connection, as configuration rather than as a client. */
 export interface ControlPlaneDatabaseConfig {
     /**
@@ -189,11 +191,29 @@ export interface ControlPlaneGitHubConfig {
      * parsing all execute for real against a canned body.
      */
     readonly fetch?: GitHubFetch;
+    /**
+     * The REST root. Defaults to `https://api.github.com`; a GitHub Enterprise
+     * Server deployment names its own.
+     */
+    readonly apiUrl?: string;
 }
 /** Everything the control plane is composed over. */
 export interface ControlPlaneConfig {
     readonly database: ControlPlaneDatabaseConfig;
     readonly github: ControlPlaneGitHubConfig;
+    /**
+     * What the webhook hands a committed delivery to, after the acknowledgement
+     * and without awaiting it.
+     *
+     * ADR 0014 makes the durable spine the mechanism: the composition that owns
+     * Workflow passes the function that starts the ingress workflow, and the
+     * platform's step retry is then the re-drive of `contended` and `transient`
+     * dispositions. Left unset, the delivery is processed **in this process**,
+     * once, with the ledger row as the only recovery - which is ADR 0013's
+     * minimum and what a composition with no durable runtime, such as a test,
+     * gets. It is not what a deployment should run.
+     */
+    readonly kick?: KickProcessing;
 }
 /** The composed control plane, as the app holds it. */
 export interface ControlPlane {
@@ -207,14 +227,21 @@ export interface ControlPlane {
      *
      * The webhook kicks this and does not await it, which is ADR 0013's order.
      * It is **also** exposed here on purpose: the ADR makes an automatic re-drive
-     * of `contended` and `transient` dispositions a Phase 0 exit condition and
-     * hands the mechanism to
-     * [#38](https://github.com/nick-neely/reprove/issues/38), so the durable
-     * scheduler needs a way in that is not a webhook request. Calling it twice
+     * of `contended` and `transient` dispositions a Phase 0 exit condition, and
+     * [ADR 0014](../../../docs/adr/0014-workflow-orchestration-seam.md) makes
+     * that re-drive the platform's own step retry, so the durable scheduler in
+     * `@reprove/control-plane-workflow` needs a way in that is not a webhook
+     * request. Calling it twice
      * for one delivery is safe: the second attempt settles nothing, because
      * `done` and `discarded` are terminal.
      */
     readonly processDelivery: (delivery: DeliveryToProcess) => Promise<ProcessedDelivery>;
+    /**
+     * The lifecycle's reach into a Run: record which durable run schedules it,
+     * read what to do next, and close the unclaimed window (ADR 0014). Every
+     * write is conditional on the writer being the recorded lifecycle.
+     */
+    readonly lifecycle: RunLifecyclePort;
     /** Drains the connection pool. */
     readonly close: () => Promise<void>;
 }
@@ -2484,6 +2511,23 @@ export declare const run: import("drizzle-orm/pg-core").PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
+        workflowRunId: import("drizzle-orm/pg-core").PgColumn<{
+            name: "workflow_run_id";
+            tableName: "run";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
         createdAt: import("drizzle-orm/pg-core").PgColumn<{
             name: "created_at";
             tableName: "run";
@@ -3824,7 +3868,7 @@ export declare const readPullRequest: (body: string) => ParsedPullRequest;
  */
 import type { AppCredentials } from "./app-auth.js";
 import type { CanonicalPullRequest } from "./canonical.js";
-/** GitHub's REST root. */
+/** GitHub's REST root, which is the default when a deployment names none. */
 export declare const GITHUB_API_URL = "https://api.github.com";
 /**
  * The hard client timeout ADR 0013 requires, per request.
@@ -3847,6 +3891,12 @@ export type GitHubFetch = (request: Request) => Promise<Response>;
 /** What the client is composed over. No value here is read from anywhere. */
 export interface GitHubClientConfig extends AppCredentials {
     readonly fetch: GitHubFetch;
+    /**
+     * The REST root every request is addressed under. Defaults to
+     * {@link GITHUB_API_URL}; a GitHub Enterprise Server deployment names its
+     * own, and so does a build gate standing a canned GitHub up on loopback.
+     */
+    readonly apiUrl?: string;
 }
 /** Which pull request, reached through which grant. */
 export interface CanonicalRequest {
@@ -3951,6 +4001,20 @@ export interface DeliveryToProcess {
     readonly deliveryId: string;
     readonly envelope: IngressEnvelope;
 }
+/**
+ * A live Run this delivery ended, and how.
+ *
+ * Reported rather than left for the scheduler to discover, because the durable
+ * lifecycle that schedules an ended Run is asleep until its deadline and would
+ * otherwise wake only then. ADR 0014 has the lifecycle "resumed through its
+ * cancel hook so it terminates reportably", and this is what the resumer reads.
+ * The status is already written when this is returned; the notification that
+ * follows is exactly that, and changes nothing.
+ */
+export interface EndedRun {
+    readonly runId: string;
+    readonly status: "superseded" | "cancelled";
+}
 /** What one processing attempt concluded, and whether the ledger took it. */
 export interface ProcessedDelivery {
     /**
@@ -3972,6 +4036,8 @@ export interface ProcessedDelivery {
     readonly settled: boolean;
     /** The Run this delivery produced, where it produced one. */
     readonly runId: string | null;
+    /** The live Runs this delivery ended, in the same transaction. */
+    readonly endedRuns: readonly EndedRun[];
 }
 ```
 
@@ -4711,15 +4777,18 @@ export { migrate } from "./db/migrate.js";
 export type { CommittedMigration } from "./db/migrations.js";
 export { MIGRATIONS_FOLDER, readCommittedMigrations } from "./db/migrations.js";
 export type { CheckName, CheckOutcome } from "./db/refusal.js";
+export type { IngressDisposition, IngressRetryClass, IngressState, RunStatus, } from "./db/schema-values.js";
 export { BootRefusalError } from "./db/refusal.js";
 export { RUNTIME_ROLE } from "./db/roles.js";
-export type { DeliveryToProcess, IngressOutcome, ProcessedDelivery, } from "./github/delivery.js";
+export type { DeliveryToProcess, EndedRun, IngressOutcome, ProcessedDelivery, } from "./github/delivery.js";
 export type { IngressEnvelope } from "./github/envelope.js";
 export type { GitHubAppManifest, ManifestOptions, ManifestPermission, } from "./github/manifest.js";
 export type { Phase0RunProfile } from "./github/profile.js";
 export { PHASE_0_RUN_PROFILE } from "./github/profile.js";
 export { APP_EVENTS, APP_PERMISSIONS, githubAppManifest, WEBHOOK_PATH, } from "./github/manifest.js";
+export type { KickProcessing } from "./github/webhook.js";
 export { WEBHOOK_STATUS } from "./github/webhook.js";
+export type { RunLifecyclePort, RunSchedule } from "./run/schedule.js";
 export declare const packageName: "@reprove/control-plane";
 /**
  * Shell. The control plane validates every Worker submission against the same
@@ -4729,4 +4798,110 @@ export declare const packageName: "@reprove/control-plane";
 export declare const accepts: {
     readonly protocolVersion: 1;
 };
+```
+
+## dist/run/lifecycle.d.ts
+
+```ts
+import type { TenantTransaction } from "../db/runtime.js";
+import type { RunSchedule } from "./schedule.js";
+/**
+ * Records which durable run schedules this Run, if none is recorded yet.
+ *
+ * `IS NULL` rather than `IS DISTINCT FROM`, so the write is once and only once:
+ * a predicate that let the recorded lifecycle re-assert its own id would be the
+ * same predicate that lets a different id through after a crash and a retry.
+ *
+ * @param tx A tenant transaction already scoped to the Run's Owner.
+ * @param runId The Run.
+ * @param workflowRunId The lifecycle claiming it.
+ * @returns Whether this call wrote the id.
+ */
+export declare const recordLifecycle: (tx: TenantTransaction, runId: string, workflowRunId: string) => Promise<boolean>;
+/**
+ * The state a lifecycle wakes to.
+ *
+ * @param tx A tenant transaction already scoped to the Run's Owner.
+ * @param runId The Run.
+ * @returns Status, deadline and recorded lifecycle, or `null` where this Owner
+ *   has no such Run.
+ */
+export declare const readSchedule: (tx: TenantTransaction, runId: string) => Promise<RunSchedule | null>;
+/**
+ * `queued` to `unscheduled`, and no other transition.
+ *
+ * ADR 0007 defines `unscheduled` as "never dispatched", and `CONTEXT.md`
+ * reserves Failure for a Run that began executing, so writing either over a
+ * claimed or executing Run would state something false about it. The status
+ * predicate is what keeps this honest; the lifecycle predicate is what keeps an
+ * orphan inert.
+ *
+ * @param tx A tenant transaction already scoped to the Run's Owner.
+ * @param runId The Run.
+ * @param workflowRunId The lifecycle whose deadline fired.
+ * @returns Whether the transition was written.
+ */
+export declare const expireUnclaimed: (tx: TenantTransaction, runId: string, workflowRunId: string) => Promise<boolean>;
+```
+
+## dist/run/schedule.d.ts
+
+```ts
+/**
+ * What a Run's lifecycle reads and writes, as types a consumer may hold.
+ *
+ * These live apart from `lifecycle.ts` for the same boundary reason
+ * `github/delivery.ts` gives: [ADR
+ * 0010](../../../../docs/adr/0010-package-graph-and-open-core-boundary.md)
+ * forbids `apps/control-plane` from depending on Drizzle, and
+ * `tools/verify-packages.mjs` measures that by type-checking the packed
+ * declarations. A type that merely lives in a module importing Drizzle drags
+ * its declaration graph into that check, so the types the published surface
+ * names are declared here over the closed value sets and nothing else.
+ */
+import type { RunStatus } from "../db/schema-values.js";
+/**
+ * The authoritative state a lifecycle re-reads on every wake, rather than
+ * trusting the timestamp it slept toward ([ADR
+ * 0015](../../../../docs/adr/0015-execution-ownership-and-worker-liveness.md)).
+ */
+export interface RunSchedule {
+    readonly status: RunStatus;
+    /** When the unclaimed window closes. Immutable; written at creation. */
+    readonly claimableUntil: Date;
+    /**
+     * The lifecycle the Run records, or `null` inside the window between
+     * `start()` returning and the id being written. The database decides which
+     * lifecycle owns a Run; a lifecycle reading a different id here is an orphan
+     * and ends.
+     */
+    readonly workflowRunId: string | null;
+}
+/**
+ * The lifecycle's whole reach into a Run, composed over a tenant transaction.
+ *
+ * Three operations and no fourth: recording which durable run schedules the
+ * Run, reading the state that decides what to do next, and the one transition
+ * `claimableUntil` owns. Every write is conditional on the lifecycle being the
+ * recorded one, which is what makes ADR 0014's orphan inert.
+ */
+export interface RunLifecyclePort {
+    /**
+     * Records the lifecycle, if none is recorded yet. First writer wins.
+     *
+     * @returns `true` when this call wrote the id; `false` when another already
+     *   holds it, or the Run is not this Owner's.
+     */
+    readonly record: (ownerId: number, runId: string, workflowRunId: string) => Promise<boolean>;
+    /** The state a lifecycle wakes to, or `null` for a Run this Owner cannot see. */
+    readonly schedule: (ownerId: number, runId: string) => Promise<RunSchedule | null>;
+    /**
+     * The one transition the unclaimed window owns: `queued` to `unscheduled`,
+     * written only over a Run that was never claimed and only by the recorded
+     * lifecycle. A claimed, executing or terminal Run is left exactly as it was.
+     *
+     * @returns Whether the transition was written.
+     */
+    readonly expireUnclaimed: (ownerId: number, runId: string, workflowRunId: string) => Promise<boolean>;
+}
 ```
