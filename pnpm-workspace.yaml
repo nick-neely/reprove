@@ -144,3 +144,20 @@ allowBuilds:
   # real-builder gate executing a workflow with the build denied.
   "@swc/core@1.15.3": false
   cbor-extract@2.2.2: false
+
+# --- Security overrides --------------------------------------------------------
+# `@workflow/core@4.8.5` - reached from every workspace through `workflow` and
+# `@workflow/vitest` - pins `nanoid` to exactly `5.1.6`, which carries two high
+# severity advisories: GHSA-xwg4-73v4-xw9w (integer overflow or wraparound,
+# patched in 5.1.11) and GHSA-28wg-ghj8-5hjv (non-secure generators can loop
+# indefinitely with a negative size, patched in 5.1.16). `dependency-review`
+# fails the branch on both. 5.1.16 is the lowest 5.x release clear of the pair
+# and is a patch-level move within the same major, so the API `@workflow/core`
+# calls is unchanged. An override rather than waiting on upstream because the
+# pin is exact: a `workflow` bump is the only thing that can move it, and ADR
+# 0014 makes that a reviewed change on its own schedule. Remove this once the
+# workflow catalog moves to a release whose `@workflow/core` asks for 5.1.16 or
+# later - check `pnpm why nanoid` after the bump.
+# review-by: 2027-03-01
+overrides:
+  nanoid@5: 5.1.16
