@@ -122,8 +122,12 @@ export interface AdmissionPolicy {
  * An `@`-import as the Harnesses that support them recognise one: the sigil at
  * a word boundary, followed by a target that runs to the next whitespace. The
  * lookbehind is what keeps an email address from reading as an import.
+ *
+ * The sigil is matched as a run rather than singly, because one `@` consumed
+ * out of `@@docs/errors.md` would leave `@docs/errors.md` sitting in the
+ * neutralized text at a word boundary, which is an import again.
  */
-const IMPORT_REFERENCE = /(?<![\w@.\-/])@(?<target>\S+)/gu;
+const IMPORT_REFERENCE = /(?<![\w@.\-/])@+(?<target>\S+)/gu;
 
 /**
  * Sentence punctuation the target of an import does not end in, which is

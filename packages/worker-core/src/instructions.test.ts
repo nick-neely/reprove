@@ -149,6 +149,22 @@ describe("indirection inside an admitted convention", () => {
     expect(admitted[0]?.content).toContain("unresolved import");
   });
 
+  it("consumes a doubled sigil rather than leaving a live import behind", () => {
+    // Neutralizing one sigil out of `@@docs/errors.md` would emit
+    // `@docs/errors.md` into the trusted channel at a word boundary, which is
+    // the reference again with the neutralization spent on the sigil in front
+    // of it.
+    const { admitted } = admitConventions(
+      [base("CLAUDE.md", "Follow @@docs/errors.md as well.")],
+      { enabled: true }
+    );
+
+    expect(admitted[0]?.content).toBe(
+      "Follow [unresolved import: docs/errors.md] as well."
+    );
+    expect(admitted[0]?.content).not.toContain("@");
+  });
+
   it("leaves text that is not an import alone", () => {
     const { admitted } = admitConventions(
       [base("CLAUDE.md", "Mail nobody@example.com and use the @ sign freely.")],
