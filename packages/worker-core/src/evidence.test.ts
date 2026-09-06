@@ -71,6 +71,25 @@ describe("the Evidence cross-check", () => {
     expect(evidence?.originalByteLength).toBe(output.length);
   });
 
+  it("cuts an excerpt at a whole code point rather than mid-character", () => {
+    // The offset makes the bound land inside a surrogate pair. Cutting there
+    // would put an unpaired half into a field a human reads, which is content
+    // the command never emitted.
+    const emoji = "\u{1F600}";
+    const output = `a${emoji.repeat(protocolLimits.evidenceExcerptChars)}`;
+    const checked = crossCheckEvidence({
+      findings: [candidate({ evidence: [claim("pnpm test", { output })] })],
+      observed: [{ command: "pnpm test", exitCode: 0 }],
+    });
+    const excerpt = checked.findings?.[0]?.evidence[0]?.excerpt ?? "";
+
+    expect(excerpt).toBe(
+      `a${emoji.repeat(protocolLimits.evidenceExcerptChars / 2 - 1)}`
+    );
+    expect(excerpt.length).toBeLessThan(protocolLimits.evidenceExcerptChars);
+    expect(Array.from(excerpt).at(-1)).toBe(emoji);
+  });
+
   it("complains when a claimed command has no observed counterpart", () => {
     const checked = crossCheckEvidence({
       findings: [candidate()],
