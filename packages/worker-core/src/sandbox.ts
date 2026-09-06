@@ -33,7 +33,27 @@ export interface SandboxProfile {
   /** Writable scratch, which a read-only root filesystem otherwise denies. */
   readonly scratchPath: string;
   readonly scratchSizeBytes: number;
+  readonly runtimeMounts?: readonly {
+    readonly path: string;
+    readonly sizeBytes: number;
+  }[];
 }
+
+/** The pinned Codex image is built by tools/build-codex-image.mjs. */
+export const CODEX_SANDBOX_PROFILE: SandboxProfile = {
+  image: "reprove-codex:0.149.1-1.0.104",
+  command: ["node", "-e", "setInterval(()=>{},2147483647)"],
+  workspacePath: "/reprove/workspace",
+  workspaceSizeBytes: 1024 * 1024 * 1024,
+  limits: { cpus: 2, memoryBytes: 4 * 1024 * 1024 * 1024, processes: 512 },
+  scratchPath: "/tmp",
+  scratchSizeBytes: 256 * 1024 * 1024,
+  runtimeMounts: [
+    { path: "/reprove/input", sizeBytes: 1024 * 1024 },
+    { path: "/reprove/home", sizeBytes: 128 * 1024 * 1024 },
+    { path: "/reprove/runtime", sizeBytes: 128 * 1024 * 1024 },
+  ],
+};
 
 export const PHASE0_SANDBOX_PROFILE: SandboxProfile = {
   image: "alpine:3.20",
@@ -107,12 +127,15 @@ export const sandboxRequestFor = (
   },
   limits: profile.limits,
   seccomp: { kind: "runtime-default" },
-  // ADR 0004 allows egress only through Reprove's proxy, and the proxy is not
-  // built. `none` is the whole of the type rather than a field that promises
-  // brokered egress and delivers none.
+  // The namespace has no network interface. Authorized proxy traffic travels
+  // through attached process pipes, with the policy enforced on the host.
   egress: { kind: "none" },
   environment: suppressionEnvironment(harness),
   mounts: [
+    ...(profile.runtimeMounts ?? []).map((mount) => ({
+      kind: "ephemeral" as const,
+      ...mount,
+    })),
     {
       kind: "ephemeral",
       path: profile.scratchPath,

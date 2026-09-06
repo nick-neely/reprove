@@ -62,12 +62,10 @@ import type { SandboxProfile } from "./sandbox.js";
  * Materializes the exact encoded bytes inside the Sandbox, under an identity
  * the Reviewer can read but cannot chmod, unlink, rename or replace.
  *
- * A port rather than a call, because `@reprove/sandbox-container` exposes no
- * write primitive yet and the alternative would be shelling the bytes through
- * an argument vector - which ADR 0012 forbids by name, since the path,
- * filename, arguments and environment must contain no Author-controlled value.
- * Throwing is the Refusal: failure to establish the protected representation is
- * not a degraded Run.
+ * The composition root supplies Workspace materialization and can use the
+ * production `materializeNarrative` helper for the protected representation.
+ * Author bytes travel on stdin, never in argument vectors or environment.
+ * Throwing is a Refusal, before any Reviewer executes.
  */
 export type Materialize = (
   sandbox: Sandbox,
@@ -268,6 +266,11 @@ export const createWorkerCore = (options: WorkerCoreOptions): WorkerCore => {
       let capability: ResolvedCapability;
       let isolation: IsolationLevel;
       try {
+        if (adapter.harness !== spec.harness) {
+          throw new Error(
+            "the selected Adapter does not match the pinned Harness"
+          );
+        }
         capability = await adapter.capability();
         isolation = await isolationOf(sandboxes);
       } catch (error) {
@@ -287,7 +290,7 @@ export const createWorkerCore = (options: WorkerCoreOptions): WorkerCore => {
         provenance: spec.provenance,
         allowExternalProvenance:
           spec.resolvedConfig.security.allowExternalProvenance,
-        exposure: input.exposure,
+        exposure: capability.exposure ?? input.exposure,
         maximumExposure: spec.resolvedConfig.security.maxExposure,
         isolation,
         capability,
@@ -360,6 +363,42 @@ export const createWorkerCore = (options: WorkerCoreOptions): WorkerCore => {
           },
           workerBuildVersion
         );
+      }
+
+      // Resolve again against the actual attested instance. Artifact or
+      // Workspace mismatches are Refusals, before any Reviewer executes.
+      let instanceRefusal: RefusalCause | null;
+      try {
+        capability = await adapter.capability({
+          sandbox,
+          model: spec.model,
+          signal: input.signal ?? AbortSignal.timeout(30_000),
+        });
+        instanceRefusal = checkDispatch({
+          autonomy: spec.autonomy,
+          provenance: spec.provenance,
+          allowExternalProvenance:
+            spec.resolvedConfig.security.allowExternalProvenance,
+          exposure: capability.exposure ?? input.exposure,
+          maximumExposure: spec.resolvedConfig.security.maxExposure,
+          isolation,
+          capability,
+          now: clock(),
+        });
+      } catch {
+        instanceRefusal = {
+          reason: "capability_unresolved",
+          required: "a capability for the actual Sandbox",
+          actual: "instance resolution failed",
+        };
+      }
+      if (instanceRefusal) {
+        try {
+          await sandbox.teardown();
+        } catch {
+          /* Provider quarantines uncertain cleanup. */
+        }
+        return refuse(spec, instanceRefusal, workerBuildVersion);
       }
 
       // Nothing between here and teardown may throw past this point. The Pass

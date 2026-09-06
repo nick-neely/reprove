@@ -54,6 +54,8 @@ export type { Autonomy, Harness } from "@reprove/protocol/v1";
  * against.
  */
 export interface ResolvedCapability {
+    /** Resolved from the credential; callers cannot lower this Exposure. */
+    readonly exposure?: "none" | "scoped" | "account";
     /** The levels this resolved invocation can actually enforce. */
     readonly supportedAutonomy: readonly Autonomy[];
     /**
@@ -177,7 +179,7 @@ export interface PassRequest {
 export interface Adapter {
     readonly harness: Harness;
     /** The resolved view, taken fresh per dispatch. */
-    readonly capability: () => Promise<ResolvedCapability>;
+    readonly capability: (request?: Pick<PassRequest, "sandbox" | "model" | "signal">) => Promise<ResolvedCapability>;
     readonly pass: (request: PassRequest) => Promise<AdapterPassOutput>;
 }
 ```
@@ -343,8 +345,9 @@ export type { FailurePhase, FailureReason, InternalFailure, WorkerOutcome, Worke
 export { composeResult } from "./result.js";
 export type { ComposedResult, ResultInput } from "./result.js";
 export { createWorkerCore } from "./run.js";
+export { materializeNarrative } from "./materialize.js";
 export type { Materialize, RunInput, WorkerCore, WorkerCoreOptions, } from "./run.js";
-export { PHASE0_SANDBOX_PROFILE, sandboxRequestFor, suppressionEnvironment, } from "./sandbox.js";
+export { PHASE0_SANDBOX_PROFILE, CODEX_SANDBOX_PROFILE, sandboxRequestFor, suppressionEnvironment, } from "./sandbox.js";
 export type { SandboxProfile } from "./sandbox.js";
 ```
 
@@ -455,6 +458,14 @@ export declare const composeInstructions: (request: InstructionRequest) => Trust
  * contract tests are about.
  */
 export declare const renderInstructions: (instructions: TrustedInstructions) => string;
+```
+
+## dist/materialize.d.ts
+
+```ts
+import type { Materialize } from "./run.js";
+/** Author bytes travel on stdin. The protected writer establishes root ownership. */
+export declare const materializeNarrative: Materialize;
 ```
 
 ## dist/narrative.d.ts
@@ -673,12 +684,10 @@ import type { SandboxProfile } from "./sandbox.js";
  * Materializes the exact encoded bytes inside the Sandbox, under an identity
  * the Reviewer can read but cannot chmod, unlink, rename or replace.
  *
- * A port rather than a call, because `@reprove/sandbox-container` exposes no
- * write primitive yet and the alternative would be shelling the bytes through
- * an argument vector - which ADR 0012 forbids by name, since the path,
- * filename, arguments and environment must contain no Author-controlled value.
- * Throwing is the Refusal: failure to establish the protected representation is
- * not a degraded Run.
+ * The composition root supplies Workspace materialization and can use the
+ * production `materializeNarrative` helper for the protected representation.
+ * Author bytes travel on stdin, never in argument vectors or environment.
+ * Throwing is a Refusal, before any Reviewer executes.
  */
 export type Materialize = (sandbox: Sandbox, file: ProtectedFile) => Promise<void>;
 export interface WorkerCoreOptions {
@@ -744,7 +753,13 @@ export interface SandboxProfile {
     /** Writable scratch, which a read-only root filesystem otherwise denies. */
     readonly scratchPath: string;
     readonly scratchSizeBytes: number;
+    readonly runtimeMounts?: readonly {
+        readonly path: string;
+        readonly sizeBytes: number;
+    }[];
 }
+/** The pinned Codex image is built by tools/build-codex-image.mjs. */
+export declare const CODEX_SANDBOX_PROFILE: SandboxProfile;
 export declare const PHASE0_SANDBOX_PROFILE: SandboxProfile;
 /**
  * ADR 0009's suppression levers, per Harness, as the Sandbox's own environment.

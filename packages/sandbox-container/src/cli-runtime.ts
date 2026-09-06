@@ -10,7 +10,6 @@
  */
 import { execFile, spawn } from "node:child_process";
 import type { ExecFileException } from "node:child_process";
-import { once } from "node:events";
 import { Readable, Writable } from "node:stream";
 import { promisify } from "node:util";
 
@@ -72,25 +71,29 @@ export const createCliRuntime = (
         killSignal: "SIGKILL",
       });
       child.stdin.on("error", () => child.stdin.destroy());
-      const observe = async (): Promise<
-        { exitCode: number } | { error: unknown }
-      > => {
-        try {
-          await once(child, "close");
-          const { exitCode, signalCode } = child;
-          if (exitCode === null) {
-            throw new RuntimeUnavailableError(
-              options.name,
-              executable,
-              `exited without a status (${String(signalCode)})`
-            );
-          }
-          return { exitCode };
-        } catch (error) {
-          return { error };
-        }
-      };
-      const done = observe();
+      const completion = Promise.withResolvers<
+        { exitCode: number } | { error: Error }
+      >();
+      let failure: Error | undefined;
+      child.once("error", (error) => {
+        failure = error;
+      });
+      child.once("close", (exitCode, signalCode) => {
+        completion.resolve(
+          failure || exitCode === null
+            ? {
+                error:
+                  failure ??
+                  new RuntimeUnavailableError(
+                    options.name,
+                    executable,
+                    `exited without a status (${String(signalCode)})`
+                  ),
+              }
+            : { exitCode }
+        );
+      });
+      const done = completion.promise;
       return {
         stdin: Writable.toWeb(child.stdin),
         stdout: Readable.toWeb(child.stdout),

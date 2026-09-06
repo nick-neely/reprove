@@ -145,6 +145,7 @@ export const CLEAN_PASS: AdapterPassOutput = {
 
 /** How the Adapter double answers. Every field is an opt-in deviation. */
 export interface CodexScript {
+  readonly harness?: Adapter["harness"];
   readonly capability?: Partial<ResolvedCapability>;
   readonly capabilityThrows?: Error;
   readonly output?: AdapterPassOutput;
@@ -185,7 +186,7 @@ export const createCodexAdapterDouble = (
   const complaints: ConformanceComplaint[] = [];
 
   return {
-    harness: "codex",
+    harness: script.harness ?? "codex",
     requests,
     complaints,
     capability: () => {

@@ -83,6 +83,7 @@ export type {
 export { composeResult } from "./result.js";
 export type { ComposedResult, ResultInput } from "./result.js";
 export { createWorkerCore } from "./run.js";
+export { materializeNarrative } from "./materialize.js";
 export type {
   Materialize,
   RunInput,
@@ -91,6 +92,7 @@ export type {
 } from "./run.js";
 export {
   PHASE0_SANDBOX_PROFILE,
+  CODEX_SANDBOX_PROFILE,
   sandboxRequestFor,
   suppressionEnvironment,
 } from "./sandbox.js";

@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createSecureContext, TLSSocket } from "node:tls";
 import { promisify } from "node:util";
+import * as zlib from "node:zlib";
 
 import { isSandboxCredentialPlaceholder } from "@ai-sdk/harness/utils";
 
@@ -70,6 +71,24 @@ const boundedBody = async (
     chunks.push(chunk);
   }
   return Buffer.concat(chunks);
+};
+
+const decodeRequest = (
+  body: Buffer,
+  encoding: string | string[] | undefined,
+  limit: number
+): Buffer => {
+  if (encoding === undefined || encoding === "identity") {
+    return body;
+  }
+  // Saved ChatGPT authentication uses zstd request compression. Decode before
+  // policy/probe inspection and forwarding, with a separate decompressed cap.
+  // Older Node 22 hosts without zstd fail qualification rather than forwarding
+  // compressed data while pretending it was inspected as JSON.
+  if (encoding !== "zstd" || !zlib.zstdDecompressSync) {
+    throw new Error("unsupported request encoding");
+  }
+  return zlib.zstdDecompressSync(body, { maxOutputLength: limit });
 };
 
 const permittedTarget = (
@@ -265,7 +284,11 @@ export const createHostProxy = async (
         return;
       }
       const headers = forwardedHeaders(request);
-      const body = await boundedBody(request, options.maxRequestBytes);
+      const body = decodeRequest(
+        await boundedBody(request, options.maxRequestBytes),
+        request.headers["content-encoding"],
+        options.maxRequestBytes
+      );
       const credential = credentials.find(
         (entry) => entry.origin === target.origin
       );

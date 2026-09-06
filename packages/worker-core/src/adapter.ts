@@ -55,6 +55,8 @@ export type { Autonomy, Harness } from "@reprove/protocol/v1";
  * against.
  */
 export interface ResolvedCapability {
+  /** Resolved from the credential; callers cannot lower this Exposure. */
+  readonly exposure?: "none" | "scoped" | "account";
   /** The levels this resolved invocation can actually enforce. */
   readonly supportedAutonomy: readonly Autonomy[];
   /**
@@ -187,6 +189,8 @@ export interface PassRequest {
 export interface Adapter {
   readonly harness: Harness;
   /** The resolved view, taken fresh per dispatch. */
-  readonly capability: () => Promise<ResolvedCapability>;
+  readonly capability: (
+    request?: Pick<PassRequest, "sandbox" | "model" | "signal">
+  ) => Promise<ResolvedCapability>;
   readonly pass: (request: PassRequest) => Promise<AdapterPassOutput>;
 }
