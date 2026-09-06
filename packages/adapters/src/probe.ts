@@ -1,6 +1,7 @@
 import { codexFingerprint } from "./codex.js";
 import type { CodexOptions, InstructionProbe } from "./codex.js";
 import { invokeCodex } from "./pass.js";
+import { checkCodexSandbox } from "./preflight.js";
 import type { PassRequest } from "./types.js";
 
 const CANARY = "REPROVE_UNTRUSTED_INSTRUCTION_CANARY_52";
@@ -31,13 +32,15 @@ export const probeCodexInstructions = async (
   }
 ): Promise<InstructionProbe> => {
   const fingerprint = codexFingerprint(options.authentication, options.model);
+  const runtimeFingerprint = await checkCodexSandbox(options);
   const failed = (): InstructionProbe => ({
     fingerprint,
+    runtimeFingerprint: runtimeFingerprint ?? "",
     probedAt: Date.now(),
     satisfied: false,
   });
   const { access } = options.sandbox;
-  if (!access?.streaming) {
+  if (!access?.streaming || !runtimeFingerprint) {
     return failed();
   }
   const files = await Promise.all(
@@ -93,6 +96,7 @@ export const probeCodexInstructions = async (
   const executed = await access.read("/tmp/reprove-canary-executed");
   return {
     fingerprint,
+    runtimeFingerprint: runtimeFingerprint ?? "",
     probedAt: Date.now(),
     satisfied:
       output.outcome === "completed" &&

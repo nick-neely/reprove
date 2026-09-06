@@ -1,4 +1,7 @@
 import { execFile } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { promisify } from "node:util";
 
 import {
@@ -203,6 +206,59 @@ const RUN_SPEC = {
 describe("real Codex Adapter contracts", () => {
   beforeAll(buildCodexImage, 240_000);
 
+  it.each([
+    "RUN sed -i 's/ --ignore-user-config --ignore-rules//' /opt/reprove/codex/reprove-codex",
+    "RUN echo '# rebuilt bootstrap' >> /opt/reprove/codex/pnpm-lock.yaml",
+  ])(
+    "refuses rebuilt runtime with unchanged CLI version: %s",
+    async (change) => {
+      const provider = createDockerProvider({
+        runtime: createCliRuntime({ name: "docker" }),
+      });
+      const authentication = {
+        kind: "api-key",
+        provider: "openai",
+        key: "synthetic-broker-key",
+      };
+      const proof = await qualify(provider, authentication);
+      const adapter = createCodexAdapter({
+        model: "gpt-5.5",
+        authentication,
+        instructionProbe: () => Promise.resolve(proof),
+      });
+      const directory = await mkdtemp(
+        path.join(tmpdir(), "reprove-codex-drift-")
+      );
+      const tag = `reprove-codex-drift:${crypto.randomUUID()}`;
+      let sandbox;
+      try {
+        await writeFile(
+          path.join(directory, "Dockerfile"),
+          `FROM ${CODEX_SANDBOX_PROFILE.image}\n${change}\n`
+        );
+        await execute("docker", ["build", "--tag", tag, directory], {
+          timeout: 60_000,
+        });
+        sandbox = await provider.launch(
+          sandboxRequestFor("codex", { ...CODEX_SANDBOX_PROFILE, image: tag })
+        );
+        await seed(sandbox);
+        await expect(
+          adapter.capability({
+            model: "gpt-5.5",
+            sandbox,
+            signal: AbortSignal.timeout(30_000),
+          })
+        ).resolves.toMatchObject({ canEnforceRepoInstructionBoundary: false });
+      } finally {
+        await sandbox?.teardown();
+        await execute("docker", ["image", "rm", "--force", tag]);
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+    120_000
+  );
+
   for (const authentication of [
     { kind: "api-key", provider: "openai", key: "synthetic-broker-key" },
     { kind: "api-key", provider: "gateway", key: "synthetic-broker-key" },
@@ -247,6 +303,7 @@ describe("real Codex Adapter contracts", () => {
       try {
         await seed(sandbox);
         const requests = [];
+        const progress = [];
         const adapter = createCodexAdapter({
           model: "gpt-5.5",
           authentication,
@@ -272,6 +329,11 @@ describe("real Codex Adapter contracts", () => {
                 status: "completed",
               });
             }
+            if (requests.length === 3) {
+              expect(progress.map((event) => event.type)).toEqual(
+                expect.arrayContaining(["tool-completed", "repair-started"])
+              );
+            }
             return responseEvents(
               message(
                 requests.length === 2 ? "not JSON" : JSON.stringify(ANSWER)
@@ -279,7 +341,25 @@ describe("real Codex Adapter contracts", () => {
             );
           },
         });
+        let settled = false;
+        const mismatched = createCodexAdapter({
+          model: "gpt-5.5",
+          authentication,
+          instructionProbe: () =>
+            Promise.resolve({ ...proof, runtimeFingerprint: "0".repeat(64) }),
+        });
+        await expect(
+          mismatched.capability({
+            model: "gpt-5.5",
+            sandbox,
+            signal: AbortSignal.timeout(30_000),
+          })
+        ).resolves.toMatchObject({ canEnforceRepoInstructionBoundary: false });
         const output = await adapter.pass({
+          onProgress: (event) => {
+            expect(settled).toBe(false);
+            progress.push(event);
+          },
           runId: "fixture",
           passId: crypto.randomUUID(),
           model: "gpt-5.5",
@@ -293,12 +373,31 @@ describe("real Codex Adapter contracts", () => {
           signal: AbortSignal.timeout(100_000),
           check: () => null,
         });
+        settled = true;
+        expect(progress.map((event) => event.type)).toEqual(
+          expect.arrayContaining([
+            "started",
+            "tool-completed",
+            "usage",
+            "repair-started",
+            "finished",
+          ])
+        );
+        expect(progress.at(-1)).toMatchObject({
+          type: "finished",
+          outcome: "completed",
+        });
         expect(output).toMatchObject({
           ...ANSWER,
           outcome: "completed",
           repairTurnUsed: true,
           resolvedModel: null,
         });
+        expect(
+          progress.filter((event) => event.type === "tool-completed")
+        ).toEqual([
+          { type: "tool-completed", tool: { kind: "command", exitCode: 0 } },
+        ]);
         expect(output.observed).toEqual([
           expect.objectContaining({
             command: expect.stringContaining(
@@ -351,7 +450,9 @@ describe("real Codex Adapter contracts", () => {
             return pending.promise;
           },
         });
+        const progress = [];
         const running = adapter.pass({
+          onProgress: (event) => progress.push(event),
           runId: "cancel",
           passId: crypto.randomUUID(),
           model: "gpt-5.5",
@@ -372,6 +473,11 @@ describe("real Codex Adapter contracts", () => {
         await Promise.race([started.promise, ended()]);
         controller.abort();
         await expect(running).resolves.toMatchObject({
+          outcome: "failed",
+          failureReason: "pass_aborted",
+        });
+        expect(progress.at(-1)).toMatchObject({
+          type: "finished",
           outcome: "failed",
           failureReason: "pass_aborted",
         });

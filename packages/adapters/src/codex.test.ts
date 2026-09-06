@@ -17,6 +17,7 @@ describe("the Codex Adapter capability", () => {
           fingerprint: codexFingerprint(authentication, "gpt-5.5"),
           probedAt: Date.now(),
           satisfied: true,
+          runtimeFingerprint: "a".repeat(64),
         }),
     });
     await expect(

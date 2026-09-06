@@ -9,7 +9,7 @@ export interface TurnOutput {
 }
 
 /** Internal session lifetime. Only a Pass is exported from the package entry. */
-export interface CodexEngine {
+export interface CodexSession {
   readonly turn: (prompt: string) => Promise<TurnOutput>;
   readonly close: () => Promise<void>;
 }

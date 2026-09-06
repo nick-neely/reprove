@@ -16,6 +16,7 @@ export type CodexAuthentication =
   | { readonly kind: "native"; readonly authJson: string };
 
 export interface InstructionProbe {
+  readonly runtimeFingerprint: string;
   readonly fingerprint: string;
   readonly probedAt: number;
   readonly satisfied: boolean;
@@ -77,12 +78,13 @@ export const createCodexAdapter = (input: CodexOptions): Adapter => {
     const established =
       probe?.satisfied === true &&
       probe.fingerprint === fingerprint &&
+      /^[a-f0-9]{64}$/u.test(probe.runtimeFingerprint) &&
       Number.isSafeInteger(probe.probedAt) &&
       probe.probedAt <= Date.now() &&
       Date.now() - probe.probedAt <= 300_000 &&
       (!request ||
         (request.model === options.model &&
-          (await checkCodexSandbox(request))));
+          (await checkCodexSandbox(request)) === probe.runtimeFingerprint));
     return {
       exposure: options.authentication.kind === "native" ? "account" : "none",
       supportedAutonomy: established ? ["verify"] : [],
@@ -96,17 +98,30 @@ export const createCodexAdapter = (input: CodexOptions): Adapter => {
     harness: "codex",
     capability,
     pass: async (request) => {
-      const resolved = await capability();
-      if (
-        !resolved.canEnforceRepoInstructionBoundary ||
-        Date.now() - resolved.probedAt > 300_000 ||
-        resolved.probedAt > Date.now()
-      ) {
-        throw new Error(
-          "Codex instruction boundary has no fresh matching probe"
-        );
+      let output;
+      try {
+        request.onProgress?.({ type: "started" });
+        const resolved = await capability(request);
+        if (!resolved.canEnforceRepoInstructionBoundary) {
+          throw new Error(
+            "Codex instruction boundary has no fresh matching probe"
+          );
+        }
+        output = await invokeCodex(options, request);
+      } catch (error) {
+        request.onProgress?.({
+          type: "finished",
+          outcome: "failed",
+          failureReason: "codex_execution_failed",
+        });
+        throw error;
       }
-      return invokeCodex(options, request);
+      request.onProgress?.({
+        type: "finished",
+        outcome: output.outcome,
+        failureReason: output.failureReason,
+      });
+      return output;
     },
   };
 };

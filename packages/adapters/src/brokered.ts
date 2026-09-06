@@ -9,8 +9,8 @@ import { z } from "zod";
 import { ANSWER_SCHEMA } from "./answer.js";
 import type { CodexOptions } from "./codex.js";
 import type { SandboxConnection } from "./connection.js";
-import type { CodexEngine } from "./engine.js";
 import { execute, readBytes } from "./io.js";
+import type { CodexSession } from "./session.js";
 import type { PassRequest, ObservedToolCall, Usage } from "./types.js";
 
 const inputSchema = z.object({ command: z.string() });
@@ -41,7 +41,7 @@ const transformations = z
   )
   .length(1);
 
-export const createBrokeredEngine = async (
+export const createBrokeredSession = async (
   request: PassRequest,
   options: CodexOptions,
   access: SandboxConnection,
@@ -50,7 +50,7 @@ export const createBrokeredEngine = async (
   bindCredentials: Awaited<
     ReturnType<SandboxConnection["openProxy"]>
   >["credentials"]
-): Promise<CodexEngine> => {
+): Promise<CodexSession> => {
   const { authentication } = options;
   if (authentication.kind !== "api-key") {
     throw new Error("brokered authentication is missing");
@@ -260,7 +260,12 @@ export const createBrokeredEngine = async (
             const command = commands.get(event.toolCallId);
             const result = toolResult.safeParse(event.result);
             if (command && result.success) {
-              observed.push({ command, exitCode: result.data.exitCode });
+              const tool = { command, exitCode: result.data.exitCode };
+              observed.push(tool);
+              request.onProgress?.({
+                type: "tool-completed",
+                tool: { kind: "command", exitCode: tool.exitCode },
+              });
             }
           }
           if (event.type === "error") {
@@ -273,6 +278,7 @@ export const createBrokeredEngine = async (
               outputTokens: event.totalUsage.outputTokens.total ?? 0,
               cachedInputTokens: event.totalUsage.inputTokens.cacheRead ?? 0,
             };
+            request.onProgress?.({ type: "usage", usage: { ...usage } });
             if (event.finishReason.unified === "error") {
               failed = true;
             }

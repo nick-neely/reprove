@@ -1,12 +1,12 @@
 import { z } from "zod";
 
 import { parseAnswer } from "./answer.js";
-import { createBrokeredEngine } from "./brokered.js";
+import { createBrokeredSession } from "./brokered.js";
 import type { CodexOptions } from "./codex.js";
-import type { CodexEngine } from "./engine.js";
-import { SUMMARIZE } from "./engine.js";
-import { createNativeEngine } from "./native.js";
+import { createNativeSession } from "./native.js";
 import { checkCodexSandbox, CODEX_ENVIRONMENT } from "./preflight.js";
+import type { CodexSession } from "./session.js";
+import { SUMMARIZE } from "./session.js";
 import type {
   AdapterPassOutput,
   PassRequest,
@@ -90,11 +90,11 @@ export const invokeCodex = async (
     JSON.stringify(request.instructions.conventions),
   ].join("\n\n");
   let proxy: Awaited<ReturnType<typeof access.openProxy>> | undefined;
-  let engine: CodexEngine | undefined;
+  let session: CodexSession | undefined;
   const close = async () => {
     let cleanupFailed = false;
     try {
-      await engine?.close();
+      await session?.close();
     } catch {
       cleanupFailed = !signal.aborted;
     }
@@ -122,16 +122,16 @@ export const invokeCodex = async (
       fetch: options.fetch,
     });
     const environment = { ...CODEX_ENVIRONMENT, ...proxy.environment };
-    engine =
+    session =
       authentication.kind === "native"
-        ? await createNativeEngine(
+        ? await createNativeSession(
             pass,
             access,
             environment,
             instructions,
             nativeAuthentication(authentication.authJson)
           )
-        : await createBrokeredEngine(
+        : await createBrokeredSession(
             pass,
             options,
             access,
@@ -140,10 +140,10 @@ export const invokeCodex = async (
             proxy.credentials
           );
     const attempt = async (prompt: string): Promise<AdapterPassOutput> => {
-      if (!engine) {
+      if (!session) {
         throw new Error("no Codex invocation");
       }
-      const turn = await engine.turn(prompt);
+      const turn = await session.turn(prompt);
       observed.push(...turn.observed);
       // Codex reports cumulative thread usage, including a resumed repair.
       ({ usage } = turn);
@@ -176,6 +176,7 @@ export const invokeCodex = async (
         return failed(complaint);
       }
       repairTurnUsed = true;
+      request.onProgress?.({ type: "repair-started" });
       return attempt(
         `The previous answer failed ${complaint}. Repair the answer using the required JSON shape and only Evidence supported by commands you actually executed. Do not change the review policy.`
       );

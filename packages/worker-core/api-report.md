@@ -159,7 +159,26 @@ export interface ConformanceComplaint {
  * Everything a Pass is given. Note what is absent: no credential, no GitHub
  * authority, no raw narrative, and no repository-supplied instructions.
  */
+/** Live, untrusted progress metadata. Observer exceptions fail the Pass. */
+export type PassProgress = {
+    readonly type: "started" | "repair-started";
+} | {
+    readonly type: "tool-completed";
+    readonly tool: {
+        readonly kind: "command";
+        readonly exitCode: number | null;
+    };
+} | {
+    readonly type: "usage";
+    readonly usage: Usage;
+} | {
+    readonly type: "finished";
+    readonly outcome: PassOutcome;
+    readonly failureReason: string | null;
+};
 export interface PassRequest {
+    /** Synchronous subscription; events arrive while the Pass is running. */
+    readonly onProgress?: (event: PassProgress) => void;
     readonly runId: string;
     readonly passId: string;
     readonly model: string;
@@ -331,7 +350,7 @@ export declare const composedFrom: {
     readonly protocolVersion: 1;
     readonly sandboxContainer: "@reprove/sandbox-container";
 };
-export type { ConformanceComplaint, Adapter, AdapterPassOutput, Autonomy, CandidateFinding, CandidateLocation, ClaimedEvidence, Harness, ObservedToolCall, PassOutcome, PassRequest, ResolvedCapability, } from "./adapter.js";
+export type { ConformanceComplaint, Adapter, AdapterPassOutput, Autonomy, CandidateFinding, CandidateLocation, ClaimedEvidence, Harness, ObservedToolCall, PassOutcome, PassRequest, PassProgress, ResolvedCapability, } from "./adapter.js";
 export { checkDispatch, permittedProvenance, PROBE_MAX_AGE_MS, } from "./dispatch.js";
 export type { DispatchInput, IsolationLevel, RefusalCause, RefusalReason, } from "./dispatch.js";
 export { crossCheckEvidence } from "./evidence.js";
@@ -675,7 +694,7 @@ export declare const composeResult: (input: ResultInput) => ComposedResult;
 ```ts
 import type { Exposure, RunSpec } from "@reprove/protocol/v1";
 import type { Sandbox, SandboxProvider } from "@reprove/sandbox-container";
-import type { Adapter } from "./adapter.js";
+import type { Adapter, PassProgress } from "./adapter.js";
 import type { ConventionSource } from "./instructions.js";
 import type { NarrativeInput, ProtectedFile } from "./narrative.js";
 import type { WorkerOutcome } from "./outcome.js";
@@ -708,6 +727,7 @@ export interface WorkerCoreOptions {
  * untrusted channels are distinguishable here rather than assumed upstream.
  */
 export interface RunInput {
+    readonly onProgress?: (event: PassProgress) => void;
     readonly spec: RunSpec;
     readonly narrative: NarrativeInput;
     readonly conventions: readonly ConventionSource[];

@@ -45,6 +45,7 @@ import type {
   ConformanceComplaint,
   AdapterPassOutput,
   ResolvedCapability,
+  PassProgress,
 } from "./adapter.js";
 import { checkDispatch } from "./dispatch.js";
 import type { IsolationLevel, RefusalCause } from "./dispatch.js";
@@ -91,6 +92,7 @@ export interface WorkerCoreOptions {
  * untrusted channels are distinguishable here rather than assumed upstream.
  */
 export interface RunInput {
+  readonly onProgress?: (event: PassProgress) => void;
   readonly spec: RunSpec;
   readonly narrative: NarrativeInput;
   readonly conventions: readonly ConventionSource[];
@@ -205,6 +207,7 @@ export const createWorkerCore = (options: WorkerCoreOptions): WorkerCore => {
     let output: AdapterPassOutput;
     try {
       output = await adapter.pass({
+        onProgress: input.onProgress,
         runId: spec.runId,
         passId,
         model: spec.model,

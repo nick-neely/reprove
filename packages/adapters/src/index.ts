@@ -20,3 +20,5 @@ export type {
   CodexAuthentication,
   InstructionProbe,
 } from "./codex.js";
+
+export type { PassProgress } from "./types.js";

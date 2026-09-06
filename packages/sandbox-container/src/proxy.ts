@@ -155,10 +155,10 @@ export const createHostProxy = async (
       origin.pathname !== "/" ||
       origin.search ||
       origin.hash ||
-      !["https:", "http:"].includes(origin.protocol)
+      origin.protocol !== "https:"
     ) {
       throw new TypeError(
-        "a proxy rule must name an HTTP origin without credentials"
+        "a proxy rule must name an HTTPS origin without credentials"
       );
     }
   }

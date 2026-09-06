@@ -9,11 +9,13 @@ const fingerprintDirectory = (entry: string): string => {
   const files = readdirSync(directory, { recursive: true, encoding: "utf-8" })
     .filter(
       (file) =>
-        /\.(?:m?js|ts)$/u.test(file) &&
+        /\.(?:m?js|ts|json|ya?ml)$/u.test(file) &&
         !/\.(?:d|test|test-support)\.ts$/u.test(file)
     )
     .toSorted();
-  const hash = createHash("sha256");
+  const hash = createHash("sha256").update(
+    readFileSync(path.join(directory, "../package.json"))
+  );
   for (const file of files) {
     hash
       .update(file)

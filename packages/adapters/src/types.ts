@@ -88,7 +88,26 @@ export interface ConformanceComplaint {
   readonly detail: string;
 }
 
+/** Live, untrusted progress metadata. Observer exceptions fail the Pass. */
+export type PassProgress =
+  | { readonly type: "started" | "repair-started" }
+  | {
+      readonly type: "tool-completed";
+      readonly tool: {
+        readonly kind: "command";
+        readonly exitCode: number | null;
+      };
+    }
+  | { readonly type: "usage"; readonly usage: Usage }
+  | {
+      readonly type: "finished";
+      readonly outcome: PassOutcome;
+      readonly failureReason: string | null;
+    };
+
 export interface PassRequest {
+  /** Synchronous subscription; events arrive while the Pass is running. */
+  readonly onProgress?: (event: PassProgress) => void;
   readonly runId: string;
   readonly passId: string;
   readonly model: string;

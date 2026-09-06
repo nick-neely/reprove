@@ -28,6 +28,7 @@ export type {
   ObservedToolCall,
   PassOutcome,
   PassRequest,
+  PassProgress,
   ResolvedCapability,
 } from "./adapter.js";
 export {

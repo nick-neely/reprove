@@ -1,29 +1,46 @@
 import { once } from "node:events";
-import { createServer, request } from "node:http";
+import { request } from "node:http";
 import type { IncomingMessage } from "node:http";
 import { text } from "node:stream/consumers";
-import { promisify } from "node:util";
 
 import { describe, expect, it } from "vitest";
 
 import { createHostProxy } from "./index.js";
-import { boundPort } from "./tcp.js";
 
 describe("the host proxy", () => {
+  it("refuses cleartext Provider origins before accepting credentials", async () => {
+    await expect(
+      createHostProxy({
+        rules: [
+          {
+            origin: "http://provider.example",
+            method: "POST",
+            path: "/v1/responses",
+          },
+        ],
+        maxRequests: 1,
+        maxConcurrency: 1,
+        maxRequestBytes: 1024,
+        maxResponseBytes: 1024,
+        signal: new AbortController().signal,
+      })
+    ).rejects.toThrow("HTTPS origin");
+  });
+
   it("brokers only the allowed endpoint and removes a reflected credential", async () => {
     const seen: string[] = [];
-    const upstream = createServer((incoming, response) => {
-      seen.push(
-        `${incoming.method} ${incoming.url} ${incoming.headers.authorization}`
-      );
-      response.end(incoming.headers.authorization);
-    });
-    upstream.listen(0, "127.0.0.1");
-    await once(upstream, "listening");
-    const origin = `http://127.0.0.1:${boundPort(upstream)}`;
+    const origin = "https://provider.example";
     const placeholder = `aisdkhc_${"a".repeat(43)}`;
     const proxy = await createHostProxy({
       rules: [{ origin, method: "POST", path: "/v1/responses" }],
+      fetch: (incoming) => {
+        seen.push(
+          `${incoming.method} ${new URL(incoming.url).pathname} ${incoming.headers.get("authorization")}`
+        );
+        return Promise.resolve(
+          new Response(incoming.headers.get("authorization"))
+        );
+      },
       maxRequests: 4,
       maxConcurrency: 2,
       maxRequestBytes: 1024,
@@ -61,7 +78,6 @@ describe("the host proxy", () => {
       expect(seen).toStrictEqual(["POST /v1/responses Bearer only-on-worker"]);
     } finally {
       await proxy.close();
-      await promisify(upstream.close.bind(upstream))();
     }
   });
 });

@@ -5,8 +5,8 @@ import { z } from "zod";
 
 import { ANSWER_SCHEMA } from "./answer.js";
 import type { SandboxConnection } from "./connection.js";
-import type { CodexEngine, TurnOutput } from "./engine.js";
-import type { PassRequest, ObservedToolCall } from "./types.js";
+import type { CodexSession, TurnOutput } from "./session.js";
+import type { PassRequest, ObservedToolCall, PassProgress } from "./types.js";
 
 const eventSchema = z.object({
   type: z.string(),
@@ -28,13 +28,16 @@ const eventSchema = z.object({
     .optional(),
 });
 
-export const createNativeEngine = async (
+export const createNativeSession = async (
   request: PassRequest,
   access: SandboxConnection,
   environment: Readonly<Record<string, string>>,
   instructions: string,
   authJson: string
-): Promise<CodexEngine> => {
+): Promise<CodexSession> => {
+  const progress = (event: PassProgress) => {
+    request.onProgress?.(event);
+  };
   const home = environment.CODEX_HOME;
   if (!home) {
     throw new Error("Codex has no private authentication directory");
@@ -116,20 +119,24 @@ export const createNativeEngine = async (
           event.item?.type === "command_execution" &&
           event.item.command
         ) {
-          observed.push({
+          const tool = {
             command: event.item.command,
             exitCode: event.item.exit_code ?? null,
+          };
+          observed.push(tool);
+          progress({
+            type: "tool-completed",
+            tool: { kind: "command", exitCode: tool.exitCode },
           });
         }
-        if (event.type === "turn.completed") {
-          completed = true;
-        }
+        completed ||= event.type === "turn.completed";
         if (event.type === "turn.completed" && event.usage) {
           usage = {
             inputTokens: event.usage.input_tokens,
             outputTokens: event.usage.output_tokens,
             cachedInputTokens: event.usage.cached_input_tokens ?? 0,
           };
+          progress({ type: "usage", usage: { ...usage } });
         }
         if (event.type === "turn.failed") {
           failed = true;

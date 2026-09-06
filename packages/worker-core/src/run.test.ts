@@ -144,6 +144,7 @@ describe("real Codex authentication at dispatch", () => {
           fingerprint: codexFingerprint(authentication, RUN_SPEC.model),
           probedAt: Date.now(),
           satisfied: true,
+          runtimeFingerprint: "a".repeat(64),
         }),
     });
     const core = createWorkerCore({
