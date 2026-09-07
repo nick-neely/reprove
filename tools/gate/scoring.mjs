@@ -59,8 +59,6 @@ export const SCORING_POLICY = {
   },
   /** How many lines a reported location may miss a known one by and still match. */
   locationToleranceLines: 2,
-  /** Severities a Finding at no known location may carry without counting as spurious. */
-  ignoredOtherSeverities: ["low"],
 };
 
 /** Content-derived, so a changed constant is a changed version. */

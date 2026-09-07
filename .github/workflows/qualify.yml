@@ -12,11 +12,14 @@ name: qualify
 # can see the credential.
 on:
   # Scheduled absolute-floor requalification of the standing baseline, at
-  # least every 30 days (#34). It still waits on the environment's approval,
-  # so the schedule proposes the spend and a maintainer authorizes it; a
-  # lineage nobody approves goes stale, which is the signal, not a failure.
+  # least every 30 days (#34). Twice a month rather than monthly: the first of
+  # every month is 31 days apart in a long month, which already exceeds the
+  # window, while the 1st and the 15th keep every gap under it with headroom
+  # for a delayed approval. The schedule proposes the spend and a maintainer
+  # authorizes it through the environment; a lineage nobody approves goes
+  # stale, which `qualification-status` publishes without any approval at all.
   schedule:
-    - cron: "0 6 1 * *"
+    - cron: "0 6 1,15 * *"
   workflow_dispatch:
     inputs:
       kind:
@@ -65,6 +68,11 @@ jobs:
     timeout-minutes: 45
     outputs:
       shards: ${{ steps.shards.outputs.list }}
+      # The revision the batch actually judges, which a requalification
+      # resolves to the standing baseline rather than to this checkout. Every
+      # later job attributes its result to this commit, never `github.sha`.
+      candidate: ${{ steps.plan.outputs.candidate }}
+      baseline: ${{ steps.plan.outputs.baseline }}
     steps:
       # `fetch-depth: 0` so a baseline commit is reachable for the worktree
       # the run jobs build it in.
@@ -100,6 +108,7 @@ jobs:
       # interpolated into `run` is substituted before bash parses the line,
       # which would let a dispatcher's metacharacters run as commands.
       - name: Plan the evaluation
+        id: plan
         env:
           GATE_KIND: ${{ inputs.kind || 'requalification' }}
           GATE_BASELINE: ${{ inputs.baseline }}
@@ -175,13 +184,21 @@ jobs:
             --shard "$GATE_SHARD" \
             --records "$GATE_RECORDS"
 
+      # `always()`: `run` rewrites the shard file after every trial, so a job
+      # that died at trial 40 of 72 still has the 40 whose behavior was
+      # observed. Those trials are evidence the score job needs, because their
+      # shard may not be re-run: replaying observed behavior is not the one
+      # retry #34 allows.
       - name: Keep the shard's records
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: gate-records-${{ matrix.shard }}
           path: records/
-          if-no-files-found: error
-          retention-days: 90
+          if-no-files-found: warn
+          # Transient: the score job merges these into one diagnostics bundle
+          # below, and that bundle carries #34's retention.
+          retention-days: 7
 
   score:
     name: score
@@ -234,31 +251,55 @@ jobs:
         continue-on-error: true
         env:
           GATE_KIND: ${{ inputs.kind || 'requalification' }}
+          # Proves the records belong to the revision the plan job resolved, so
+          # a checkout that moved cannot mis-attribute a result.
+          GATE_CANDIDATE: ${{ needs.plan.outputs.candidate }}
         run: |
           set -o pipefail
-          node tools/gate/qualify.mjs score \
-            --kind "$GATE_KIND" \
+          args=(--kind "$GATE_KIND")
+          if [ -n "$GATE_CANDIDATE" ]; then
+            args+=(--candidate-sha "$GATE_CANDIDATE")
+          fi
+          node tools/gate/qualify.mjs score "${args[@]}" \
             --out gate-report.json \
             --records records/gate-records-*.json \
             | tee gate-summary.json
 
-      - name: Keep the report
+      # #34's retention, from the classification the evaluation actually
+      # reached: an ordinary passing bundle for 30 days, anything that failed,
+      # was invalid, or leaned on an exception or a rebase for 90. Reading the
+      # step's exit status instead would keep a successful exception promotion
+      # for 30.
+      - name: Choose the diagnostics retention
+        id: retention
+        run: |
+          set -euo pipefail
+          node -e 'const fs = require("node:fs");
+            let summary = {};
+            try { summary = JSON.parse(fs.readFileSync("gate-summary.json", "utf8")); } catch {}
+            const ordinary = summary.outcome === "PASS" && !summary.exception && !summary.rebase;
+            console.log(`days=${ordinary ? 30 : 90}`);' >> "$GITHUB_OUTPUT"
+
+      # One bundle: the records the outcome was computed from, the report and
+      # the summary. The compact report itself is durable only once committed
+      # to the ledger.
+      - name: Keep the diagnostics bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: gate-report
+          name: gate-diagnostics
           path: |
+            records/
             gate-report.json
             gate-summary.json
-          if-no-files-found: error
-          # #34's retention: an ordinary passing bundle for 30 days, anything
-          # that failed, was invalid or needed an exception for 90. The
-          # compact report itself is durable only once committed to the ledger.
-          retention-days: ${{ steps.score.outcome == 'success' && 30 || 90 }}
+          if-no-files-found: warn
+          retention-days: ${{ steps.retention.outputs.days }}
 
       - name: Record the outcome on the commit
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          # The revision the batch judged, not the commit this job checked out.
+          GATE_CANDIDATE: ${{ needs.plan.outputs.candidate }}
         run: |
           set -euo pipefail
           if [ -s gate-summary.json ]; then
@@ -268,7 +309,7 @@ jobs:
             outcome="INVALID - the evaluation produced no report"
             state="error"
           fi
-          gh api "repos/${{ github.repository }}/statuses/${{ github.sha }}" \
+          gh api "repos/${{ github.repository }}/statuses/$GATE_CANDIDATE" \
             -f state="$state" \
             -f context="qualification/codex-brokered" \
             -f description="${outcome:0:130}" \
@@ -277,28 +318,26 @@ jobs:
 
       # Provider drift and every other non-current state is surfaced here, as
       # an issue, and nowhere in the runtime. A stale, failed or invalid
-      # lineage blocks promotion; it never Refuses a Run.
+      # lineage blocks promotion; it never Refuses a Run. The scheduled
+      # `qualification-status` workflow runs the same tool without any
+      # approval, so the issue also appears when no evaluation gets this far.
+      #
+      # An evaluation that produced no summary said nothing about the lineage,
+      # so the state comes from the committed ledger instead. Handing the tool
+      # an empty summary would be handing it a broken file, which it refuses.
       - name: Surface the lineage state
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          title="Qualification: codex/brokered lineage is not current"
-          status=$(node -e 'const s=JSON.parse(require("fs").readFileSync("gate-summary.json","utf8"));console.log(s.lineageStatus)' 2>/dev/null || echo invalid)
-          existing=$(gh issue list --repo "${{ github.repository }}" --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
-          if [ "$status" = "current" ]; then
-            if [ -n "$existing" ]; then
-              gh issue close "$existing" --repo "${{ github.repository }}" --comment "Qualification returned to current in $RUN_URL."
-            fi
-          else
-            body="The codex/brokered/openai/gpt-5.6-sol/verify/standard lineage is **$status** after $RUN_URL. Promotion is blocked until a scheduled absolute-floor requalification passes. Ordinary Runs are unaffected."
-            if [ -n "$existing" ]; then
-              gh issue comment "$existing" --repo "${{ github.repository }}" --body "$body"
-            else
-              gh issue create --repo "${{ github.repository }}" --title "$title" --body "$body"
-            fi
+          args=()
+          if [ -s gate-summary.json ]; then
+            args+=(--status-file gate-summary.json)
           fi
+          node tools/gate/surface.mjs "${args[@]}" \
+            --repository "$GITHUB_REPOSITORY" \
+            --run-url "$RUN_URL"
 
       - name: Fail the job when the candidate is not promotable
         if: ${{ steps.score.outcome != 'success' }}

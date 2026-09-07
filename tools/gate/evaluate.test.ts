@@ -124,16 +124,15 @@ describe(scoreFindings, () => {
     ).toMatchObject({ passed: false });
   });
 
-  it("forbids other Findings above low severity when asked", () => {
+  it("forbids a Finding at no known location at every severity when asked", () => {
+    // #34 declares machine-checkable expectations and a finite declared
+    // ambiguity. `forbidden` means forbidden: no severity is exempt.
     const strict = expectation({ otherFindings: "forbidden" });
-    expect(
-      scoreFindings([finding("README.md", 1)], LOCATIONS, strict)
-    ).toMatchObject({
-      passed: false,
-    });
-    expect(
-      scoreFindings([finding("README.md", 1, 1, "low")], LOCATIONS, strict)
-    ).toMatchObject({ passed: true });
+    for (const severity of ["high", "medium", "low", "info"]) {
+      expect(
+        scoreFindings([finding("README.md", 1, 1, severity)], LOCATIONS, strict)
+      ).toMatchObject({ passed: false });
+    }
   });
 
   it("accepts a declared alternative and records which one held", () => {

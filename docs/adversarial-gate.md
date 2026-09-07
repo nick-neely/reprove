@@ -43,7 +43,7 @@ Capability evidence expires after five minutes and a batch runs for hours, so th
 
 ## Running it
 
-Ordinary pull requests run only the corpus, scorer and evaluator tests under `pnpm verify`, plus `tools/gate/trial.test.mjs`, which drives two trials through the real path against a fixture Provider. The paid evaluation is the `qualify` workflow, dispatched by hand from a protected commit, or proposed monthly by its schedule as a requalification of the standing baseline:
+Ordinary pull requests run only the corpus, scorer and evaluator tests under `pnpm verify`, plus `tools/gate/trial.test.mjs`, which drives two trials through the real path against a fixture Provider. The paid evaluation is the `qualify` workflow, dispatched by hand from a protected commit, or proposed twice a month by its schedule as a requalification of the standing baseline, which keeps every gap under the 30-day window:
 
 ```text
 workflow_dispatch -> plan job prints the revision and evaluation id
@@ -52,7 +52,9 @@ workflow_dispatch -> plan job prints the revision and evaluation id
   -> score job merges the shards, writes the report, records a commit status
 ```
 
-The `qualification` environment must be configured in the repository settings with required reviewers and a deployment-branch rule limited to protected branches; the workflow relies on that rule for "protected commit" and cannot enforce it from inside the repository. The commit status `qualification/codex-brokered` on the evaluated SHA is where a result is recorded against the revision it qualified. The report and summary are uploaded as artifacts. To make a result durable, commit the report under `tools/gate/ledger/<lineage>/reports/` through a pull request; `node tools/gate/qualify.mjs score --write-ledger` does that locally and moves `baseline.json` when the report promotes. See [the ledger README](../tools/gate/ledger/README.md).
+Freshness itself does not wait on that approval. The `qualification-status` workflow runs weekly with no environment and no credential, computes the lineage state from the committed ledger, and maintains the one issue #34 requires; `node tools/gate/surface.mjs --repository owner/name` is the same step by hand. An evaluation nobody approves therefore still becomes visible.
+
+The `qualification` environment must be configured in the repository settings with required reviewers and a deployment-branch rule limited to protected branches; the workflow relies on that rule for "protected commit" and cannot enforce it from inside the repository. The commit status `qualification/codex-brokered` on the evaluated SHA is where a result is recorded against the revision it qualified. The shard records, report and summary are uploaded as one `gate-diagnostics` artifact, kept for 30 days when the evaluation passed without an exception or a rebase and 90 days otherwise. To make a result durable, commit the report under `tools/gate/ledger/<lineage>/reports/` through a pull request; `node tools/gate/qualify.mjs score --write-ledger` does that locally and moves `baseline.json` when the report promotes. See [the ledger README](../tools/gate/ledger/README.md).
 
 Locally, with a maintainer credential:
 
@@ -63,7 +65,9 @@ node tools/gate/qualify.mjs score --kind promotion --records records.json --out 
 node tools/gate/qualify.mjs status
 ```
 
-`--repetitions` below the policy is allowed for a smoke run; the report records it and can never promote. A requalification may only judge the standing baseline; moving the baseline to any other revision is `score --rebase`, which records the comparison chain breaking. Retrying a lost shard is re-running its job: the score step refuses an incomplete batch, and a missing shard is the `ephemeral_runner_lost` fault of #34.
+`--repetitions` below the policy is allowed for a smoke run; the report records it and can never promote. A requalification may only judge the standing baseline, and `plan` refuses a `--candidate` that names anything else; moving the baseline to any other revision is `score --rebase`, which records the comparison chain breaking.
+
+A lost shard is not retried. `run` rewrites its records file after every trial, so a runner that dies uploads the trials it observed; `score` then re-plans the batch, records every planned trial nothing observed as a non-retryable `ephemeral_runner_lost` attempt, and writes the report those attempts make `INVALID`. Re-running the shard's job is not the retry #34 permits, because it would replay trials whose behavior was already observed and replace their history. An `INVALID` batch is re-run whole, as a new evaluation. When no shard produced any records at all, `score` cannot rebuild the evaluation's identity from what arrived, so it writes no report: the commit status reads `INVALID - the evaluation produced no report`, the lineage issue is still updated, and there is nothing durable to score. That evaluation is re-run whole too.
 
 ## Baselines, exceptions and drift
 
@@ -71,4 +75,4 @@ The ledger's `baseline.json` points at one exact revision and moves only through
 
 A promotion exception accepts a non-inferiority `FAIL` or `INCONCLUSIVE` on named axes in an evaluation where every absolute floor passed. It binds one candidate revision against one baseline under one corpus and scoring version, expires within thirty days, and leaves the baseline where it was. It cannot waive an absolute-floor failure, an `INVALID` evaluation, a contract failure or a missing baseline.
 
-A promotion comparison must complete within 24 hours and its report is usable for seven days. The lineage is `current` while its newest decisive result passed within 30 days, `stale` after that, `failed` after an absolute-floor `FAIL`, and `invalid` after a result that produced no valid evidence. `node tools/gate/qualify.mjs status` prints the state, and the workflow keeps one issue open per lineage while it is not current. That issue, and the blocked promotion, are the whole of how Provider drift surfaces: nothing in the runtime changes.
+A promotion comparison must complete within 24 hours and its report is usable for seven days. The lineage is `current` while its newest decisive result passed within 30 days, `stale` after that, `failed` after an absolute-floor `FAIL`, and `invalid` after a result that produced no valid evidence. `node tools/gate/qualify.mjs status` prints the state, and `tools/gate/surface.mjs` keeps one issue open per lineage while it is not current, from the score job and from the weekly `qualification-status` workflow alike. That issue, and the blocked promotion, are the whole of how Provider drift surfaces: nothing in the runtime changes.

@@ -136,12 +136,16 @@ export const matchFindings = (findings, locations) => {
 /**
  * Whether one declared outcome is satisfied by what was matched.
  *
+ * `forbidden` is absolute: a Finding at no known location fails the outcome
+ * whatever severity it carries. #34 declares machine-checkable expectations
+ * and a finite declared ambiguity per condition, and names no severity a
+ * spurious Finding may hide behind.
+ *
  * @param {Outcome} outcome The declared outcome to test.
  * @param {Match} match What the Findings matched.
- * @param {readonly FindingLike[]} findings What the Reviewer reported.
  * @returns {boolean} True when the outcome holds.
  */
-export const outcomeSatisfied = (outcome, match, findings) => {
+export const outcomeSatisfied = (outcome, match) => {
   for (const required of outcome.requiredFindings) {
     if ((match.byLocation[required] ?? []).length === 0) {
       return false;
@@ -152,18 +156,7 @@ export const outcomeSatisfied = (outcome, match, findings) => {
       return false;
     }
   }
-  if (outcome.otherFindings === "forbidden") {
-    const spurious = match.unmatched.filter(
-      (index) =>
-        !SCORING_POLICY.ignoredOtherSeverities.includes(
-          findings[index]?.severity ?? ""
-        )
-    );
-    if (spurious.length > 0) {
-      return false;
-    }
-  }
-  return true;
+  return !(outcome.otherFindings === "forbidden" && match.unmatched.length > 0);
 };
 
 /**
@@ -182,7 +175,7 @@ export const scoreFindings = (findings, locations, expectation) => {
   const match = matchFindings(findings, locations);
   const outcomes = [expectation, ...expectation.allowedAmbiguity];
   const satisfiedBy = outcomes.findIndex((outcome) =>
-    outcomeSatisfied(outcome, match, findings)
+    outcomeSatisfied(outcome, match)
   );
   if (satisfiedBy === -1) {
     return {

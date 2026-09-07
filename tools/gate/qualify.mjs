@@ -21,7 +21,8 @@
  * Nothing here reads a `.reprove.yml`, touches the database, or publishes.
  */
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { renameSync, writeFileSync } from "node:fs";
+import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
@@ -61,6 +62,9 @@ const usage = () => {
   log("usage: qualify.mjs <plan|run|score|status> [options]");
   log("  --kind <first-qualification|promotion|requalification>");
   log("  --candidate <sha>      defaults to this checkout");
+  log(
+    "  --candidate-sha <sha>  refuse records that qualified another commit (score)"
+  );
   log("  --baseline <sha>       defaults to the ledger baseline (promotion)");
   log("  --shard <i/n>          run one slice of the batch (run)");
   log("  --records <file...>    shard output (run) or inputs (score)");
@@ -98,9 +102,17 @@ export const shardOf = (trials, { index, total }) =>
 /**
  * Resolve which commits play which arm.
  *
+ * The preflight applies however the baseline was chosen: ADR 0018 orders a
+ * requalification of the standing baseline before any comparison the corpus
+ * or scoring version moved under, and naming the same commit through
+ * `--baseline` does not make its recorded qualification current. A
+ * requalification, symmetrically, may only judge the standing baseline;
+ * pointing it elsewhere is refused here rather than after the paid batch.
+ *
  * @param {{ kind: string, candidate?: string, baseline?: string, ledger: string }} options The parsed command line.
+ * @returns {Promise<{ candidate: string, baseline: string | null, here: string, ledger: import("./report.mjs").Ledger }>} The arms, this checkout, and the ledger they were read from.
  */
-const resolveArms = async (options) => {
+export const resolveArms = async (options) => {
   const ledger = readLedger(options.ledger, PHASE0_LINEAGE);
   const here = await gitShaOf(REPOSITORY);
   let candidate = options.candidate ?? null;
@@ -117,8 +129,7 @@ const resolveArms = async (options) => {
         ledger.baseline,
         loadCorpus().version,
         scoringVersion
-      ) &&
-      !options.baseline
+      )
     ) {
       throw new Error(
         "the corpus or scoring version moved since the baseline qualified; run a requalification of the baseline first"
@@ -128,10 +139,16 @@ const resolveArms = async (options) => {
     baseline = null;
   }
   if (options.kind === "requalification") {
-    candidate ??= ledger.baseline?.gitSha ?? null;
-    if (candidate === null) {
+    const standing = ledger.baseline?.gitSha ?? null;
+    if (standing === null) {
       throw new Error("a requalification needs a standing baseline");
     }
+    if (candidate !== null && candidate !== standing) {
+      throw new Error(
+        `a requalification judges the standing baseline ${standing}; to move the baseline use score --rebase`
+      );
+    }
+    candidate = standing;
   }
   candidate ??= here;
   return { candidate, baseline, here, ledger };
@@ -181,10 +198,27 @@ const planFor = (options, revisions, corpus) => {
   });
 };
 
+/**
+ * The workflow outputs naming the revisions this plan resolved.
+ *
+ * A requalification resolves its candidate to the standing baseline, which is
+ * commonly not the commit the workflow checked out, so the driver has to be
+ * told which revision the result will belong to rather than assuming
+ * `github.sha`.
+ *
+ * @param {{ candidate: import("./report.mjs").Revision, baseline: import("./report.mjs").Revision | null }} revisions The resolved arms.
+ * @returns {string} `GITHUB_OUTPUT` lines for the candidate and baseline commits.
+ */
+export const planOutput = (revisions) =>
+  `candidate=${revisions.candidate.gitSha}\nbaseline=${revisions.baseline?.gitSha ?? ""}\n`;
+
 const plan = async (options) => {
   const corpus = loadCorpus();
   const { revisions } = await identities(options);
   const batch = planFor(options, revisions, corpus);
+  if (process.env.GITHUB_OUTPUT) {
+    await appendFile(process.env.GITHUB_OUTPUT, planOutput(revisions));
+  }
   process.stdout.write(
     `${JSON.stringify(
       {
@@ -268,16 +302,11 @@ const run = async (options) => {
     });
   }
   const startedAt = new Date().toISOString();
-  const records = await runBatch({
-    plan: { trials },
-    corpus,
-    runTrial: (trial, signal) => drivers[trial.arm].runTrial(trial, signal),
-    onTrial: (record, index, total) =>
-      log(
-        `[${index + 1}/${total}] ${record.trial.id} ${record.judgement.status}${judgementSuffix(record.judgement)}`
-      ),
-  });
-  const output = {
+  const file =
+    options.records?.[0] ??
+    `gate-records-${shard.index}-of-${shard.total}.json`;
+  await mkdir(path.dirname(path.resolve(file)), { recursive: true });
+  const header = {
     lineage: lineageId(PHASE0_LINEAGE),
     kind: options.kind,
     candidate: revisions.candidate,
@@ -288,27 +317,56 @@ const run = async (options) => {
     evaluationId: batch.seed,
     shard,
     startedAt,
-    completedAt: new Date().toISOString(),
-    records,
   };
-  const file =
-    options.records?.[0] ??
-    `gate-records-${shard.index}-of-${shard.total}.json`;
-  await mkdir(path.dirname(path.resolve(file)), { recursive: true });
-  await writeFile(file, `${JSON.stringify(output)}\n`);
+  /*
+   * The whole file is rewritten after every trial, through a rename so a kill
+   * mid-write cannot truncate it. A runner lost at trial 40 of 72 then still
+   * uploads the 40 trials whose behavior was observed, which is what keeps
+   * the loss a recorded fact rather than an excuse to run them again.
+   */
+  const keep = (records) => {
+    const temporary = `${file}.partial`;
+    writeFileSync(
+      temporary,
+      `${JSON.stringify({ ...header, completedAt: new Date().toISOString(), records })}\n`
+    );
+    renameSync(temporary, file);
+  };
+  keep([]);
+  /** @type {import("./batch.mjs").TrialRecord[]} */
+  const written = [];
+  const records = await runBatch({
+    plan: { trials },
+    corpus,
+    runTrial: (trial, signal) => drivers[trial.arm].runTrial(trial, signal),
+    onTrial: (record, index, total) => {
+      written.push(record);
+      keep(written);
+      log(
+        `[${index + 1}/${total}] ${record.trial.id} ${record.judgement.status}${judgementSuffix(record.judgement)}`
+      );
+    },
+  });
+  keep(records);
   log(`wrote ${records.length} records to ${file}`);
 };
 
 /**
- * Read every shard file and prove they belong to one evaluation of the
- * requested kind, taken under this checkout's corpus and scoring versions.
+ * Read every shard file that arrived and prove they belong to one evaluation
+ * of the requested kind, taken under this checkout's corpus and scoring
+ * versions.
+ *
+ * A shard that never arrived is reported rather than refused: #34 wants a
+ * durable INVALID report of the batch that was lost, not a scorer that dies
+ * before writing one. Two records of the same shard remain an error, because
+ * they are two observations of trials the budget allows once.
  *
  * @param {readonly string[]} files The shard record files.
  * @param {string} kind The kind the caller asked to score.
  * @param {string} corpusVersion This checkout's corpus version.
- * @returns {Promise<{ first: any, shards: any[] }>} The shards and the one they all agree with.
+ * @returns {Promise<{ first: any, shards: any[], missing: number[] }>} The shards, the one they all agree with, and the shard indexes nothing arrived for.
  */
-const readShards = async (files, kind, corpusVersion) => {
+export const readShards = async (files, kind, corpusVersion) => {
   if (files.length === 0) {
     throw new Error("score needs --records");
   }
@@ -322,12 +380,20 @@ const readShards = async (files, kind, corpusVersion) => {
     );
   }
   const expectedTotal = first.shard.total;
-  const seen = new Set(shards.map((shard) => shard.shard.index));
-  if (seen.size !== expectedTotal || shards.length !== expectedTotal) {
-    throw new Error(
-      `expected ${expectedTotal} shards, found ${shards.length} (${[...seen].join(",")})`
-    );
+  /** @type {Set<number>} */
+  const seen = new Set();
+  for (const shard of shards) {
+    if (seen.has(shard.shard.index)) {
+      throw new Error(
+        `shard ${shard.shard.index} of ${expectedTotal} was recorded twice`
+      );
+    }
+    seen.add(shard.shard.index);
   }
+  const missing = Array.from(
+    { length: expectedTotal },
+    (_, position) => position + 1
+  ).filter((index) => !seen.has(index));
   for (const shard of shards) {
     for (const field of [
       "evaluationId",
@@ -349,53 +415,108 @@ const readShards = async (files, kind, corpusVersion) => {
       "the records were taken under a different corpus or scoring version than this checkout"
     );
   }
-  return { first, shards };
+  return { first, shards, missing };
 };
 
 /**
- * Prove the records cover the fixed batch exactly once. The budget is fixed,
- * so the batch is re-planned from the recorded identity; a shard that
- * silently dropped trials cannot promote.
+ * The record a trial nobody observed leaves behind.
  *
- * @param {import("./corpus.mjs").Corpus} corpus The corpus the plan draws from.
- * @param {any} first The shard whose identity the plan is rebuilt from.
- * @param {readonly import("./batch.mjs").TrialRecord[]} records Every record merged.
+ * @param {import("./batch.mjs").PlannedTrial} trial The trial that was planned.
+ * @param {string} detail Which shard was supposed to run it.
+ * @param {string} now The instant the loss was noticed.
+ * @returns {import("./batch.mjs").TrialRecord} One non-retryable invalid attempt.
  */
-const checkCoverage = (corpus, first, records) => {
+const lostTrialRecord = (trial, detail, now) => {
+  /** @type {import("./evaluate.mjs").Judgement} */
+  const judgement = {
+    status: "invalid",
+    fault: "ephemeral_runner_lost",
+    retryable: false,
+    detail,
+  };
+  return {
+    trial,
+    attempts: [
+      {
+        attempt: 1,
+        startedAt: now,
+        endedAt: now,
+        judgement,
+        resolvedModel: null,
+      },
+    ],
+    judgement,
+  };
+};
+
+/**
+ * Merge the shards that arrived into the one report of the batch.
+ *
+ * The budget is fixed, so the batch is re-planned from the recorded identity
+ * and every planned trial is accounted for: a trial no shard recorded is an
+ * `ephemeral_runner_lost` attempt that cannot be retried, because its shard's
+ * job would replay trials whose behavior was already observed. The batch is
+ * then INVALID by #34's rule on a remaining invalid trial, and that INVALID
+ * is what the report durably says. Two records of one trial stay an error.
+ *
+ * @param {object} input The shards and what to judge them against.
+ * @param {import("./corpus.mjs").Corpus} input.corpus The corpus the plan draws from.
+ * @param {any} input.first The shard whose identity the plan is rebuilt from.
+ * @param {readonly any[]} input.shards Every shard that arrived.
+ * @param {string} [input.candidateSha] The commit the driver planned, when it wants the attribution proved.
+ * @param {string} [input.now] The instant a loss is recorded at.
+ * @returns {{ report: import("./report.mjs").Report, records: import("./batch.mjs").TrialRecord[], lost: string[] }} The report, every record behind it, and the trials nothing observed.
+ */
+export const assembleReport = ({
+  corpus,
+  first,
+  shards,
+  candidateSha,
+  now = new Date().toISOString(),
+}) => {
+  if (candidateSha !== undefined && candidateSha !== first.candidate.gitSha) {
+    throw new Error(
+      `the records qualified ${first.candidate.gitSha}, not ${candidateSha}`
+    );
+  }
   const planned = planBatch({
     corpus,
     arms: first.baseline === null ? ["candidate"] : ["candidate", "baseline"],
     seed: first.evaluationId,
     repetitions: first.repetitions,
-  }).trials.map((trial) => trial.id);
-  const recorded = records.map((record) => record.trial.id).toSorted();
-  if (JSON.stringify(recorded) !== JSON.stringify(planned.toSorted())) {
+  }).trials;
+  /** @type {Map<string, import("./batch.mjs").TrialRecord>} */
+  const recorded = new Map();
+  for (const shard of shards) {
+    for (const record of shard.records) {
+      if (recorded.has(record.trial.id)) {
+        throw new Error(`${record.trial.id} was recorded twice`);
+      }
+      recorded.set(record.trial.id, record);
+    }
+  }
+  const plannedIds = new Set(planned.map((trial) => trial.id));
+  const stray = [...recorded.keys()].filter((id) => !plannedIds.has(id));
+  if (stray.length > 0) {
     throw new Error(
-      `the records do not cover the planned batch: ${recorded.length} of ${planned.length} trials`
+      `the records name trials outside the planned batch: ${stray.join(", ")}`
     );
   }
-};
-
-/**
- * One line per axis for the summary.
- *
- * @param {import("./scoring.mjs").AxisTest | null} test The test to describe.
- * @returns {string | null} Outcome, point and lower bound.
- */
-const describeTest = (test) =>
-  test === null
-    ? null
-    : `${test.outcome} (${test.point.toFixed(3)}, lower ${test.lower.toFixed(3)})`;
-
-const score = async (options) => {
-  const corpus = loadCorpus();
-  const { first, shards } = await readShards(
-    options.records ?? [],
-    options.kind,
-    corpus.version
-  );
-  const records = shards.flatMap((shard) => shard.records);
-  checkCoverage(corpus, first, records);
+  /** @type {string[]} */
+  const lost = [];
+  const records = planned.map((trial, position) => {
+    const record = recorded.get(trial.id);
+    if (record) {
+      return record;
+    }
+    lost.push(trial.id);
+    const index = (position % first.shard.total) + 1;
+    return lostTrialRecord(
+      trial,
+      `shard ${index} of ${first.shard.total} recorded no result for this trial`,
+      now
+    );
+  });
   const report = composeReport({
     kind: first.kind,
     candidate: first.candidate,
@@ -413,22 +534,78 @@ const score = async (options) => {
       .update(JSON.stringify(records))
       .digest("hex"),
   });
+  return { report, records, lost };
+};
+
+/**
+ * One line per axis for the summary.
+ *
+ * @param {import("./scoring.mjs").AxisTest | null} test The test to describe.
+ * @returns {string | null} Outcome, point and lower bound.
+ */
+const describeTest = (test) =>
+  test === null
+    ? null
+    : `${test.outcome} (${test.point.toFixed(3)}, lower ${test.lower.toFixed(3)})`;
+
+const score = async (options) => {
+  const corpus = loadCorpus();
+  const { first, shards, missing } = await readShards(
+    options.records ?? [],
+    options.kind,
+    corpus.version
+  );
+  const { report, lost } = assembleReport({
+    corpus,
+    first,
+    shards,
+    candidateSha: options["candidate-sha"],
+  });
+  if (missing.length > 0) {
+    log(
+      `shards ${missing.join(",")} of ${first.shard.total} never arrived: ${lost.length} trials are invalid and the evaluation cannot be scored`
+    );
+  }
   const ledger = readLedger(options.ledger, PHASE0_LINEAGE);
   const now = Date.now();
   const decision = promotionDecision({
     report,
     baseline: ledger.baseline,
     exceptions: ledger.exceptions,
+    lineage: lineageStatus(ledger.reports, now),
     now,
   });
   report.exceptionRef = decision.exception;
-  const baseline = nextBaseline({
-    current: ledger.baseline,
-    report,
-    decision,
-    action: options.rebase ? "rebase" : "promote",
-    now: new Date(now).toISOString(),
-  });
+  /*
+   * The report records the decision made on it, before it is written anywhere
+   * durable: a comparison the ledger refused is still kept, and only the
+   * decision distinguishes it from one that moved the baseline.
+   */
+  report.decision = {
+    promotable: decision.promotable,
+    reason: decision.reason,
+    exception: decision.exception,
+  };
+  /*
+   * A refused rebase is a result, not a crash: the report still has to be
+   * written and printed so the reason is visible where every other outcome is.
+   */
+  let { baseline } = ledger;
+  let rebased = false;
+  let rebaseRefusal = null;
+  try {
+    baseline = nextBaseline({
+      current: ledger.baseline,
+      report,
+      decision,
+      action: options.rebase ? "rebase" : "promote",
+      now: new Date(now).toISOString(),
+    });
+    rebased = options.rebase === true && baseline?.reason === "rebase";
+  } catch (error) {
+    rebaseRefusal = error instanceof Error ? error.message : String(error);
+    log(rebaseRefusal);
+  }
   const out = options.out ?? `gate-report-${report.reportId}.json`;
   await writeFile(out, `${JSON.stringify(report, null, 2)}\n`);
   let recordedAt = null;
@@ -461,16 +638,15 @@ const score = async (options) => {
     reason: decision.reason,
     exception: decision.exception,
     baselineMoved: baseline !== ledger.baseline,
+    rebase: options.rebase === true,
+    rebaseRefusal,
+    lostTrials: lost.length,
     report: out,
     recorded: recordedAt,
     lineageStatus: lineageStatus([...ledger.reports, report], now).status,
   };
   process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
-  process.exitCode = (
-    options.rebase ? baseline?.reason === "rebase" : decision.promotable
-  )
-    ? 0
-    : 1;
+  process.exitCode = (options.rebase ? rebased : decision.promotable) ? 0 : 1;
 };
 
 const status = (options) => {
@@ -509,6 +685,7 @@ const main = async () => {
     options: {
       kind: { type: "string" },
       candidate: { type: "string" },
+      "candidate-sha": { type: "string" },
       baseline: { type: "string" },
       shard: { type: "string" },
       records: { type: "string", multiple: true },

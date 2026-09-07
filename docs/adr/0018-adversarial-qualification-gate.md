@@ -20,7 +20,9 @@ revision's own built packages. Phase 0 qualifies one Lineage: Codex, brokered, O
 narrative and six the Workspace, eight defective and four clean, each with four conditions that
 change one input at a time; expectations are machine-checkable and Finding identity is a defect id
 plus location. The loader enforces every one of those rules, and `corpusVersion` digests fixtures,
-expectations and axis applicability together.
+expectations and axis applicability together. A condition that forbids other Findings forbids them
+absolutely: what a Reviewer may also say is what its declared ambiguity allows, and no severity is
+exempt.
 
 **Judgement is family-clustered with an absolute floor and a non-inferiority test.** Four axes,
 each with its own floor and margin, a one-sided 90% family-clustered bootstrap with 10,000 resamples
@@ -34,14 +36,37 @@ changes, the baseline is requalified under the new versions before anything is c
 
 **Exceptions are non-ratcheting.** An exception accepts only a non-inferiority `FAIL` or
 `INCONCLUSIVE`, requires every absolute floor to have passed, binds one revision under one pair of
-versions, expires within thirty days, and does not move the baseline. Rebasing to a regressed
-revision is a separate explicit action that records the comparison chain breaking.
+versions, expires within thirty days, and does not move the baseline. Because its review trigger is
+prose no machine reads, a maintainer records that the trigger fired, or that the exception was
+withdrawn, as an instant in the exception file through a pull request; from that instant it stops
+applying. Rebasing to a regressed revision is a separate explicit action that records the
+comparison chain breaking, and it waives the non-inferiority tests alone: the fixed budget, valid
+evidence and every absolute floor still hold.
 
 **Provider drift is a visible signal and never a runtime Refusal.** A lineage is current, stale,
 failed or invalid according to its newest decisive result; a non-current lineage blocks promotion
 and keeps one issue open, and no Run is refused because of it. `CONTEXT.md`'s Refusal is a decision
 made before execution about a requirement that was not met; a Provider changing underneath Reprove
 is an operational fact about the lineage, not a property of any Run.
+
+**Only evidence about the standing revision decides the lineage.** A first qualification and a
+requalification evaluate the lineage's own revision, so both count whatever they concluded. A
+promotion comparison judges a candidate; it counts only when the ledger promoted it - it passed
+every test off a lineage that was current when it ran, and the ledger moved the baseline onto its
+candidate rather than refusing the comparison or accepting a shortfall through an exception -
+because only then did its candidate become the standing revision having cleared every floor. Every
+comparison is recorded whatever was decided, so each report carries that decision and a report
+written before the decision existed is not evidence. A clean comparison drawn against a failed or
+stale baseline, or against one the ledger has since superseded, cannot restore the lineage, and
+promotion stays blocked until a requalification does.
+
+**An inconclusive scheduled result decides nothing, and the clock keeps running.** #34 makes the
+newest scheduled result authoritative without saying what an `INCONCLUSIVE` one authorizes, so this
+repository decided it here: an inconclusive requalification neither refreshes nor breaks currency,
+the newest *decisive* result stays authoritative, and the thirty-day clock still runs from the last
+`PASS`. A lineage whose last `PASS` is older than thirty days is stale however many inconclusive
+results followed. The alternative - letting an inconclusive result hold a green state open - would
+let a Provider that has become unmeasurable keep authorizing promotions indefinitely.
 
 **The gate runs on demand.** Ordinary pull requests receive no Provider credential and run the
 corpus, scorer, evaluator and contract tests. The paid evaluation is dispatched by hand from a

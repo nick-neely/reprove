@@ -96,6 +96,11 @@ describe("scoring policy", () => {
     });
   });
 
+  it("exempts no severity from a forbidden other Finding", () => {
+    // #34 names no global severity exemption, so the policy carries none.
+    expect(SCORING_POLICY).not.toHaveProperty("ignoredOtherSeverities");
+  });
+
   it("derives the scoring version from the policy content", () => {
     expect(scoringVersion).toMatch(/^[0-9a-f]{16}$/u);
   });

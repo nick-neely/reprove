@@ -96,6 +96,8 @@ export const PHASE0_LINEAGE = {
  * @property {string} grantedAt When it was granted.
  * @property {string | null} expiresAt When it lapses, or null for the ceiling.
  * @property {string} reviewTrigger What must happen before it is revisited.
+ * @property {string | null} [triggerFiredAt] When a maintainer recorded that the review trigger happened, if it has.
+ * @property {string | null} [revokedAt] When a maintainer withdrew it for any other reason, if they did.
  * @property {readonly string[]} acceptedAxes The axes whose shortfall it accepts.
  * @property {string} reason Why it was granted.
  */
@@ -186,6 +188,7 @@ export const evaluationId = ({
  * @property {string[]} resolvedModels Every Model the Provider actually served.
  * @property {string | null} diagnosticsDigest The diagnostics bundle, if one was kept.
  * @property {string | null} exceptionRef The exception this report was promoted under, if any.
+ * @property {{ promotable: boolean, reason: string, exception: string | null } | null} decision What the ledger decided on this report, or null when it was written before any decision was made.
  */
 
 /**
@@ -315,6 +318,64 @@ export const composeReport = ({
     resolvedModels,
     diagnosticsDigest,
     exceptionRef,
+    // The decision is made against the ledger, after the report exists;
+    // `score` stamps it before the report is written anywhere durable.
+    decision: null,
+  };
+};
+
+/**
+ * @typedef {object} LineageState
+ * @property {"current" | "stale" | "failed" | "invalid" | "unqualified"} status What the lineage is.
+ * @property {Report | null} latest The newest decisive result that decided it.
+ * @property {Report | null} lastPass The newest result whose absolute floors all passed.
+ */
+
+/**
+ * Whether a report decided anything about the revision it evaluated.
+ *
+ * An INCONCLUSIVE evaluation is deliberately not decisive: it neither
+ * refreshes nor breaks a lineage. #34 says the newest scheduled result is
+ * authoritative but does not say what an inconclusive one authorizes, so this
+ * repository decided that the newest *decisive* result stays authoritative
+ * and the thirty-day clock keeps running from the last PASS. A lineage whose
+ * last PASS is older than thirty days is stale however many inconclusive
+ * results followed it.
+ *
+ * @param {Report} report The report to judge.
+ * @returns {boolean} True when it established a PASS, a FAIL or no evidence.
+ */
+const isDecisive = (report) =>
+  report.absoluteOutcome === "PASS" ||
+  report.absoluteOutcome === "FAIL" ||
+  report.outcome === "INVALID" ||
+  report.outcome === "CONTRACT_FAIL";
+
+/**
+ * The lineage's state, from the decisive evidence gathered so far.
+ *
+ * @param {readonly Report[]} evidence Decisive scheduled evidence, oldest first.
+ * @param {number} when The instant to judge freshness at.
+ * @returns {LineageState} The state, with the reports that decided it.
+ */
+const stateFrom = (evidence, when) => {
+  const latest = evidence.at(-1) ?? null;
+  const lastPass =
+    evidence.findLast((report) => report.absoluteOutcome === "PASS") ?? null;
+  if (latest === null) {
+    return { status: "unqualified", latest: null, lastPass: null };
+  }
+  if (latest.absoluteOutcome === "FAIL") {
+    return { status: "failed", latest, lastPass };
+  }
+  if (latest.absoluteOutcome !== "PASS" || lastPass === null) {
+    return { status: "invalid", latest, lastPass };
+  }
+  const age = when - Date.parse(lastPass.completedAt);
+  return {
+    status: age <= FRESHNESS.requalifyEveryMs ? "current" : "stale",
+    latest,
+    lastPass,
   };
 };
 
@@ -322,49 +383,50 @@ export const composeReport = ({
  * The lineage's qualification state, from the newest results.
  *
  * ```text
- * current   latest PASSed and completed within 30 days
+ * current   latest PASSed and the last PASS is within 30 days
  * stale     last PASS older than 30 days, no newer failed or invalid result
  * failed    latest result established absolute-floor FAIL
  * invalid   latest result could not produce valid evidence
  * ```
  *
- * An INCONCLUSIVE result neither passes nor fails a lineage: it leaves the
- * last authoritative state in place, which is what "the newest scheduled
- * result is authoritative" has to mean for a result that decided nothing.
+ * Only evidence *about the standing baseline* counts. A first qualification
+ * and a requalification evaluate the lineage's own revision, so both count
+ * whatever they concluded. A promotion comparison judges a candidate against
+ * the baseline; it says nothing about the baseline being qualified, and it
+ * counts only when the ledger actually promoted it - it passed every test off
+ * a lineage that was current when it ran, and `decision` records that the
+ * ledger moved the pointer for it rather than refusing it or accepting a
+ * shortfall through an exception, so its candidate became the baseline having
+ * cleared every floor. Every other comparison is still recorded, and a clean
+ * one drawn against a failed or stale baseline cannot restore the lineage;
+ * only a requalification can.
  *
  * @param {readonly Report[]} reports Every report the lineage has.
  * @param {number} now The instant to judge freshness at.
- * @returns {{ status: "current" | "stale" | "failed" | "invalid" | "unqualified", latest: Report | null, lastPass: Report | null }} The state, with the reports that decided it.
+ * @returns {LineageState} The state, with the reports that decided it.
  */
 export const lineageStatus = (reports, now) => {
   const ordered = [...reports].toSorted((left, right) =>
     left.completedAt.localeCompare(right.completedAt)
   );
-  const decisive = ordered.filter(
-    (report) =>
-      report.absoluteOutcome === "PASS" ||
-      report.absoluteOutcome === "FAIL" ||
-      report.outcome === "INVALID" ||
-      report.outcome === "CONTRACT_FAIL"
-  );
-  const latest = decisive.at(-1) ?? null;
-  const lastPass =
-    decisive.findLast((report) => report.absoluteOutcome === "PASS") ?? null;
-  if (latest === null) {
-    return { status: "unqualified", latest: null, lastPass: null };
+  /** @type {Report[]} */
+  const evidence = [];
+  for (const report of ordered) {
+    if (report.kind === "promotion") {
+      const when = Date.parse(report.completedAt);
+      if (
+        report.outcome === "PASS" &&
+        report.decision?.promotable === true &&
+        report.decision.exception === null &&
+        stateFrom(evidence, when).status === "current"
+      ) {
+        evidence.push(report);
+      }
+    } else if (isDecisive(report)) {
+      evidence.push(report);
+    }
   }
-  if (latest.absoluteOutcome === "FAIL") {
-    return { status: "failed", latest, lastPass };
-  }
-  if (latest.absoluteOutcome !== "PASS") {
-    return { status: "invalid", latest, lastPass };
-  }
-  const age = now - Date.parse(latest.completedAt);
-  return {
-    status: age <= FRESHNESS.requalifyEveryMs ? "current" : "stale",
-    latest,
-    lastPass,
-  };
+  return stateFrom(evidence, now);
 };
 
 /**
@@ -381,7 +443,26 @@ export const exceptionExpiresAt = (exception) => {
 };
 
 /**
+ * Whether a recorded instant has arrived.
+ *
+ * Both hand-recorded endings read as absent when the field is missing, so an
+ * exception file written before they existed stays valid.
+ *
+ * @param {string | null | undefined} instant The recorded instant, if any.
+ * @param {number} now The instant to test it at.
+ * @returns {boolean} True when it was recorded and now is at or past it.
+ */
+const ended = (instant, now) =>
+  instant !== null && instant !== undefined && now >= Date.parse(instant);
+
+/**
  * Whether an exception binds this exact report, now.
+ *
+ * #34 expires an exception at the earliest of time, a revision or version
+ * change, and its explicit review trigger. The trigger is prose no machine
+ * reads, so a maintainer records that it fired in `triggerFiredAt` through a
+ * pull request; `revokedAt` withdraws one for any other reason. Either ends
+ * the exception from the instant it names.
  *
  * @param {PromotionException} exception The exception to test.
  * @param {Report} report The report it might cover.
@@ -389,6 +470,8 @@ export const exceptionExpiresAt = (exception) => {
  * @returns {boolean} True when it binds this exact report right now.
  */
 export const exceptionApplies = (exception, report, now) =>
+  !ended(exception.triggerFiredAt, now) &&
+  !ended(exception.revokedAt, now) &&
   exception.lineageId === report.lineageId &&
   exception.revisionId === report.candidate.revisionId &&
   exception.baselineRevisionId === (report.baseline?.revisionId ?? "") &&
@@ -515,10 +598,17 @@ const nonInferiorityShortfalls = (report) => {
  * @param {Report} input.report The report to judge.
  * @param {BaselinePointer | null} input.baseline The ledger's standing pointer.
  * @param {readonly PromotionException[]} input.exceptions Every exception the ledger holds.
+ * @param {LineageState} input.lineage The lineage's authoritative state, from {@link lineageStatus}.
  * @param {number} input.now The instant the decision is being made at.
  * @returns {{ promotable: boolean, reason: string, exception: string | null, nonInferiority: Shortfall[] }} The decision, with the shortfalls behind it.
  */
-export const promotionDecision = ({ report, baseline, exceptions, now }) => {
+export const promotionDecision = ({
+  report,
+  baseline,
+  exceptions,
+  lineage,
+  now,
+}) => {
   /** @type {Shortfall[]} */
   const nonInferiority = [];
   const refuse = (reason) => ({
@@ -558,6 +648,12 @@ export const promotionDecision = ({ report, baseline, exceptions, now }) => {
       exception: null,
       nonInferiority,
     };
+  }
+  // #34: a non-current state blocks promotion. Only a comparison is blocked:
+  // a first qualification has no baseline to be stale, and a requalification
+  // of the standing baseline is how a non-current lineage recovers.
+  if (lineage.status !== "current") {
+    return refuse(`lineage not current: ${lineage.status}`);
   }
   const unusableBaseline = baselineRefusal(report, baseline);
   if (unusableBaseline !== null) {
@@ -612,7 +708,9 @@ const baselineReasonFor = (kind) => {
  * Only a report that passed every test moves the pointer. A promotion
  * through an exception leaves it untouched - that is what non-ratcheting
  * means - and a rebase is a separate explicit action that records the chain
- * breaking.
+ * breaking. A rebase waives the non-inferiority tests and nothing else: it
+ * throws unless the evaluation itself could have promoted, so the fixed
+ * budget, valid evidence and the absolute floors still hold.
  *
  * @param {object} input The decision and what it applies to.
  * @param {BaselinePointer | null} input.current The standing pointer, if any.
@@ -624,8 +722,12 @@ const baselineReasonFor = (kind) => {
  */
 export const nextBaseline = ({ current, report, decision, action, now }) => {
   if (action === "rebase") {
-    if (report.absoluteOutcome !== "PASS") {
-      throw new Error("a rebase still requires every absolute floor to pass");
+    // A rebase waives non-inferiority and nothing else: the evaluation still
+    // has to have produced valid evidence at the fixed budget and cleared
+    // every absolute floor, exactly as a promotion does.
+    const refusal = evaluationRefusal(report);
+    if (refusal !== null) {
+      throw new Error(`a rebase requires a promotable evaluation: ${refusal}`);
     }
     return {
       revisionId: report.candidate.revisionId,

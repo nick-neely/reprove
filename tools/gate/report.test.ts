@@ -114,6 +114,26 @@ const at = (
   outcome: outcome ?? absolute ?? "INVALID",
 });
 
+/** The same report, rerun whole: started then, finished six hours later. */
+const ran = (report: Report, when: number): Report => ({
+  ...report,
+  startedAt: new Date(when).toISOString(),
+  completedAt: new Date(when + 6 * 60 * 60 * 1000).toISOString(),
+});
+
+/** The decision the ledger records on a comparison that promoted outright. */
+const PROMOTED = {
+  promotable: true,
+  reason: "every test passed",
+  exception: null,
+};
+
+/** The same report, carrying the decision the ledger made on it. */
+const decided = (report: Report, decision: Report["decision"]): Report => ({
+  ...report,
+  decision,
+});
+
 /** A promotion exception that covers the report it is granted against. */
 const exception = (
   report: Report,
@@ -127,6 +147,8 @@ const exception = (
   scoringVersion: report.scoringVersion,
   grantedAt: report.completedAt,
   expiresAt: null,
+  revokedAt: null,
+  triggerFiredAt: null,
   reviewTrigger: "after the intent prompt rewrite lands",
   acceptedAxes: ["intent-use"],
   reason: "known prompt regression, tracked in #999",
@@ -224,6 +246,115 @@ describe(lineageStatus, () => {
     );
     expect(lineageStatus([], T0).status).toBe("unqualified");
   }, 30_000);
+
+  it("runs the 30-day clock from the last PASS, not from an inconclusive result", async () => {
+    // An inconclusive requalification decided nothing, so it neither
+    // refreshes nor breaks currency: the clock still runs from the PASS.
+    const pass = await evaluate("first-qualification", () => 1);
+    const reports = [
+      pass,
+      at(pass, T0 + 20 * DAY, "INCONCLUSIVE"),
+      at(pass, T0 + 40 * DAY, "INCONCLUSIVE"),
+    ];
+    const state = lineageStatus(reports, T0 + 41 * DAY);
+    expect(state.status).toBe("stale");
+    expect(state.lastPass?.completedAt).toBe(pass.completedAt);
+  }, 30_000);
+
+  it("does not take a candidate comparison as evidence about the baseline", async () => {
+    // The review's scenario: the standing baseline failed its scheduled
+    // requalification, then a candidate compared cleanly against it. The
+    // comparison says nothing about the baseline being qualified, so the
+    // lineage stays failed.
+    const requalification = at(
+      await evaluate("requalification", () => 1),
+      T0 + 2 * DAY,
+      "FAIL"
+    );
+    const comparison = ran(await evaluate("promotion", () => 1), T0 + 3 * DAY);
+    expect(comparison.outcome).toBe("PASS");
+    expect(
+      lineageStatus([requalification, comparison], T0 + 4 * DAY)
+    ).toMatchObject({ status: "failed" });
+  }, 60_000);
+
+  it("takes a promotion as evidence only when it could actually promote", async () => {
+    const first = await evaluate("first-qualification", () => 1);
+    // A clean promotion off a current lineage made its candidate the
+    // baseline, having passed every floor, so it refreshes the lineage.
+    const promoted = decided(
+      ran(await evaluate("promotion", () => 1), T0 + 10 * DAY),
+      PROMOTED
+    );
+    expect(lineageStatus([first, promoted], T0 + 35 * DAY).status).toBe(
+      "current"
+    );
+    // The same comparison run against a lineage that had already gone stale
+    // could not have promoted anything, so it does not refresh it either.
+    // Each of the remaining reports carries a promoting decision, so only the
+    // clause under test can reject it.
+    const tooLate = decided(
+      ran(await evaluate("promotion", () => 1), T0 + 40 * DAY),
+      PROMOTED
+    );
+    expect(lineageStatus([first, tooLate], T0 + 41 * DAY).status).toBe("stale");
+    // Nor does a comparison that did not itself pass every test.
+    const regressed = decided(
+      ran(
+        await evaluate("promotion", (arm, axis) =>
+          arm === "candidate" && axis === "intent-use" ? 5 / 6 : 1
+        ),
+        T0 + 10 * DAY
+      ),
+      PROMOTED
+    );
+    expect(regressed.outcome).toBe("FAIL");
+    expect(regressed.absoluteOutcome).toBe("PASS");
+    expect(lineageStatus([first, regressed], T0 + 35 * DAY).status).toBe(
+      "stale"
+    );
+  }, 90_000);
+
+  it("takes a promotion as evidence only when the ledger promoted it", async () => {
+    const first = await evaluate("first-qualification", () => 1);
+    const comparison = ran(await evaluate("promotion", () => 1), T0 + 10 * DAY);
+    expect(comparison.outcome).toBe("PASS");
+    // A comparison the ledger refused - here against a baseline that had
+    // already been superseded - is written to the ledger all the same, and it
+    // moved nothing, so it is not evidence about the standing revision.
+    const refused = decided(comparison, {
+      promotable: false,
+      reason: "report compared against a superseded baseline",
+      exception: null,
+    });
+    expect(lineageStatus([first, refused], T0 + 35 * DAY).status).toBe("stale");
+    // The same comparison, promoted, made its candidate the baseline.
+    expect(
+      lineageStatus([first, decided(comparison, PROMOTED)], T0 + 35 * DAY)
+        .status
+    ).toBe("current");
+    // A promotion through an exception leaves the pointer where it was, so
+    // the standing revision is no fresher than it was before.
+    const excepted = decided(comparison, {
+      promotable: true,
+      reason: "non-inferiority accepted by exception",
+      exception: "exc-1",
+    });
+    expect(lineageStatus([first, excepted], T0 + 35 * DAY).status).toBe(
+      "stale"
+    );
+    // A report written before the decision was recorded says nothing either.
+    expect(lineageStatus([first, comparison], T0 + 35 * DAY).status).toBe(
+      "stale"
+    );
+  }, 60_000);
+});
+
+/** A lineage state to decide against, as `lineageStatus` reports one. */
+const lineage = (status: ReturnType<typeof lineageStatus>["status"]) => ({
+  status,
+  latest: null,
+  lastPass: null,
 });
 
 describe("promotion", () => {
@@ -233,6 +364,7 @@ describe("promotion", () => {
       report,
       baseline: null,
       exceptions: [],
+      lineage: lineage("unqualified"),
       now: T0 + DAY,
     });
     expect(decision.promotable).toBeTruthy();
@@ -268,6 +400,7 @@ describe("promotion", () => {
         now: "t",
       }),
       exceptions: [],
+      lineage: lineage("current"),
       now: T0 + DAY,
     });
     expect(decision.promotable).toBeFalsy();
@@ -289,6 +422,7 @@ describe("promotion", () => {
       report: ofBaseline,
       baseline: standing,
       exceptions: [],
+      lineage: lineage("stale"),
       now: T0 + DAY,
     });
     expect(accepted).toMatchObject({ promotable: true });
@@ -316,6 +450,7 @@ describe("promotion", () => {
         report: ofStranger,
         baseline: standing,
         exceptions: [],
+        lineage: lineage("current"),
         now: T0 + DAY,
       })
     ).toMatchObject({
@@ -327,9 +462,53 @@ describe("promotion", () => {
         report: ofStranger,
         baseline: null,
         exceptions: [],
+        lineage: lineage("current"),
         now: T0 + DAY,
       })
     ).toMatchObject({ promotable: false, reason: "baseline missing" });
+  }, 60_000);
+
+  it("refuses a promotion while the lineage is not current", async () => {
+    // #34: "a non-current state blocks promotion". A clean comparison against
+    // a baseline that is failed, stale, invalid or never qualified proves
+    // nothing about the baseline it was compared against.
+    const clean = ran(await evaluate("promotion", () => 1), T0 + 3 * DAY);
+    const standing = {
+      revisionId: "rev-b",
+      gitSha: "b".repeat(40),
+      corpusVersion: corpus.version,
+      scoringVersion,
+      reportId: "r0",
+      setAt: "t0",
+      reason: "first-qualification" as const,
+      chainBroken: false,
+    };
+    const requalification = at(
+      await evaluate("requalification", () => 1),
+      T0 + 2 * DAY,
+      "FAIL"
+    );
+    const decide = (state: ReturnType<typeof lineageStatus>) =>
+      promotionDecision({
+        report: clean,
+        baseline: standing,
+        exceptions: [],
+        lineage: state,
+        now: T0 + 4 * DAY,
+      });
+    expect(
+      decide(lineageStatus([requalification], T0 + 4 * DAY))
+    ).toMatchObject({
+      promotable: false,
+      reason: "lineage not current: failed",
+    });
+    for (const status of ["stale", "invalid", "unqualified"] as const) {
+      expect(decide(lineage(status))).toMatchObject({
+        promotable: false,
+        reason: `lineage not current: ${status}`,
+      });
+    }
+    expect(decide(lineage("current"))).toMatchObject({ promotable: true });
   }, 60_000);
 
   it("moves the baseline on a clean promotion", async () => {
@@ -348,6 +527,7 @@ describe("promotion", () => {
       report: clean,
       baseline: standing,
       exceptions: [],
+      lineage: lineage("current"),
       now: T0 + DAY,
     });
     expect(promoted).toMatchObject({ promotable: true, exception: null });
@@ -383,6 +563,7 @@ describe("promotion", () => {
       report: regressed,
       baseline: standing,
       exceptions: [],
+      lineage: lineage("current"),
       now: T0 + DAY,
     });
     expect(refused).toMatchObject({
@@ -412,6 +593,7 @@ describe("promotion", () => {
       report: regressed,
       baseline: standing,
       exceptions: [exception(regressed)],
+      lineage: lineage("current"),
       now: T0 + DAY,
     });
     expect(excepted).toMatchObject({ promotable: true, exception: "exc-1" });
@@ -443,6 +625,37 @@ describe("promotion", () => {
         T0 + 3 * DAY
       )
     ).toBeFalsy();
+  }, 30_000);
+
+  it("stops applying an exception once its review trigger fired", async () => {
+    // #34 expires an exception at the earliest of time, a revision or version
+    // change, or its explicit review trigger. The trigger is prose, so a
+    // maintainer records the instant it fired, and it bites from that instant.
+    const regressed = await evaluate("promotion", (arm, axis) =>
+      arm === "candidate" && axis === "intent-use" ? 5 / 6 : 1
+    );
+    const fired = exception(regressed, {
+      triggerFiredAt: new Date(T0 + 2 * DAY).toISOString(),
+    });
+    expect(exceptionApplies(fired, regressed, T0 + DAY)).toBeTruthy();
+    expect(exceptionApplies(fired, regressed, T0 + 2 * DAY)).toBeFalsy();
+    expect(exceptionApplies(fired, regressed, T0 + 3 * DAY)).toBeFalsy();
+  }, 30_000);
+
+  it("stops applying a revoked exception, and still honours a file without either field", async () => {
+    const regressed = await evaluate("promotion", (arm, axis) =>
+      arm === "candidate" && axis === "intent-use" ? 5 / 6 : 1
+    );
+    const revoked = exception(regressed, {
+      revokedAt: new Date(T0 + 2 * DAY).toISOString(),
+    });
+    expect(exceptionApplies(revoked, regressed, T0 + DAY)).toBeTruthy();
+    expect(exceptionApplies(revoked, regressed, T0 + 2 * DAY)).toBeFalsy();
+    // An exception file written before either field existed omits both, and
+    // still binds: a missing ending is no ending.
+    const { revokedAt, triggerFiredAt, ...older } = exception(regressed);
+    expect([revokedAt, triggerFiredAt]).toStrictEqual([null, null]);
+    expect(exceptionApplies(older, regressed, T0 + DAY)).toBeTruthy();
   }, 30_000);
 
   it("binds an exception to one exact revision and versions", async () => {
@@ -501,6 +714,7 @@ describe("promotion", () => {
         exceptions: [
           exception(regressed, { acceptedAxes: ["steering-resistance"] }),
         ],
+        lineage: lineage("current"),
         now: T0 + DAY,
       }).promotable
     ).toBeFalsy();
@@ -526,6 +740,7 @@ describe("promotion", () => {
         report: floorFail,
         baseline: standing,
         exceptions: [wide],
+        lineage: lineage("current"),
         now: T0 + DAY,
       })
     ).toMatchObject({ promotable: false, reason: "absolute floor FAIL" });
@@ -539,6 +754,7 @@ describe("promotion", () => {
         report: invalid,
         baseline: standing,
         exceptions: [wide],
+        lineage: lineage("current"),
         now: T0 + DAY,
       })
     ).toMatchObject({ promotable: false, reason: "evaluation INVALID" });
@@ -548,6 +764,7 @@ describe("promotion", () => {
         report: clean,
         baseline: null,
         exceptions: [],
+        lineage: lineage("current"),
         now: T0 + DAY,
       })
     ).toMatchObject({ promotable: false, reason: "baseline missing" });
@@ -556,6 +773,7 @@ describe("promotion", () => {
         report: clean,
         baseline: { ...standing, revisionId: "rev-other" },
         exceptions: [],
+        lineage: lineage("current"),
         now: T0 + DAY,
       })
     ).toMatchObject({
@@ -581,6 +799,7 @@ describe("promotion", () => {
         report: clean,
         baseline: standing,
         exceptions: [],
+        lineage: lineage("current"),
         now: T0 + 8 * DAY,
       })
     ).toMatchObject({ promotable: false, reason: "report older than 7 days" });
@@ -593,6 +812,7 @@ describe("promotion", () => {
         report: slow,
         baseline: standing,
         exceptions: [],
+        lineage: lineage("current"),
         now: T0 + DAY,
       })
     ).toMatchObject({
@@ -650,16 +870,32 @@ describe("promotion", () => {
       reason: "rebase",
       chainBroken: true,
     });
-    const floorFail: Report = { ...regressed, absoluteOutcome: "FAIL" };
-    expect(() =>
+    // A rebase bypasses only non-inferiority. #34's fixed budget, valid
+    // evidence and absolute floors are not waivable by any action.
+    const rebasing = (report: Report) => () =>
       nextBaseline({
         current: null,
-        report: floorFail,
+        report,
         decision,
         action: "rebase",
         now: "t",
+      });
+    expect(rebasing({ ...regressed, absoluteOutcome: "FAIL" })).toThrow(
+      "a rebase requires a promotable evaluation: absolute floor FAIL"
+    );
+    expect(rebasing({ ...regressed, repetitions: 1 })).toThrow(
+      "a rebase requires a promotable evaluation: budget was 1 repetitions, the policy fixes 6"
+    );
+    expect(
+      rebasing({
+        ...regressed,
+        outcome: "INVALID",
+        validity: { status: "INVALID", trials: ["x"] },
       })
-    ).toThrow(/absolute floor/u);
+    ).toThrow("a rebase requires a promotable evaluation: evaluation INVALID");
+    expect(rebasing({ ...regressed, scores: null })).toThrow(
+      "a rebase requires a promotable evaluation: unscored"
+    );
   }, 30_000);
 });
 
@@ -686,6 +922,7 @@ describe("ledger files", () => {
       report,
       baseline: null,
       exceptions: [],
+      lineage: lineage("unqualified"),
       now: T0 + DAY,
     });
     const pointer = nextBaseline({
