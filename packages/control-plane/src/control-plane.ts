@@ -39,6 +39,13 @@ import {
   recordLifecycle,
 } from "./run/lifecycle.js";
 import type { RunLifecyclePort } from "./run/schedule.js";
+import { createWorkerAuthenticator } from "./worker/authenticate.js";
+import type {
+  ClaimOutcome,
+  HostedClaimRequest,
+} from "./worker/claim-outcome.js";
+import { claimRun } from "./worker/claim.js";
+import { createWorkerClaimHandler } from "./worker/endpoint.js";
 
 /** The database connection, as configuration rather than as a client. */
 export interface ControlPlaneDatabaseConfig {
@@ -115,6 +122,24 @@ export interface ControlPlane {
   readonly checks: readonly CheckOutcome[];
   /** `POST /api/github/webhook`. */
   readonly handleGitHubWebhook: (request: Request) => Promise<Response>;
+  /**
+   * `POST /api/worker/runs/claim`, which is how work reaches a **self-hosted**
+   * Worker: it is always the HTTP client, so there is no inbound port on it and
+   * the control plane never learns its address (ADR 0006).
+   */
+  readonly handleWorkerClaim: (request: Request) => Promise<Response>;
+  /**
+   * The same claim, taken by the hosted placement, which has no Worker and no
+   * HTTP hop.
+   *
+   * [ADR 0015](../../../docs/adr/0015-execution-ownership-and-worker-liveness.md)
+   * makes `executionToken` and `executionExpiresAt` placement-neutral, so this
+   * is the same conditional UPDATE the endpoint reaches rather than a second
+   * one beside it - which is what stops the hosted path (#57) from growing an
+   * execution-ownership story of its own. ADR 0006 keeps hosted out of the
+   * scheduling half of the protocol, so it names its Run and never polls.
+   */
+  readonly claimRun: (request: HostedClaimRequest) => Promise<ClaimOutcome>;
   /**
    * Turns one committed delivery into its Run, or into the conclusion that
    * there is none.
@@ -227,6 +252,28 @@ export const createControlPlane = async (
     kick: config.kick ?? processInProcess,
   });
 
+  // Two transactions, in this order, and never one. ADR 0008 restricts the
+  // pre-authentication transaction to verifying the credential, so the claim is
+  // a separate `withOwner` that opens only once authentication has answered.
+  const authenticate = createWorkerAuthenticator({
+    withOwner: runtime.withOwner,
+  });
+  const claimConfig = {
+    livenessForMs: resolvedRunProfile.livenessForMs,
+    now: () => new Date(),
+  };
+  const handleWorkerClaim = createWorkerClaimHandler({
+    authenticate,
+    claim: (request) =>
+      runtime.withOwner(request.ownerId, (tx) =>
+        claimRun(tx, claimConfig, {
+          ownerId: request.ownerId,
+          runId: request.runId,
+          worker: request.worker,
+        })
+      ),
+  });
+
   const lifecycle: RunLifecyclePort = {
     record: (ownerId, runId, workflowRunId) =>
       runtime.withOwner(ownerId, (tx) =>
@@ -243,6 +290,15 @@ export const createControlPlane = async (
   return {
     checks: runtime.checks,
     handleGitHubWebhook,
+    handleWorkerClaim,
+    claimRun: (request) =>
+      runtime.withOwner(request.ownerId, (tx) =>
+        claimRun(tx, claimConfig, {
+          ownerId: request.ownerId,
+          runId: request.runId,
+          worker: null,
+        })
+      ),
     processDelivery,
     lifecycle,
     close: runtime.close,

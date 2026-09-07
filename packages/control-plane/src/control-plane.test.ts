@@ -35,6 +35,7 @@ import {
 import { PHASE_0_RUN_PROFILE } from "./github/profile.js";
 import { signDelivery } from "./github/signature.js";
 import { WEBHOOK_STATUS } from "./github/webhook.js";
+import { WORKER_CLAIM_STATUS } from "./worker/claim-outcome.js";
 
 const DATABASE = "reprove_test_control_plane_ingress";
 
@@ -460,5 +461,68 @@ describe("the control plane's GitHub webhook, end to end", () => {
     await expect(runsFor(number)).resolves.toStrictEqual([
       { base_sha: BASE, head_sha: HEAD, trigger: "automatic" },
     ]);
+  });
+
+  it("takes execution ownership through the hosted placement", async () => {
+    // The Phase 0 profile's placement is `hosted`, which holds no durable
+    // identity and no HTTP hop - so this is ADR 0015's placement-neutral half:
+    // the same conditional UPDATE the Worker endpoint reaches, writing the same
+    // token and the same deadline, with `worker_id` left null.
+    const number = 12;
+    await controlPlane.handleGitHubWebhook(
+      signedDelivery({
+        deliveryGuid: "delivery-that-becomes-a-claimed-run",
+        body: deliveryBytes({
+          ...OPENED_PULL_REQUEST,
+          number,
+          pull_request: { number },
+        }),
+      })
+    );
+    await untilRunExists(number);
+    const [created] = await database.admin<{ id: string }>(
+      `select id from run where pull_request_number = ${number}`
+    );
+
+    const outcome = await controlPlane.claimRun({
+      ownerId: ACME,
+      runId: created?.id ?? "",
+    });
+
+    expect(outcome.kind).toBe("granted");
+    const [claimed] = await database.admin<{
+      execution_expires_at: Date;
+      claimed_at: Date;
+      status: string;
+      worker_id: string | null;
+    }>(
+      `select status, claimed_at, execution_expires_at, worker_id from run where pull_request_number = ${number}`
+    );
+    expect(claimed?.status).toBe("claimed");
+    expect(claimed?.worker_id).toBeNull();
+    // The window comes from the injected profile rather than from a literal in
+    // the claim path, which is the whole reason ADR 0016 placed it there.
+    expect(
+      (claimed?.execution_expires_at.getTime() ?? 0) -
+        (claimed?.claimed_at.getTime() ?? 0)
+    ).toBe(PHASE_0_RUN_PROFILE.livenessForMs);
+  });
+
+  it("serves the Worker claim endpoint, and refuses one with no credential", async () => {
+    // The composition edge only: every named refusal is measured against the
+    // real database in `worker/claim.test.ts`. What this says is that the route
+    // has something to call, and that the thing it calls does not serve a
+    // `RunSpec` to a stranger.
+    const response = await controlPlane.handleWorkerClaim(
+      new Request("https://control.example/api/worker/runs/claim", {
+        method: "POST",
+        body: JSON.stringify({
+          protocolVersion: 1,
+          workerBuildVersion: "0.0.0",
+        }),
+      })
+    );
+
+    expect(response.status).toBe(WORKER_CLAIM_STATUS.unauthenticated);
   });
 });
