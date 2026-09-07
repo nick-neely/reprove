@@ -183,6 +183,7 @@ describe("a refused claim", () => {
     ["already_claimed", WORKER_CLAIM_STATUS.refused],
     ["claim_window_closed", WORKER_CLAIM_STATUS.refused],
     ["not_claimable", WORKER_CLAIM_STATUS.refused],
+    ["placement_mismatch", WORKER_CLAIM_STATUS.refused],
     ["installation_unavailable", WORKER_CLAIM_STATUS.refused],
   ] as const)("names %s on a %d", async (reason, status) => {
     const { handle } = handlerOver({ outcome: { kind: "refused", reason } });

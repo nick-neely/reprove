@@ -87,6 +87,7 @@ describe("parsing an Authorization header", () => {
     ["negative", "-1001"],
     ["past the safe integer range", "9007199254740993"],
     ["hexadecimal", "0x3e9"],
+    ["carrying a leading zero", "01001"],
     ["empty", ""],
   ])("returns nothing rather than a locator that is %s", (_label, locator) => {
     // `withOwner` throws a TypeError on an Owner id it cannot use, and a

@@ -66,6 +66,9 @@ export const WORKER_CLAIM_STATUS = {
  * claim_window_closed      claimableUntil has passed and nothing has moved the
  *                          Run off `queued` yet
  * not_claimable            the Run is terminal, or otherwise past claiming
+ * placement_mismatch       the Run is claimable and belongs to the other
+ *                          placement, which is dispatched by another mechanism;
+ *                          taking it would be dispatching one Run twice
  * installation_unavailable the Run is claimable and its Repository records no
  *                          live grant, so no Workspace could be materialized
  * ```
@@ -75,6 +78,7 @@ export type ClaimRefusal =
   | "already_claimed"
   | "claim_window_closed"
   | "not_claimable"
+  | "placement_mismatch"
   | "installation_unavailable";
 
 /** What one attempt to claim decided. */

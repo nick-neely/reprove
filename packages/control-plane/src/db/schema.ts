@@ -486,6 +486,12 @@ export const run = pgTable(
     // claimable_until` because the claim's predicate is an equality on the
     // first two and a range on the third, and because every probe in front of
     // it runs inside `withOwner`.
+    //
+    // It covers the **filter** and not the **sort**: a poll also equality-filters
+    // `placement` and orders by `created_at`, so Postgres still sorts what this
+    // index returns. That is the right trade while a poll reads a handful of
+    // rows, and the honest place to say so - extend the index with those two
+    // columns when polling volume is real rather than on principle.
     index("run_claimable_idx").on(t.ownerId, t.status, t.claimableUntil),
     unique("run_owner_scoped_id").on(t.ownerId, t.id),
     foreignKey({

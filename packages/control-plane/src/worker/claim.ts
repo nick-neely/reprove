@@ -9,6 +9,7 @@
  * where <the Run, or the oldest claimable one>
  *   and status = 'queued'
  *   and claimable_until > now
+ *   and placement = <the claimant's own>
  *   and the Repository records an Installation
  * ```
  *
@@ -29,8 +30,18 @@
  * claimed | executing                -> already_claimed
  * terminal                           -> not_claimable
  * queued, and the window has closed  -> claim_window_closed
+ * queued, for the other placement    -> placement_mismatch
  * queued, in window, no Installation -> installation_unavailable
  * ```
+ *
+ * **A claim only ever reaches its own placement.** A self-hosted Worker naming a
+ * hosted Run's id would otherwise take it: the poll filters `placement` and a
+ * targeted claim did not, so the guard was only ever on the path that does not
+ * name a Run. The two placements are dispatched by different mechanisms - one
+ * polls, one is handed its Run by hosted dispatch (#57) - so a Run taken by the
+ * wrong one is a Run dispatched twice. `placement_mismatch` is a named refusal
+ * rather than `unknown_run` because the Run *is* this Owner's and the caller can
+ * see it; hiding it would say something false about visibility.
  *
  * `unknown_run` covers a Run belonging to another Owner, deliberately. The probe
  * runs inside `withOwner`, so such a Run is not merely ineligible but
@@ -56,6 +67,7 @@ import { protocolVersion } from "@reprove/protocol/v1";
 import { and, eq, gt, sql } from "drizzle-orm";
 
 import type { TenantTransaction } from "../db/runtime.js";
+import type { RunPlacement } from "../db/schema-values.js";
 import * as schema from "../db/schema.js";
 import type {
   ClaimingWorker,
@@ -66,6 +78,23 @@ import { runSpecOf } from "./run-spec.js";
 
 /** The bytes of entropy behind one execution token. */
 const TOKEN_BYTES = 32;
+
+/**
+ * What a Run id looks like, checked before it reaches a `uuid` column.
+ *
+ * The protocol schema deliberately does **not** enforce this: `runId` is an
+ * opaque string on the wire, and pinning the wire to Postgres's column type
+ * would make a storage decision part of a contract a four-month-old Worker
+ * depends on. So the shape is checked here, where the column is.
+ *
+ * Without it a Worker naming `not-a-uuid` reaches Postgres, which raises
+ * `22P02 invalid input syntax for type uuid` from inside the UPDATE - and the
+ * endpoint reports that rolled-back transaction as `503`, telling a Worker the
+ * control plane is unavailable when what actually happened is that it asked for
+ * a Run that cannot exist. It is `unknown_run`, which is the same answer this
+ * Owner gets for any other id it does not hold.
+ */
+const RUN_ID = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/iu;
 
 /** What the claim is composed over. No value here is read from anywhere. */
 export interface ClaimConfig {
@@ -156,13 +185,18 @@ const oldestClaimable = (ownerId: number, now: Date) => sql`(
  */
 const nameRefusal = async (
   tx: TenantTransaction,
-  claim: { readonly ownerId: number; readonly runId: string },
+  claim: {
+    readonly ownerId: number;
+    readonly runId: string;
+    readonly placement: RunPlacement;
+  },
   now: Date
 ): Promise<ClaimRefusal> => {
   const [row] = await tx
     .select({
       status: schema.run.status,
       claimableUntil: schema.run.claimableUntil,
+      placement: schema.run.placement,
       installationId: schema.repository.installationId,
     })
     .from(schema.run)
@@ -189,6 +223,9 @@ const nameRefusal = async (
   }
   if (row.claimableUntil.getTime() <= now.getTime()) {
     return "claim_window_closed";
+  }
+  if (row.placement !== claim.placement) {
+    return "placement_mismatch";
   }
   if (row.installationId === null) {
     return "installation_unavailable";
@@ -223,6 +260,33 @@ export const claimRun = async (
   const executionToken = (config.mintToken ?? mintExecutionToken)();
   const executionExpiresAt = new Date(now.getTime() + config.livenessForMs);
   const { ownerId, worker } = claim;
+  const placement: RunPlacement = worker ? "self_hosted" : "hosted";
+
+  if (worker) {
+    // ADR 0006: "any authenticated Worker contact refreshes Worker liveness.
+    // Idle polling is the heartbeat when a Worker is idle", and there is no
+    // separate heartbeat message - so this is written for every authenticated
+    // claim, including the one that finds nothing. Below the refusal it would
+    // make a Worker with nothing to do look offline, which is exactly the
+    // reading ADR 0006 built the three signals to prevent. It is in transaction
+    // **two**, never in the pre-authentication one, which ADR 0008 restricts to
+    // verifying the credential and nothing else.
+    await tx
+      .update(schema.worker)
+      .set({ lastSeenAt: now })
+      .where(
+        and(
+          eq(schema.worker.ownerId, ownerId),
+          eq(schema.worker.id, worker.workerId)
+        )
+      );
+  }
+
+  if (claim.runId !== undefined && !RUN_ID.test(claim.runId)) {
+    // Before any SQL, because a `uuid` column rejects the string rather than
+    // failing to match it, and a rolled-back transaction reads as `503`.
+    return { kind: "refused", reason: "unknown_run" };
+  }
 
   const [claimed] = await tx
     .update(schema.run)
@@ -247,6 +311,7 @@ export const claimRun = async (
           : eq(schema.run.id, oldestClaimable(ownerId, now)),
         eq(schema.run.status, "queued"),
         gt(schema.run.claimableUntil, now),
+        eq(schema.run.placement, placement),
         sql`${schema.run.repositoryId} in ${withInstallation(ownerId)}`
       )
     )
@@ -279,25 +344,13 @@ export const claimRun = async (
     return claim.runId
       ? {
           kind: "refused",
-          reason: await nameRefusal(tx, { ownerId, runId: claim.runId }, now),
+          reason: await nameRefusal(
+            tx,
+            { ownerId, placement, runId: claim.runId },
+            now
+          ),
         }
       : { kind: "no_run_available" };
-  }
-
-  if (worker) {
-    // ADR 0006: "any authenticated Worker contact refreshes Worker liveness",
-    // and there is no separate heartbeat message. It is written in transaction
-    // **two**, never in the pre-authentication one, which ADR 0008 restricts to
-    // verifying the credential and nothing else.
-    await tx
-      .update(schema.worker)
-      .set({ lastSeenAt: now })
-      .where(
-        and(
-          eq(schema.worker.ownerId, ownerId),
-          eq(schema.worker.id, worker.workerId)
-        )
-      );
   }
 
   return {

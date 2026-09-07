@@ -423,6 +423,66 @@ describe("claiming a Run", () => {
       });
     });
 
+    it("refuses a hosted Run to a self-hosted Worker, by name", async () => {
+      // The poll has always filtered `placement`; a targeted claim did not, so
+      // the guard was only on the path that does not name a Run. The two
+      // placements are dispatched by different mechanisms, and a Run taken by
+      // the wrong one is a Run dispatched twice.
+      const runId = await seedRun(ACME, { placement: "hosted" });
+
+      const response = await handle(
+        claiming(acmeCredential.credential, {
+          protocolVersion: WORKER_PROTOCOL_SUPPORT.current,
+          workerBuildVersion: BUILD,
+          runId,
+        })
+      );
+
+      expect(response.status).toBe(WORKER_CLAIM_STATUS.refused);
+      await expect(response.json()).resolves.toStrictEqual({
+        status: WORKER_CLAIM_STATUS.refused,
+        reason: "placement_mismatch",
+      });
+      await expect(runRow(ACME, runId)).resolves.toMatchObject({
+        status: "queued",
+        claimedAt: null,
+        executionToken: null,
+        executionExpiresAt: null,
+        workerId: null,
+      });
+    });
+
+    it("refuses a self-hosted Run to the hosted placement, by the same name", async () => {
+      const runId = await seedRun(ACME);
+
+      await expect(claimHosted(ACME, runId)).resolves.toStrictEqual({
+        kind: "refused",
+        reason: "placement_mismatch",
+      });
+      const untouched = await runRow(ACME, runId);
+      expect(untouched?.status).toBe("queued");
+    });
+
+    it("answers a Run id that is not a uuid as unknown, not as an outage", async () => {
+      // The column is `uuid`, so an id of the wrong shape is rejected by
+      // Postgres rather than failing to match: `22P02` rolls the transaction
+      // back and the endpoint reads that as `503`, telling a Worker the control
+      // plane is down when it asked for a Run that cannot exist.
+      const response = await handle(
+        claiming(acmeCredential.credential, {
+          protocolVersion: WORKER_PROTOCOL_SUPPORT.current,
+          workerBuildVersion: BUILD,
+          runId: "not-a-uuid",
+        })
+      );
+
+      expect(response.status).toBe(WORKER_CLAIM_STATUS.unknownRun);
+      await expect(response.json()).resolves.toStrictEqual({
+        status: WORKER_CLAIM_STATUS.unknownRun,
+        reason: "unknown_run",
+      });
+    });
+
     it("names a Repository with no live grant, and claims nothing", async () => {
       await seedOwner(GLOBEX, null);
       const globexCredential = mintWorkerCredential(GLOBEX);
@@ -681,11 +741,15 @@ describe("claiming a Run", () => {
       expect(untouched?.status).toBe("queued");
     });
 
-    it("refreshes Worker liveness, which is ADR 0006's heartbeat", async () => {
-      await seedRun(ACME);
+    it("refreshes Worker liveness even when there is nothing to claim", async () => {
+      // ADR 0006: "Idle polling is the heartbeat when a Worker is idle", and
+      // there is no separate heartbeat message. So the empty poll is the case
+      // that matters: written only after a grant, a Worker with nothing to do
+      // would look offline, which is the reading the three signals exist to
+      // prevent.
+      const response = await poll();
 
-      await poll();
-
+      expect(response.status).toBe(WORKER_CLAIM_STATUS.noRunAvailable);
       const [worker] = await runtime.withOwner(ACME, (tx) =>
         tx.select().from(schema.worker)
       );

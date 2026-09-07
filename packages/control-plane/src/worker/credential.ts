@@ -79,6 +79,13 @@ export interface PresentedWorkerCredential {
 /**
  * The stored form of a secret.
  *
+ * The digest is compared by ordinary SQL equality in the lookup that verifies
+ * it, and that is deliberate rather than a timing-safety oversight: what the
+ * comparison sees is a SHA-256 digest of a 256-bit CSPRNG secret, so leaking how
+ * many leading bytes of a *digest* matched tells an attacker nothing about the
+ * preimage they would have to present. A timing-safe compare defends a secret
+ * compared directly, which is the webhook signature's case and not this one.
+ *
  * @param secret The secret half of a credential.
  * @returns `sha256:` followed by the hex digest of the secret alone.
  */
@@ -107,12 +114,19 @@ export const mintWorkerCredential = (
  *
  * The same predicate `withOwner` enforces, applied one step earlier so that a
  * forged locator is a refusal rather than a thrown `TypeError` from inside the
- * database layer. `Number()` is deliberately not used: it reads `0x3e9`,
- * whitespace and `1e3` as numbers, and a locator that is not plain digits is
- * not one Reprove minted.
+ * database layer. The shape test in front of the coercion is what makes
+ * `Number()` safe to reach for: on its own it reads `0x3e9`, `1e3`, whitespace
+ * and the empty string as numbers, and none of those is a locator Reprove
+ * minted.
+ *
+ * A leading zero is refused for the same reason, and it is the case that would
+ * otherwise slip past: `01001` and `1001` coerce to one Owner id, so two
+ * distinct credential strings would name one tenant. Nothing here mints such a
+ * string, which is exactly why accepting one is only ever an attacker's
+ * spelling.
  */
 const locatorOwnerId = (locator: string): number | null => {
-  if (!/^\d+$/u.test(locator)) {
+  if (!/^(?:0|[1-9]\d*)$/u.test(locator)) {
     return null;
   }
   const ownerId = Number(locator);

@@ -455,6 +455,11 @@ Credentials are **rows**, so ADR 0006's rotation grace window is an ordinary row
 predecessor takes `expiresAt = graceEnd`, both rows satisfy one predicate until it passes, and
 revocation is a row update rather than a null-out.
 
+Every authenticated claim refreshes `worker.last_seen_at`, including the one that finds nothing:
+ADR 0006 makes idle polling the heartbeat and defines no separate message, so writing it only after a
+grant would make a Worker with nothing to do look offline. It happens in transaction two, never in
+the pre-authentication one.
+
 `401` never distinguishes an unknown Owner, an unknown secret, a revoked credential and an expired
 one. All four are one answer, so the endpoint cannot be used to enumerate which Owners exist or which
 credentials once did.
@@ -468,6 +473,7 @@ update run
 where <the Run, or the oldest claimable one>
   and status = 'queued'
   and claimable_until > now
+  and placement = <the claimant's own>
   and the Repository records an Installation
 ```
 
@@ -477,6 +483,19 @@ Two concurrent claims of one Run serialize on the row lock: one matches and comm
 re-evaluates its `WHERE` against the committed row and matches zero. A poll takes the oldest
 claimable `self_hosted` Run through a `for update skip locked` subquery, so a second Worker arriving
 mid-claim steps past that row rather than blocking on it.
+
+**The placement predicate applies to a targeted claim too**, and that is the half a poll's filter
+never covered: naming a Run bypassed the `self_hosted` restriction entirely, so a Worker could take a
+Run hosted dispatch was about to run. `placement_mismatch` is a named refusal rather than
+`unknown_run`, because the Run is this Owner's and the caller can see it - hiding it would say
+something false about visibility rather than something safer.
+
+A `runId` that is not a uuid is refused as `unknown_run` **before any SQL runs**. The column is
+`uuid`, so Postgres rejects the string with `22P02` rather than failing to match it, and a
+rolled-back transaction reads as `503` - which would tell a Worker the control plane is unavailable
+when what it actually did was ask for a Run that cannot exist. The protocol schema deliberately keeps
+`runId` an opaque string: pinning the wire to a column type would make a storage decision part of a
+contract a four-month-old Worker depends on.
 
 Zero rows is therefore ambiguous by construction, and the re-probe that follows **writes nothing and
 decides nothing** - it exists only to name what happened. Its order is load-bearing in exactly the way
@@ -488,6 +507,7 @@ not visible                        -> unknown_run          404
 claimed | executing                -> already_claimed      409
 terminal                           -> not_claimable        409
 queued, and the window has closed  -> claim_window_closed  409
+queued, for the other placement    -> placement_mismatch   409
 queued, in window, no Installation -> installation_unavailable
 ```
 

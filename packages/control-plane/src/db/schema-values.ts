@@ -8,6 +8,7 @@
  * it names no Drizzle type, so it is reachable from anywhere in the package and
  * from its published surface alike.
  */
+import type { RunSpec } from "@reprove/protocol/v1";
 
 /** `owner.type`. */
 export type OwnerType = "user" | "organization";
@@ -88,6 +89,20 @@ export const INGRESS_RETRY_CLASSES = [
   "contended",
 ] as const;
 export type IngressRetryClass = (typeof INGRESS_RETRY_CLASSES)[number];
+
+/**
+ * `run.placement`, which is also `RunSpec.placement` on the wire.
+ *
+ * Spelled against the protocol's own type rather than beside it, so a placement
+ * this package can write is exactly a placement a Worker accepts - the same
+ * rule `Phase0RunProfile` follows, and for the same reason: there is no second
+ * vocabulary for the two to drift against.
+ */
+export const RUN_PLACEMENTS = [
+  "self_hosted",
+  "hosted",
+] as const satisfies readonly RunSpec["placement"][];
+export type RunPlacement = (typeof RUN_PLACEMENTS)[number];
 
 /**
  * `run.status`. ADR 0007's machine: `queued` -> `claimed` -> `executing`,
