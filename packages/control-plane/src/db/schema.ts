@@ -456,7 +456,45 @@ export const run = pgTable(
     workerProtocolVersion: integer("worker_protocol_version"),
     workerBuildVersion: text("worker_build_version"),
 
+    // the accepted Result, absorbed (#55)
+    //
+    // ADR 0007: "`Result` has no table. `CONTEXT.md` defines it as what crosses
+    // the Worker boundary rather than something that outlives the crossing: it
+    // is absorbed into the Run on acceptance." So these are the Run's columns
+    // rather than a `result` table's, and the Findings are rows of their own
+    // because they are queried across Runs by bucket key for Reconciliation.
+    /**
+     * When Acceptance absorbed a Result, and `NULL` for every Run that has not
+     * accepted one.
+     *
+     * It is not decoration on the status: it is **half of the eligibility
+     * predicate** ADR 0015 defines once and shares between Acceptance and the
+     * liveness transition (#56), so the conditional UPDATE that accepts a
+     * Result reads and writes it in the same statement. That is what makes "at
+     * most one accepted terminal Result for the current Run state" a property
+     * of Postgres rather than of a check somebody remembered to run first.
+     */
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    /** The Reviewer's prose. Purged in place after the retention window. */
+    resultSummary: text("result_summary"),
+    /**
+     * `budget_exhausted | cancelled | superseded`, and `NULL` for a complete
+     * Result. ADR 0007 keeps *why* a Run became `incomplete` here rather than
+     * multiplying statuses for it.
+     */
+    resultStoppedBy: text("result_stopped_by"),
+    /**
+     * How many hypotheses the Reviewer disproved. ADR 0002: a hypothesis that
+     * verification disproved never becomes a Finding, so this is the only place
+     * the work of disproving one is recorded at all.
+     */
+    resultDisprovedHypothesisCount: integer(
+      "result_disproved_hypothesis_count"
+    ),
+
     // bounded, always read with the parent, never queried independently
+    /** The Result's normalized usage. ADR 0006 keeps usage and cost apart. */
+    resultUsage: jsonb("result_usage"),
     passes: jsonb("passes"),
     refusals: jsonb("refusals"),
   },
@@ -532,7 +570,22 @@ export const finding = pgTable(
       .references(() => owner.id, { onDelete: "cascade" }),
     runId: uuid("run_id").notNull(),
     path: text("path").notNull(),
+    /**
+     * The one location, as the two lines the protocol carries: `line` is
+     * `location.startLine` and `end_line` is `location.endLine`.
+     *
+     * `end_line` is the later half of a pair whose first half shipped alone,
+     * and it is here because storing only the start would make the persisted
+     * Finding say something the Worker did not. #2 fixed a Finding to exactly
+     * one location and ADR 0007 keeps that location meaningful only against the
+     * `headSha` the Run carries, so a range that arrives as a range is stored
+     * as one rather than silently narrowed to its first line.
+     *
+     * Both stay nullable. A Finding whose content is purged in place keeps its
+     * row, and nothing in this schema requires a location to survive that.
+     */
     line: integer("line"),
+    endLine: integer("end_line"),
     severity: text("severity").notNull(),
     verification: text("verification").notNull(),
 
