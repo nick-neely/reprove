@@ -193,6 +193,7 @@ specification and the decision record are still where the reasoning lives:
 | [`docs/prd.md`](docs/prd.md) | The product definition. Direction, not gospel - it changes as decisions land. |
 | [`CONTEXT.md`](CONTEXT.md) | The glossary. The language of record for every noun in the system. |
 | [`docs/adr/`](docs/adr/) | Architecture Decision Records. One file per load-bearing decision. |
+| [`docs/adversarial-gate.md`](docs/adversarial-gate.md) | How a Codex revision is qualified through the adversarial gate, on demand. |
 | [`docs/research/`](docs/research/) | Findings from investigations that decisions depended on. |
 | [`docs/agents/`](docs/agents/) | Conventions for the coding agents that work in this repo. |
 

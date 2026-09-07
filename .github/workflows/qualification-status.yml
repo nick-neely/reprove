@@ -1,0 +1,62 @@
+name: qualification-status
+
+# Whether the codex/brokered lineage is still current, published without
+# spending anything (issue #34, built in #53).
+#
+# `qualify` proposes a paid requalification and waits on the `qualification`
+# environment's approval. An approval that never arrives is exactly how a
+# standing qualification ages past #34's 30-day window, so the freshness
+# signal cannot live inside that approval: this workflow reads the committed
+# ledger and the corpus, computes the lineage state, and maintains the one
+# issue #34 requires. It takes no Provider credential, no environment, and no
+# build - `qualify.mjs status` and `surface.mjs` read files and call `gh`.
+on:
+  # Weekly, so a lineage that goes stale is reported within days of doing so
+  # rather than at the next evaluation somebody remembers to approve.
+  schedule:
+    - cron: "0 7 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # The one maintained issue per non-current lineage, and nothing else.
+  issues: write
+
+jobs:
+  status:
+    name: status
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # No install: `qualify.mjs status` and `surface.mjs` reach only `node:`
+      # builtins, their siblings under `tools/gate/`, the committed ledger and
+      # corpus, and `gh`. Nothing they load resolves through `node_modules`, so
+      # a dependency install would only slow the one signal that must keep
+      # working when everything else is blocked.
+      - name: Activate Node 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+
+      # Exit status 1 means "not current", which is the fact this workflow
+      # exists to publish rather than a broken step. Any other status is the
+      # tool breaking, and fails the step.
+      - name: Read the lineage state
+        run: |
+          set -euo pipefail
+          node tools/gate/qualify.mjs status > status.json || [ $? -eq 1 ]
+          cat status.json
+
+      - name: Surface the lineage state
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          node tools/gate/surface.mjs \
+            --status-file status.json \
+            --repository "$GITHUB_REPOSITORY"

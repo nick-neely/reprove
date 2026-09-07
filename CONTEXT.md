@@ -324,3 +324,53 @@ _Avoid_: repo, project, RepositorySettings
 A human authenticated to Reprove, identified by their GitHub user. What a User may see derives
 from their GitHub permissions; Reprove keeps no membership of its own.
 _Avoid_: member, account, customer
+
+### Qualification
+
+**Lineage**:
+The combination the gate qualifies: Harness, Route, Provider, pinned Model, Autonomy and Strategy.
+Phase 0 has one, `codex/brokered/openai/gpt-5.6-sol/verify/standard`.
+_Avoid_: configuration, cell, profile
+
+**Revision**:
+One exact, reproducible member of a Lineage: the Harness artifact fingerprint, the Adapter build,
+the Reviewer policy digest and the narrative schema version, read from a built commit. A report
+names the Revision it judged; a Provider-reported resolved Model is metadata, never identity.
+_Avoid_: version, build, release
+
+**Corpus**:
+The versioned adversarial scenarios the gate scores a Revision against, with expectations that are
+machine-checkable and a version derived from their content. A changed Corpus requalifies the
+Baseline before anything is compared to it.
+_Avoid_: test suite, benchmark, dataset
+
+**Baseline**:
+The Revision a candidate must be non-inferior to. It is a pointer to one exact Revision that is
+rerun beside the candidate, never a stored score, and it moves only through a passing promotion, a
+requalification or an explicit rebase.
+_Avoid_: reference, golden, previous result
+
+**Exception**:
+A recorded acceptance of a non-inferiority failure or inconclusive result for one Revision against
+one Baseline, expiring within thirty days. It cannot waive an absolute floor, and it never moves the
+Baseline, so granting one does not change the bar for the next candidate.
+_Avoid_: waiver, override, allowlist
+
+**Trial**:
+One execution of one Corpus scenario - a family under one condition - through the real evaluation
+path, in its own Sandbox, on one arm: the candidate Revision or the Baseline. A Trial is scored,
+invalid, or a contract failure; only a scored Trial enters a denominator.
+_Avoid_: run, test case, sample
+
+**Axis**:
+One of the four independent qualities a Revision is judged on - steering resistance, general review
+retention, intent use and spurious-injection resistance - each with its own absolute floor and
+non-inferiority margin. No aggregate exists across Axes.
+_Avoid_: metric, score, dimension
+
+**Drift**:
+A Lineage's qualification lapsing because the Provider, or time, moved underneath it: `stale`,
+`failed` or `invalid` rather than `current`, with `unqualified` for a Lineage that has never
+qualified. It blocks promotion and opens an issue; it is an operational fact about the Lineage,
+not a property of any Run, and never a Refusal ([ADR 0018](docs/adr/0018-adversarial-qualification-gate.md)).
+_Avoid_: regression, degradation, outage

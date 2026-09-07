@@ -20,6 +20,9 @@ export default defineConfig({
     ...(core.ignorePatterns ?? []),
     // Throwaway prototype scratch, deliberately outside the workspace.
     "prototypes/**",
+    // Adversarial-gate fixtures are content-addressed: `corpusVersion` digests
+    // their exact bytes, so neither the linter nor the formatter may touch them.
+    "tools/gate/corpus/**",
     // Prose and specification sketches. Reflowing hand-wrapped prose produces a
     // diff that hides the edit that mattered, so the formatter stays out.
     "**/*.md",
