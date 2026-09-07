@@ -10,6 +10,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { hashExecutionToken } from "../worker/execution-token.js";
 import { bootstrap } from "./bootstrap.js";
 import type { TestDatabase } from "./local-stack.test-support.js";
 import {
@@ -66,7 +67,7 @@ const seed = async (tx: TenantTransaction, ownerId: number): Promise<void> => {
     // rather than only over the ones that describe a Run.
     status: "claimed",
     claimedAt: new Date("2026-01-01T00:05:00.000Z"),
-    executionToken: `execution-token-for-${ownerId}`,
+    executionTokenHash: hashExecutionToken(`execution-token-for-${ownerId}`),
     executionExpiresAt: new Date("2026-01-01T00:15:00.000Z"),
     workerProtocolVersion: 1,
     workerBuildVersion: "0.0.0",
@@ -112,24 +113,24 @@ describe("two Owners through withOwner", () => {
   });
 
   it("hides the execution ownership a claim wrote from the other Owner", async () => {
-    // `executionToken` is what authorizes a submission against a Run, so a
-    // read that crossed the boundary would not merely leak a fact - it would
-    // hand one Owner the capability to submit into another's Run. The query
-    // carries no tenant predicate, exactly like the one above it.
-    const tokensFor = async (ownerId: number) => {
+    // `execution_token_hash` is what a submission is verified against, so a
+    // read that crossed the boundary would hand one Owner the material that
+    // decides another's submissions. The query carries no tenant predicate,
+    // exactly like the one above it.
+    const digestsFor = async (ownerId: number) => {
       const rows = await runtime.withOwner(ownerId, (tx) =>
         tx
-          .select({ executionToken: schema.run.executionToken })
+          .select({ executionTokenHash: schema.run.executionTokenHash })
           .from(schema.run)
       );
-      return rows.map((row) => row.executionToken);
+      return rows.map((row) => row.executionTokenHash);
     };
 
-    await expect(tokensFor(ACME)).resolves.toStrictEqual([
-      `execution-token-for-${ACME}`,
+    await expect(digestsFor(ACME)).resolves.toStrictEqual([
+      hashExecutionToken(`execution-token-for-${ACME}`),
     ]);
-    await expect(tokensFor(GLOBEX)).resolves.toStrictEqual([
-      `execution-token-for-${GLOBEX}`,
+    await expect(digestsFor(GLOBEX)).resolves.toStrictEqual([
+      hashExecutionToken(`execution-token-for-${GLOBEX}`),
     ]);
   });
 

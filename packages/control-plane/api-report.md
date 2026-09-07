@@ -2586,8 +2586,8 @@ export declare const run: import("drizzle-orm/pg-core").PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        executionToken: import("drizzle-orm/pg-core").PgColumn<{
-            name: "execution_token";
+        executionTokenHash: import("drizzle-orm/pg-core").PgColumn<{
+            name: "execution_token_hash";
             tableName: "run";
             dataType: "string";
             columnType: "PgText";
@@ -5447,6 +5447,33 @@ export interface WorkerClaimConfig {
  * @returns A function from a claim request to its grant or its refusal.
  */
 export declare const createWorkerClaimHandler: (config: WorkerClaimConfig) => ((request: Request) => Promise<Response>);
+```
+
+## dist/worker/execution-token.d.ts
+
+```ts
+/**
+ * Mints one execution token: 32 bytes from a CSPRNG, which is the same entropy
+ * a Worker credential carries and for the same reason - it is a bearer
+ * capability, and the only defence a bearer capability has is being
+ * unguessable.
+ *
+ * @returns The token to hand back in the grant. Never stored as it is.
+ */
+export declare const mintExecutionToken: () => string;
+/**
+ * The stored form of an execution token, and the form a presented one is
+ * reduced to before comparison.
+ *
+ * `sha256:<hex>` rather than a password KDF, on the same argument
+ * `hashWorkerSecret` makes: the token is 32 CSPRNG bytes rather than something
+ * a person chose, so no work factor defends a candidate space that does not
+ * exist, and a deliberate per-request delay would land on the submission path.
+ *
+ * @param token The minted execution token.
+ * @returns `sha256:` followed by the hex digest of the token.
+ */
+export declare const hashExecutionToken: (token: string) => string;
 ```
 
 ## dist/worker/run-spec.d.ts

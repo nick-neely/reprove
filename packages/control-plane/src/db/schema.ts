@@ -393,20 +393,22 @@ export const run = pgTable(
     /** When the claim succeeded. `executionExpiresAt` is measured from here. */
     claimedAt: timestamp("claimed_at", { withTimezone: true }),
     /**
-     * The execution currently authorized to submit against this Run, and
-     * deliberately not a `lease_token`: ADR 0015 renamed it because a hosted
-     * Worker holds no Lease and would otherwise carry one anyway.
+     * What the execution currently authorized to submit against this Run is
+     * recognized by, and deliberately not a `lease_token`: ADR 0015 renamed it
+     * because a hosted Worker holds no Lease and would otherwise carry one
+     * anyway.
      *
-     * Stored as it was minted rather than hashed, unlike `worker_credential`.
-     * The two differ in what a database read would buy an attacker: a Worker
-     * credential outlives every Run and reaches the whole scheduling surface,
-     * while this token authorizes one submission against one Run inside one
-     * bounded liveness window, and the control plane has to hand it back to the
-     * Worker at claim anyway. Hashing it would cost the same read a second
-     * round trip and secure nothing that is not already reachable from the same
-     * row.
+     * **Stored as `sha256:<hex>` over the minted token, never as the token**,
+     * which is the same posture `worker_credential.secret_hash` and
+     * `enrollment_code.code_hash` take and ADR 0006's rule for every credential
+     * this control plane holds. The plaintext is returned to the Worker exactly
+     * once, in the claim grant, and is not recoverable from the row afterwards:
+     * a database read or a backup would otherwise hand its reader a bearer
+     * token it could submit with until `executionExpiresAt`. Submission (#55)
+     * hashes the presented token and compares digests, so nothing needs the
+     * plaintext back.
      */
-    executionToken: text("execution_token"),
+    executionTokenHash: text("execution_token_hash"),
     /**
      * The control-plane liveness boundary for that execution, `claimedAt +
      * livenessFor`. Not from Run creation, not from `claimableUntil`. A

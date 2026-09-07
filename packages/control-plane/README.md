@@ -71,7 +71,7 @@ scoped differently from the queries that check it. `0003` completes ADR 0013's R
 
 `0005_run_lifecycle` adds `run.workflow_run_id` and is drizzle-kit's own output as well - one nullable `text` column, so it meets an existing row without needing anything of it. **It classifies nothing.** A column changes no table's tenancy and `run` was already a tenant table, so the classification the FORCE generator derives its delta from is the one it was already at, and it emits nothing where the two agree: **no FORCE delta follows `0005`**, and the absence is the generator's own answer rather than a step someone skipped.
 
-`0006_run_execution_ownership` adds ADR 0015's execution-ownership block to `run` - `claimed_at`, `execution_token`, `execution_expires_at`, `worker_id`, `worker_protocol_version`, `worker_build_version` - plus the index a poll reads through and a unique index on `worker_credential (owner_id, secret_hash)`. Drizzle-kit's own output again, six nullable columns and two indexes, so it meets existing rows without needing anything of them, and it classifies nothing for the same reason `0005` did not. **`worker_id` carries no foreign key**, and that is the composite rule of `src/db/schema.ts` rather than an exception to it: a Run records its Worker as audit, so deleting a Worker must not cascade into the Runs it executed, and the correct constraint - a composite `(owner_id, worker_id)` reference with `ON DELETE SET NULL (worker_id)` - needs a PostgreSQL 15 column list that drizzle-kit 0.31 cannot emit. Without the list the clause would null `owner_id` too, which is `NOT NULL`, so a Worker deletion would fail rather than release. Same posture as `workflow_run_id` beside it.
+`0006_run_execution_ownership` adds ADR 0015's execution-ownership block to `run` - `claimed_at`, `execution_token_hash`, `execution_expires_at`, `worker_id`, `worker_protocol_version`, `worker_build_version` - plus the index a poll reads through and a unique index on `worker_credential (owner_id, secret_hash)`. Drizzle-kit's own output again, six nullable columns and two indexes, so it meets existing rows without needing anything of them, and it classifies nothing for the same reason `0005` did not. **`worker_id` carries no foreign key**, and that is the composite rule of `src/db/schema.ts` rather than an exception to it: a Run records its Worker as audit, so deleting a Worker must not cascade into the Runs it executed, and the correct constraint - a composite `(owner_id, worker_id)` reference with `ON DELETE SET NULL (worker_id)` - needs a PostgreSQL 15 column list that drizzle-kit 0.31 cannot emit. Without the list the clause would null `owner_id` too, which is `NOT NULL`, so a Worker deletion would fail rather than release. Same posture as `workflow_run_id` beside it.
 
 All of it is ordinary Vitest - `declared.test.ts`, `force.test.ts`, `force-generate.test.ts` - beside `tools/verify-migrations.mjs`, which is the Git-aware half that proves history was only appended to. None of it sees a database: what actually deployed is `createRuntimeDb()`'s seven checks, and that division is ADR 0017's, not an omission.
 
@@ -468,8 +468,9 @@ credentials once did.
 
 ```text
 update run
-  set status = 'claimed', claimed_at, execution_token, execution_expires_at,
-      worker_id, worker_protocol_version, worker_build_version
+  set status = 'claimed', claimed_at, execution_token_hash,
+      execution_expires_at, worker_id, worker_protocol_version,
+      worker_build_version
 where <the Run, or the oldest claimable one>
   and status = 'queued'
   and claimable_until > now
@@ -532,6 +533,13 @@ executionToken       identifies the execution authorized to submit. Both placeme
 executionExpiresAt   the control-plane liveness boundary for it.     Both placements.
 Lease                a self-hosted Worker's renewable hold, allowed to advance the boundary.
 ```
+
+**The row holds `execution_token_hash`, never the token.** The token is a bearer capability good
+against one Run until `executionExpiresAt`, so it is stored the way every other credential here is -
+`sha256:<hex>`, the same convention `worker_credential.secret_hash` takes - and the plaintext is
+returned to the Worker exactly once, in the claim grant. A database read or a backup therefore yields
+a digest rather than something its reader could submit with, and submission (#55) hashes what is
+presented before comparing.
 
 `executionExpiresAt = claimedAt + livenessFor`, from the injected `Phase0RunProfile` and not from Run
 creation, not from `claimableUntil`, and not from whenever execution happens to begin. The duration

@@ -4,8 +4,9 @@
  *
  * ```text
  * update run
- *   set status = 'claimed', claimed_at, execution_token, execution_expires_at,
- *       worker_id, worker_protocol_version, worker_build_version
+ *   set status = 'claimed', claimed_at, execution_token_hash,
+ *       execution_expires_at, worker_id, worker_protocol_version,
+ *       worker_build_version
  * where <the Run, or the oldest claimable one>
  *   and status = 'queued'
  *   and claimable_until > now
@@ -61,8 +62,6 @@
  * reachable in Phase 0 (ADR 0013), and pre-empting the gate here would put the
  * authoritative view on the wrong side of the seam.
  */
-import { randomBytes } from "node:crypto";
-
 import { protocolVersion } from "@reprove/protocol/v1";
 import { and, eq, gt, sql } from "drizzle-orm";
 
@@ -74,10 +73,8 @@ import type {
   ClaimOutcome,
   ClaimRefusal,
 } from "./claim-outcome.js";
+import { hashExecutionToken, mintExecutionToken } from "./execution-token.js";
 import { runSpecOf } from "./run-spec.js";
-
-/** The bytes of entropy behind one execution token. */
-const TOKEN_BYTES = 32;
 
 /**
  * What a Run id looks like, checked before it reaches a `uuid` column.
@@ -129,14 +126,6 @@ export interface RunClaim {
    */
   readonly worker: ClaimingParty;
 }
-
-/**
- * The default token: 32 bytes from a CSPRNG, which is the same entropy a Worker
- * credential carries and for the same reason - it is a bearer capability, and
- * the only defence a bearer capability has is being unguessable.
- */
-const mintExecutionToken = (): string =>
-  randomBytes(TOKEN_BYTES).toString("base64url");
 
 /**
  * The Repositories of this Owner that record a live grant, as a set the claim
@@ -293,7 +282,10 @@ export const claimRun = async (
     .set({
       status: "claimed",
       claimedAt: now,
-      executionToken,
+      // The digest, never the token. The plaintext leaves this function once,
+      // in the grant below, and the row keeps nothing a reader could submit
+      // with.
+      executionTokenHash: hashExecutionToken(executionToken),
       executionExpiresAt,
       // Null for the hosted placement, in all three. ADR 0015 makes the token
       // and the deadline placement-neutral and stops there: a hosted Worker

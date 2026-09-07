@@ -38,6 +38,7 @@ import { claimRun } from "./claim.js";
 import { WORKER_PROTOCOL_SUPPORT } from "./compatibility.js";
 import { hashWorkerSecret, mintWorkerCredential } from "./credential.js";
 import { createWorkerClaimHandler } from "./endpoint.js";
+import { hashExecutionToken } from "./execution-token.js";
 
 const DATABASE = "reprove_test_worker_claim";
 
@@ -274,11 +275,37 @@ describe("claiming a Run", () => {
       await expect(runRow(ACME, runId)).resolves.toMatchObject({
         status: "claimed",
         claimedAt: NOW,
-        executionToken: TOKEN,
+        executionTokenHash: hashExecutionToken(TOKEN),
         workerId: acmeWorker,
         workerProtocolVersion: WORKER_PROTOCOL_SUPPORT.current,
         workerBuildVersion: BUILD,
       });
+    });
+
+    it("keeps no plaintext of the execution token anywhere in the row", async () => {
+      // The grant is the token's one and only appearance. A database read or a
+      // backup that yielded it would yield a bearer capability good against
+      // this Run until `executionExpiresAt`, so the row holds the digest and
+      // the whole row is searched rather than only the column that should
+      // hold it.
+      const runId = await seedRun(ACME);
+
+      const response = await handle(
+        claiming(acmeCredential.credential, {
+          protocolVersion: WORKER_PROTOCOL_SUPPORT.current,
+          workerBuildVersion: BUILD,
+          runId,
+        })
+      );
+
+      const grant = claimSchemas.grant.parse(await response.json());
+      expect(grant.executionToken).toBe(TOKEN);
+      const stored = await database.admin<{ execution_token_hash: string }>(
+        `select * from run where id = '${runId}'`
+      );
+      const serialized = JSON.stringify(stored);
+      expect(serialized).not.toContain(TOKEN);
+      expect(serialized).toContain(hashExecutionToken(TOKEN));
     });
 
     it("measures the liveness boundary from claimedAt and from nothing else", async () => {
@@ -320,10 +347,16 @@ describe("claiming a Run", () => {
       const outcome = await claimHosted(ACME, runId);
 
       expect(outcome.kind).toBe("granted");
+      // Placement-neutral in both halves: hosted dispatch is handed the
+      // plaintext token the same way a self-hosted Worker is, and the row keeps
+      // only the digest either way.
+      expect(
+        outcome.kind === "granted" ? outcome.grant.executionToken : null
+      ).toBe(TOKEN);
       await expect(runRow(ACME, runId)).resolves.toMatchObject({
         status: "claimed",
         claimedAt: NOW,
-        executionToken: TOKEN,
+        executionTokenHash: hashExecutionToken(TOKEN),
         executionExpiresAt: new Date(NOW.getTime() + PHASE_0_LIVENESS_FOR_MS),
         workerId: null,
         workerProtocolVersion: null,
@@ -354,7 +387,7 @@ describe("claiming a Run", () => {
         reason: "already_claimed",
       });
       const held = await runRow(ACME, runId);
-      expect(held?.executionToken).toBe(TOKEN);
+      expect(held?.executionTokenHash).toBe(hashExecutionToken(TOKEN));
     });
 
     it("loses the race exactly once when both arrive at the same time", async () => {
@@ -400,7 +433,7 @@ describe("claiming a Run", () => {
       await expect(runRow(ACME, runId)).resolves.toMatchObject({
         status: "queued",
         claimedAt: null,
-        executionToken: null,
+        executionTokenHash: null,
         executionExpiresAt: null,
       });
     });
@@ -446,7 +479,7 @@ describe("claiming a Run", () => {
       await expect(runRow(ACME, runId)).resolves.toMatchObject({
         status: "queued",
         claimedAt: null,
-        executionToken: null,
+        executionTokenHash: null,
         executionExpiresAt: null,
         workerId: null,
       });
@@ -526,7 +559,7 @@ describe("claiming a Run", () => {
       });
       await expect(runRow(ACME, runId)).resolves.toMatchObject({
         status: "queued",
-        executionToken: null,
+        executionTokenHash: null,
       });
     });
   });

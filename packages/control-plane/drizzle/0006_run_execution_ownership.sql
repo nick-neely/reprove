@@ -1,5 +1,5 @@
 ALTER TABLE "run" ADD COLUMN "claimed_at" timestamp with time zone;--> statement-breakpoint
-ALTER TABLE "run" ADD COLUMN "execution_token" text;--> statement-breakpoint
+ALTER TABLE "run" ADD COLUMN "execution_token_hash" text;--> statement-breakpoint
 ALTER TABLE "run" ADD COLUMN "execution_expires_at" timestamp with time zone;--> statement-breakpoint
 ALTER TABLE "run" ADD COLUMN "worker_id" uuid;--> statement-breakpoint
 ALTER TABLE "run" ADD COLUMN "worker_protocol_version" integer;--> statement-breakpoint
