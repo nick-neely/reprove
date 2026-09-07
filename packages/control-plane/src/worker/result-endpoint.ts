@@ -8,13 +8,30 @@
  * from running too early:
  *
  * ```text
- * read the body under a hard cap           -> 413
+ * read the body under a hard cap           -> 413  oversized
  * authenticate                (txn 1)      -> 401
- * parse the envelope                       -> 422
+ * parse the envelope                       -> 422  malformed
  * check the protocol version               -> 426
- * parse the Result                         -> 422
+ * measure the Result against its own bound -> 413  oversized
+ * parse the Result                         -> 422  malformed
  * accept                      (txn 2)      -> 200 | 404 | 409 | 422
  * ```
+ *
+ * **Two caps, both answering `oversized`.** ADR 0006 bounds the Result and this
+ * endpoint bounds the body, which is the Result plus an envelope, so there is a
+ * band between them: a Result over its own bound inside a body under the outer
+ * cap. Left to `resultSchema` that band comes back as a schema failure, and ADR
+ * 0016 names it `oversized` - a different instruction to a Worker than "your
+ * payload is malformed", because ADR 0006 requires an oversized submission to be
+ * "rejected rather than upgraded into a streaming or artifact protocol". So the
+ * inner bound is measured here, and both refusals carry the `limit` they broke.
+ *
+ * The inner measurement is **after** the compatibility check rather than before
+ * it, which is the one place this order departs from listing the cheapest check
+ * first. A Worker outside the served window has an upgrade to install whatever
+ * else is wrong with its payload, and ADR 0006 makes naming that the control
+ * plane's obligation; telling it its Result was too big would answer a question
+ * it has not reached yet.
  *
  * **Authentication runs before the body is read for meaning**, which is the
  * order `endpoint.ts` and `github/webhook.ts` both give: a request Reprove
@@ -38,6 +55,7 @@
  * The refusal body is `{ status, reason }`, like the claim's, and carries
  * nothing a stranger can use.
  */
+import type { ResultSubmission } from "@reprove/protocol/v1";
 import {
   protocolLimits,
   resultSchema,
@@ -89,6 +107,25 @@ const answer = (
   detail: Readonly<Record<string, number>> = {}
 ): Response => Response.json({ status, reason, ...detail }, { status });
 
+/**
+ * A refusal naming the cap it broke, which is the one refusal that is worth a
+ * number: a Worker cannot shrink a payload it has not been told the size of.
+ */
+const oversized = (limit: number): Response =>
+  answer(WORKER_RESULT_STATUS.oversized, "oversized", { limit });
+
+/**
+ * The bytes `resultSchema`'s own bound is measured over, computed the same way
+ * `boundedJsonSchema` computes it so the two cannot disagree about a payload on
+ * the edge. The bound itself is read from `protocolLimits`, so there is one
+ * figure rather than two.
+ *
+ * Unknown additive fields count, deliberately: they are bytes that crossed, and
+ * the schema counts them too before Zod strips them for forward compatibility.
+ */
+const resultBytesOf = (submission: ResultSubmission): number =>
+  Buffer.byteLength(JSON.stringify(submission.result ?? null), "utf-8");
+
 /** Which status a named rejection answers with. */
 const statusOf = (reason: ResultRejection): number =>
   reason === "unknown_run"
@@ -120,10 +157,7 @@ export const createWorkerResultHandler = (
   const handle = async (request: Request, runId: string): Promise<Response> => {
     const body = await readBoundedBody(request, maximumBytes);
     if (body.kind === "oversized") {
-      return answer(
-        WORKER_RESULT_STATUS.oversized,
-        `a Result submission may not exceed ${body.limit} bytes`
-      );
+      return oversized(body.limit);
     }
 
     let worker: WorkerIdentity | null;
@@ -168,6 +202,10 @@ export const createWorkerResultHandler = (
         // version, because telling that one to upgrade would be false.
         { minimum: compatibility.minimum, current: compatibility.current }
       );
+    }
+
+    if (resultBytesOf(submission) > protocolLimits.resultBytes) {
+      return oversized(protocolLimits.resultBytes);
     }
 
     const parsed = resultSchema.safeParse(submission.result);

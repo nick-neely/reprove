@@ -281,6 +281,44 @@ describe("what never reaches Acceptance", () => {
     );
 
     expect(response.status).toBe(WORKER_RESULT_STATUS.oversized);
+    await expect(response.json()).resolves.toMatchObject({
+      reason: "oversized",
+      limit: MAXIMUM_SUBMISSION_BYTES,
+    });
+    expect(submissions).toStrictEqual([]);
+  });
+
+  it("names a Result over its own bound oversized, not malformed", async () => {
+    // The band between the two caps is the one an envelope creates: a Result
+    // above `protocolLimits.resultBytes` and a body still under
+    // `MAXIMUM_SUBMISSION_BYTES` passes the body cap and would otherwise be
+    // refused by `resultSchema`'s own bound as a schema failure. ADR 0016 names
+    // that band `oversized`, and ADR 0006 requires an oversized submission be
+    // rejected rather than upgraded into a streaming protocol - which is a
+    // different instruction to a Worker than "your payload is malformed".
+    const { handle, submissions } = handlerOver({});
+    const padded = {
+      ...RESULT,
+      // An additive field rather than an over-long `summary`, so size is the
+      // only thing wrong with it: the endpoint answers before parsing, and this
+      // way nothing else could have produced the refusal.
+      futureOptionalField: "x".repeat(protocolLimits.resultBytes),
+    };
+    const body = JSON.stringify({ ...ENVELOPE, result: padded });
+    expect(Buffer.byteLength(JSON.stringify(padded), "utf-8")).toBeGreaterThan(
+      protocolLimits.resultBytes
+    );
+    expect(Buffer.byteLength(body, "utf-8")).toBeLessThan(
+      MAXIMUM_SUBMISSION_BYTES
+    );
+
+    const response = await handle(sendingRaw(body), RUN);
+
+    expect(response.status).toBe(WORKER_RESULT_STATUS.oversized);
+    await expect(response.json()).resolves.toMatchObject({
+      reason: "oversized",
+      limit: protocolLimits.resultBytes,
+    });
     expect(submissions).toStrictEqual([]);
   });
 
