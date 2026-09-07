@@ -66,6 +66,7 @@ describe("the committed migration history", () => {
       // the Run, written once by whichever writer gets there first.
       // Classification is untouched, so the generator had nothing to append.
       ["0005_run_lifecycle", "drizzle"],
+      ["0006_run_execution_ownership", "drizzle"],
     ]);
   });
 
