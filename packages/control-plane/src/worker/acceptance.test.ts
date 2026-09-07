@@ -582,12 +582,19 @@ describe("accepting a Result", () => {
         reason: "not_eligible",
       });
       // Rejected rather than reviving it: the Run stays exactly as the
-      // transition left it, with no Result absorbed.
+      // transition left it, with no Result absorbed and no Findings written.
       const row = await runRow(ACME, runId);
-      expect(row?.status).toBe("failed");
-      expect(row?.acceptedAt).toBeNull();
-      expect(row?.resultSummary).toBeNull();
-      await expect(findingRows(ACME, runId)).resolves.toStrictEqual([]);
+      expect({
+        acceptedAt: row?.acceptedAt,
+        findings: await findingRows(ACME, runId),
+        status: row?.status,
+        summary: row?.resultSummary,
+      }).toStrictEqual({
+        acceptedAt: null,
+        findings: [],
+        status: "failed",
+        summary: null,
+      });
     });
 
     it("leaves an accepted Run alone when the watchdog arrives second", async () => {
@@ -628,17 +635,20 @@ describe("accepting a Result", () => {
       const acceptedWon = accepted.status === WORKER_RESULT_STATUS.accepted;
       expect(acceptedWon).not.toBe(lost.terminalized);
 
+      // Asserted as one shape rather than as two branches, so that whichever
+      // way the race fell the row is checked against the *whole* of what the
+      // winner should have left - a Run cannot end `completed` carrying a
+      // failure reason, nor `failed` carrying an accepted Result.
       const row = await runRow(ACME, runId);
-      if (acceptedWon) {
-        expect(row?.status).toBe("completed");
-        expect(row?.failureReason).toBeNull();
-      } else {
-        expect(row?.status).toBe("failed");
-        expect(row?.acceptedAt).toBeNull();
-        await expect(accepted.json()).resolves.toMatchObject({
-          reason: "not_eligible",
-        });
-      }
+      expect({
+        acceptedResult: row?.acceptedAt !== null,
+        failure: row?.failureReason,
+        status: row?.status,
+      }).toStrictEqual(
+        acceptedWon
+          ? { acceptedResult: true, failure: null, status: "completed" }
+          : { acceptedResult: false, failure: "worker_lost", status: "failed" }
+      );
     });
   });
 
