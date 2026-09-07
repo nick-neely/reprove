@@ -5408,7 +5408,7 @@ export interface AcceptanceConfig {
  * 0008 rule 1: application scoping **plus** RLS, "not either alone".
  *
  * @param ownerId The submitting Owner.
- * @param runId The Run, already checked against {@link RUN_ID}.
+ * @param runId The Run, already checked with `isRunId`.
  * @param executionTokenHash The stored form of the presented token.
  * @returns The window, as a predicate an UPDATE may carry.
  */
@@ -5835,6 +5835,104 @@ export declare const mintExecutionToken: () => string;
 export declare const hashExecutionToken: (token: string) => string;
 ```
 
+## dist/worker/http.d.ts
+
+```ts
+import type { WorkerIdentity } from "./authenticate.js";
+/** A response carrying a reason a person can read and nothing a stranger can use. */
+export declare const answer: (status: number, reason: string, detail?: Readonly<Record<string, number>>) => Response;
+/**
+ * Which status a named refusal answers with.
+ *
+ * `unknown_run` is the only one that is a `404`, on both endpoints and for the
+ * same reason: it is the answer for a Run this Owner does not hold, which
+ * includes a Run another Owner holds, because the probe that names it runs
+ * inside `withOwner` and cannot see across the boundary.
+ *
+ * @param reason The named refusal.
+ * @param unknownRun The endpoint's `404`.
+ * @param refused The endpoint's `409`.
+ * @returns The status to answer with.
+ */
+export declare const refusalStatus: (reason: string, unknownRun: number, refused: number) => number;
+/**
+ * One decoded JSON body, before any schema has been applied to it. It is what
+ * `JSON.parse` produced and nothing more, which is exactly what a schema is
+ * handed.
+ */
+export type DecodedBody = string | number | boolean | null | readonly DecodedBody[] | {
+    readonly [key: string]: DecodedBody;
+};
+/** The shape of a failed Zod parse, named structurally so this file imports no schema. */
+export interface ParseIssues {
+    readonly issues: readonly {
+        readonly path: readonly PropertyKey[];
+        readonly message: string;
+    }[];
+}
+/** Every field a schema could not read, named, as one line. */
+export declare const fieldsOf: (error: ParseIssues) => string;
+/** What a schema answers, as much of it as this module needs to know. */
+export type ParseOutcome<Payload> = {
+    readonly success: true;
+    readonly data: Payload;
+} | {
+    readonly success: false;
+    readonly error: ParseIssues;
+};
+/** The statuses the shared preamble answers with, as each endpoint spells them. */
+export interface WorkerRequestStatuses {
+    readonly unauthenticated: number;
+    readonly malformed: number;
+    readonly incompatible: number;
+}
+/** What reading one authenticated Worker request is composed over. */
+export interface WorkerRequestConfig<Payload> {
+    readonly request: Request;
+    /** The largest body to accept, before anything is read for meaning. */
+    readonly maximumBytes: number;
+    /** Transaction one: verify the credential, and nothing else. */
+    readonly authenticate: (authorization: string | null) => Promise<WorkerIdentity | null>;
+    /** The endpoint's own request schema, as a function so this file names none. */
+    readonly parse: (body: DecodedBody) => ParseOutcome<Payload>;
+    /** Where the compatibility check reads the advertised version from. */
+    readonly versionOf: (payload: Payload) => number;
+    readonly statuses: WorkerRequestStatuses;
+    /** The endpoint's own refusal for a body over the cap. */
+    readonly onOversized: (limit: number) => Response;
+    /** The endpoint's own answer when the pre-authentication transaction could not run. */
+    readonly onUnavailable: () => Response;
+}
+/** An authenticated, compatible, well-formed request, or the answer that ended it. */
+export type WorkerRequest<Payload> = {
+    readonly kind: "answered";
+    readonly response: Response;
+} | {
+    readonly kind: "ready";
+    readonly worker: WorkerIdentity;
+    readonly payload: Payload;
+};
+/**
+ * Reads one Worker request as far as every Worker endpoint reads it the same
+ * way, and no further.
+ *
+ * **Authentication runs before the body is read for meaning**, which is the
+ * order `github/webhook.ts` gives for a signature: a request Reprove cannot
+ * attribute is not a claim and is not a submission, and nothing about what it
+ * says it is is worth acting on. It costs one transaction against a garbage
+ * body and buys that the request schema is not a surface a stranger can probe.
+ *
+ * **The compatibility check runs last here, and therefore before either
+ * endpoint's own transaction opens.** ADR 0006 requires that a Worker below
+ * `minimum` "does not claim Runs", and handing one a payload it cannot read and
+ * letting it refuse afterwards is a different and weaker guarantee.
+ *
+ * @param config The request, the cap, the authenticator and the schema.
+ * @returns The Worker and its parsed payload, or the response that refused it.
+ */
+export declare const readWorkerRequest: <Payload>(config: WorkerRequestConfig<Payload>) => Promise<WorkerRequest<Payload>>;
+```
+
 ## dist/worker/result-endpoint.d.ts
 
 ```ts
@@ -5872,6 +5970,18 @@ export interface WorkerResultConfig {
  * @returns A function from a submission and its Run id to the answer.
  */
 export declare const createWorkerResultHandler: (config: WorkerResultConfig) => ((request: Request, runId: string) => Promise<Response>);
+```
+
+## dist/worker/run-id.d.ts
+
+```ts
+/**
+ * Whether a Worker-supplied Run id is one this schema could hold.
+ *
+ * @param runId The id as it arrived, unvalidated.
+ * @returns Whether it is shaped like the `uuid` column it would be compared to.
+ */
+export declare const isRunId: (runId: string) => boolean;
 ```
 
 ## dist/worker/run-spec.d.ts
