@@ -30,3 +30,16 @@ beside the `RunSpec` rather than inside it
 ([ADR 0015](../../docs/adr/0015-execution-ownership-and-worker-liveness.md)):
 the spec is fixed at Run creation, and execution ownership is created by the
 claim, so a Run claimed twice would have one spec and two executions.
+
+`submissionSchemas` is the other half of that exchange, and it sits outside
+`protocolSchemas` for the same reason. A submission is an envelope: the
+`executionToken` the claim handed back, an optional `idempotencyKey`, a plain
+integer `protocolVersion`, and the `Result` itself left **unparsed**. That last
+part is the decision. `resultSchema` pins `protocolVersion` to this family with a
+literal, so parsing the Result as part of the envelope would report a Worker
+outside the served window as malformed rather than as `upgrade_required`; the
+control plane therefore reads the envelope, checks the window, and runs
+`resultSchema` afterwards. The key is optional and enforces nothing:
+[ADR 0006](../../docs/adr/0006-worker-protocol.md) makes it "a convenience for
+network retry" and says in the same sentence that it "must not" be what enforces
+at most one accepted terminal Result.

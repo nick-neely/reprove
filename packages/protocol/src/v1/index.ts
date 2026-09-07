@@ -366,6 +366,50 @@ export const claimSchemas = {
   grant: claimGrantSchema,
 } as const;
 
+/**
+ * What a Worker sends when it submits a Result, and the three decisions in it.
+ *
+ * **`protocolVersion` is a plain positive integer here, and a literal inside
+ * `result`.** ADR 0006 requires a Worker outside the served window to receive a
+ * structured `upgrade_required` rather than to be told its request was
+ * malformed, and the control plane can only answer that if it can read the
+ * version before it parses the payload. So the envelope carries the version and
+ * `result` stays **unparsed** at this level: the endpoint checks the window
+ * first and runs `resultSchema` afterwards. Nesting the Result here would make
+ * an incompatible Worker's honest self-description a schema failure, which is
+ * the exact trap `claimRequestSchema` documents one message earlier.
+ *
+ * **`executionToken` travels beside the Result rather than inside it**, for the
+ * same reason `claimGrantSchema` puts it beside the `RunSpec`: it identifies the
+ * execution authorized to submit, and a Run claimed twice has one Result shape
+ * and two executions.
+ *
+ * **`idempotencyKey` is optional and enforces nothing.** ADR 0006 is explicit
+ * that "a Worker-supplied idempotency key on Result submission is a convenience
+ * for network retry and must not be what enforces" at-most-one-accepted-Result.
+ * It exists so a Worker's retry logic has somewhere to put it; the control
+ * plane's conditional UPDATE is what makes the retry safe.
+ */
+export const resultSubmissionSchema = z.object({
+  protocolVersion: z.number().int().positive(),
+  executionToken: z.string().min(1).max(256),
+  idempotencyKey: z.string().min(1).max(128).optional(),
+  result: z.unknown(),
+});
+
+/**
+ * The submission exchange, as one named pair with one member so far.
+ *
+ * It sits beside {@link protocolSchemas} for the reason {@link claimSchemas}
+ * does: that constant is the three payloads a Run's *content* crosses on, and a
+ * compatibility test asserts its three keys exactly. The response to a
+ * submission is a status and a reason rather than a payload, so there is
+ * nothing on the other side of this pair to name.
+ */
+export const submissionSchemas = {
+  request: resultSubmissionSchema,
+} as const;
+
 /** A Worker's pre-execution decision that it cannot serve the offered Run. */
 export const refusalSchema = z.object({
   runId: z.string().min(1),
@@ -395,6 +439,7 @@ export type Provenance = z.infer<typeof provenanceSchema>;
 export type Refusal = z.infer<typeof refusalSchema>;
 export type ResolvedConfig = z.infer<typeof resolvedConfigSchema>;
 export type Result = z.infer<typeof resultSchema>;
+export type ResultSubmission = z.infer<typeof resultSubmissionSchema>;
 export type RunSpec = z.infer<typeof runSpecSchema>;
 export type Severity = z.infer<typeof severitySchema>;
 export type Usage = z.infer<typeof usageSchema>;
