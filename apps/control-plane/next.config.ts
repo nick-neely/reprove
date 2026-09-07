@@ -16,9 +16,13 @@ const nextConfig: NextConfig = {
   // committed files that produced them, read from the folder beside the
   // module at run time. File tracing follows imports and cannot see a
   // `readFileSync`, so the folder is named here for every route that composes
-  // the control plane - the webhook, and the step route the World drives.
+  // the control plane - the webhook, the Worker claim, and the step route the
+  // World drives. A route left out of this map builds and then refuses to boot,
+  // which is why `tools/verify-workflow-build.mjs` asserts each one's output
+  // trace rather than trusting the list.
   outputFileTracingIncludes: {
     "/api/github/webhook": ["../../packages/control-plane/drizzle/**"],
+    "/api/worker/runs/claim": ["../../packages/control-plane/drizzle/**"],
     "/.well-known/workflow/v1/step": [
       "../../packages/control-plane/drizzle/**",
     ],
