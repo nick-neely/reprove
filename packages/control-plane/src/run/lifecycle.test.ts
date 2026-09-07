@@ -458,11 +458,14 @@ describe("a Run's lifecycle, as the database arbitrates it", () => {
       const inserted = await Promise.all(
         held.map((status, index) => insertRun(status, 700 + index))
       );
+      // Every Run in the table, which is exactly the ones just inserted: the
+      // `beforeEach` empties it. Each carries the recorded lifecycle, the
+      // current token and an elapsed deadline, so **status is the only thing
+      // the predicate can be refusing on**.
       await database.admin(
         `update run set workflow_run_id = '${LIFECYCLE}',
            execution_token_hash = '${hashExecutionToken(TOKEN)}',
-           execution_expires_at = '${EXPIRED.toISOString()}'
-         where status <> 'queued' or status = 'queued'`
+           execution_expires_at = '${EXPIRED.toISOString()}'`
       );
 
       const outcomes = await Promise.all(
