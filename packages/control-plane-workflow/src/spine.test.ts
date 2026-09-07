@@ -203,10 +203,18 @@ const shortWindowRun = async (): Promise<{
  * real hosted claim so that every execution-ownership column is written the way
  * a claim writes them - together, in one statement.
  *
- * Only the two durations are moved (ADR 0016): the loop, the durable sleep and
+ * Only **one** duration is moved (ADR 0016): the loop, the durable sleep and
  * the conditional UPDATE are all the real ones. A fake clock was rejected
  * upstream because Workflow's own `sleep` runs on wall time, so a control plane
  * advancing one would disagree with the schedule it is supposed to be testing.
+ *
+ * **`claimableForMs` keeps its Phase 0 value on purpose.** It is measured from
+ * Run creation, and the claim below happens after `processDelivery` has taken
+ * the advisory lock, fetched canonical state and inserted the Run - so a short
+ * claim window here would be a race between this helper and its own setup, and
+ * a slow runner would fail at `claim_window_closed` before reaching the state
+ * every case using this actually wants. Nothing here watches the claim window
+ * close; `shortWindowRun` is what does that, and it is the one that shortens it.
  */
 const shortLivenessRun = async (): Promise<{
   runId: string;
@@ -221,7 +229,6 @@ const shortLivenessRun = async (): Promise<{
   });
   const shortProfile: Phase0RunProfile = {
     ...PHASE_0_RUN_PROFILE,
-    claimableForMs: SHORT_WINDOW_MS,
     livenessForMs: SHORT_WINDOW_MS,
   };
   const short = await createControlPlane({
