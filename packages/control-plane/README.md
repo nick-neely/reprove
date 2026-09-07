@@ -585,21 +585,34 @@ loses its network, or returns from a partition holding a Run declared lost twent
 rather than against one that is merely slow.
 
 ```text
-read the body under a hard cap        -> 413  oversized
-authenticate               (txn 1)    -> 401
-parse the envelope                    -> 422  malformed
-check the protocol version            -> 426  upgrade_required | unsupported_protocol_version
-parse the Result                      -> 422  malformed
-accept                     (txn 2)    -> 200 | 404 | 409 | 422
+read the body under a hard cap           -> 413  oversized
+authenticate                  (txn 1)    -> 401
+parse the envelope                       -> 422  malformed
+check the protocol version               -> 426  upgrade_required | unsupported_protocol_version
+measure the Result against its own bound -> 413  oversized
+parse the Result                         -> 422  malformed
+accept                        (txn 2)    -> 200 | 404 | 409 | 422
 ```
 
 The two transactions are the claim's, unchanged: the pre-authentication transaction verifies the
 credential and does nothing else, and Acceptance opens a second `withOwner` only once it has answered.
-The cap is `protocolLimits.resultBytes + 8 KiB`, because ADR 0006 bounds the *Result* and the body is
-the Result plus an envelope - capping the body at the Result's own figure would refuse a Result that
-is exactly within its bound. Both bounds are real, and `readBoundedBody` is the one that abandons the
-stream rather than accumulating and then measuring, which is what makes "rejected rather than
-truncated" a statement about the bytes.
+
+**Two caps, both answering `oversized`.** The outer one is `protocolLimits.resultBytes + 8 KiB`,
+because ADR 0006 bounds the *Result* and the body is the Result plus an envelope - capping the body at
+the Result's own figure would refuse a Result that is exactly within its bound. That leaves a band
+between them, and left to `resultSchema` the band comes back as a schema failure: ADR 0016 names it
+`oversized`, which is a different instruction to a Worker than "your payload is malformed", because
+ADR 0006 requires an oversized submission to be *"rejected rather than upgraded into a streaming or
+artifact protocol"*. So the inner bound is measured here too, the same way `boundedJsonSchema`
+measures it and against the same `protocolLimits` figure, and both refusals carry the `limit` they
+broke - a Worker cannot shrink a payload it has not been told the size of. `readBoundedBody` is the
+one that abandons the stream rather than accumulating and then measuring, which is what makes
+"rejected rather than truncated" a statement about the bytes.
+
+The inner measurement sits **after** the compatibility check rather than before it, which is the one
+place this order departs from cheapest-first. A Worker outside the served window has an upgrade to
+install whatever else is wrong with its payload, and ADR 0006 makes naming that the control plane's
+obligation.
 
 ### The envelope exists so that the version can be read first
 
@@ -694,7 +707,12 @@ Reconciliation, which is cross-Run and belongs to the phase that publishes a Rev
 One rejection is a `422` rather than a name: ADR 0007 rejects a `Patch` at acceptance under any
 Autonomy but `fix`, and that is a statement about the payload measured against the Run's immutable
 spec rather than a seventh entry in ADR 0016's fixed rejection set. The read it needs is issued only
-when the payload actually carries a Patch, so an ordinary submission pays nothing for it.
+when the payload actually carries a Patch, so an ordinary submission pays nothing for it - and it is
+**scoped by the whole eligibility predicate, token included**. On the Run id alone it would answer a
+caller that cannot submit at all, so a rotated token or an already-ended Run would learn the Run's
+Autonomy by sending a Patch, ahead of the rejection order that exists to prevent exactly that. Where
+the predicate matches nothing this says nothing, and the ordinary statement and re-probe name
+`unknown_run`, `not_eligible` or `execution_mismatch` as they would for any other Result.
 
 **Acceptance decides, and notification follows.** Nothing here wakes the lifecycle: ADR 0014 puts the
 database transition first and the notification after it, so a Run's terminal state never depends on a
