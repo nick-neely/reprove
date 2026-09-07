@@ -143,6 +143,33 @@ export const LIVE_RUN_STATUSES = [
 export type LiveRunStatus = (typeof LIVE_RUN_STATUSES)[number];
 
 /**
+ * The statuses over which a Run may still accept a Result, and the status half
+ * of [ADR 0015](../../../../docs/adr/0015-execution-ownership-and-worker-liveness.md)'s
+ * eligibility window:
+ *
+ * ```text
+ * Result-eligible Run = status IN (claimed, executing)
+ *                     + acceptedAt IS NULL
+ *                     + executionToken matches
+ * ```
+ *
+ * The ADR requires that window be "defined **once** and shared, never
+ * restated", because Acceptance and the liveness termination that ends an
+ * abandoned Run (#56) are two conditional updates racing over exactly it. A
+ * detector scoped more narrowly than Acceptance leaves the guarantee holed, and
+ * the hole is reachable rather than theoretical.
+ *
+ * It excludes `queued` deliberately: a Run that was never claimed has no
+ * execution to submit on behalf of, and `claimableUntil` is what ends it.
+ */
+export const RESULT_ELIGIBLE_RUN_STATUSES = [
+  "claimed",
+  "executing",
+] as const satisfies readonly RunStatus[];
+export type ResultEligibleRunStatus =
+  (typeof RESULT_ELIGIBLE_RUN_STATUSES)[number];
+
+/**
  * `run.cancellation_reason`, on `cancelled`.
  *
  * Both come from ADR 0013's trigger table - "`closed` | cancel the live Run;

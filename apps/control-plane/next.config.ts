@@ -23,6 +23,13 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/api/github/webhook": ["../../packages/control-plane/drizzle/**"],
     "/api/worker/runs/claim": ["../../packages/control-plane/drizzle/**"],
+    // Spelled with a `*` rather than with `[runId]`, and that is not cosmetic.
+    // The keys of this map are globs matched against page paths, so a literal
+    // `[runId]` is read as a character class matching one of `r`, `u`, `n`, `I`
+    // or `d` - it silently matches nothing, the route ships without the
+    // migration folder, and the deployment refuses to boot on its first Result.
+    // The build gate caught exactly that, which is what it exists for.
+    "/api/worker/runs/*/result": ["../../packages/control-plane/drizzle/**"],
     "/.well-known/workflow/v1/step": [
       "../../packages/control-plane/drizzle/**",
     ],

@@ -74,24 +74,8 @@ import type {
   ClaimRefusal,
 } from "./claim-outcome.js";
 import { hashExecutionToken, mintExecutionToken } from "./execution-token.js";
+import { isRunId } from "./run-id.js";
 import { runSpecOf } from "./run-spec.js";
-
-/**
- * What a Run id looks like, checked before it reaches a `uuid` column.
- *
- * The protocol schema deliberately does **not** enforce this: `runId` is an
- * opaque string on the wire, and pinning the wire to Postgres's column type
- * would make a storage decision part of a contract a four-month-old Worker
- * depends on. So the shape is checked here, where the column is.
- *
- * Without it a Worker naming `not-a-uuid` reaches Postgres, which raises
- * `22P02 invalid input syntax for type uuid` from inside the UPDATE - and the
- * endpoint reports that rolled-back transaction as `503`, telling a Worker the
- * control plane is unavailable when what actually happened is that it asked for
- * a Run that cannot exist. It is `unknown_run`, which is the same answer this
- * Owner gets for any other id it does not hold.
- */
-const RUN_ID = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/iu;
 
 /** What the claim is composed over. No value here is read from anywhere. */
 export interface ClaimConfig {
@@ -271,7 +255,7 @@ export const claimRun = async (
       );
   }
 
-  if (claim.runId !== undefined && !RUN_ID.test(claim.runId)) {
+  if (claim.runId !== undefined && !isRunId(claim.runId)) {
     // Before any SQL, because a `uuid` column rejects the string rather than
     // failing to match it, and a rolled-back transaction reads as `503`.
     return { kind: "refused", reason: "unknown_run" };

@@ -74,6 +74,10 @@ describe("the committed migration history", () => {
       // 0006's snapshot copied forward unchanged. It stays away from the tenant
       // boundary, which is what the grammar below holds it to.
       ["0007_run_worker_reference", "hand-authored"],
+      // The accepted Result, absorbed into the Run because ADR 0007 gives
+      // `Result` no table, plus the Finding's `end_line`. Six nullable columns
+      // and no classification change, so the generator had nothing to append.
+      ["0008_run_accepted_result", "drizzle"],
     ]);
   });
 

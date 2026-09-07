@@ -154,6 +154,7 @@ import type { DeliveryToProcess, ProcessedDelivery } from "./github/delivery.js"
 import type { Phase0RunProfile } from "./github/profile.js";
 import type { KickProcessing } from "./github/webhook.js";
 import type { RunLifecyclePort } from "./run/schedule.js";
+import type { AcceptanceOutcome, SubmittedResult } from "./worker/acceptance-outcome.js";
 import type { ClaimOutcome, HostedClaimRequest } from "./worker/claim-outcome.js";
 /** The database connection, as configuration rather than as a client. */
 export interface ControlPlaneDatabaseConfig {
@@ -245,6 +246,27 @@ export interface ControlPlane {
      * scheduling half of the protocol, so it names its Run and never polls.
      */
     readonly claimRun: (request: HostedClaimRequest) => Promise<ClaimOutcome>;
+    /**
+     * `POST /api/worker/runs/:runId/result`, which is the stale-result boundary
+     * ([ADR 0006](../../../docs/adr/0006-worker-protocol.md)).
+     *
+     * The Run id comes from the route rather than from the body, because the
+     * path is the request's own subject and the body is the Worker's account of
+     * itself. The handler refuses a submission whose Result names a different
+     * Run rather than letting one of the two be decoration.
+     */
+    readonly handleWorkerResult: (request: Request, runId: string) => Promise<Response>;
+    /**
+     * The same Acceptance, reached by the hosted placement, which has no Worker
+     * and no HTTP hop.
+     *
+     * There is no hosted-specific submission shape, unlike the claim: ADR 0015
+     * makes `executionToken` the placement-neutral name for the execution
+     * authorized to submit, and both placements are handed one by the same claim.
+     * So this is the same conditional UPDATE the endpoint reaches rather than a
+     * second one beside it.
+     */
+    readonly acceptResult: (submission: SubmittedResult) => Promise<AcceptanceOutcome>;
     /**
      * Turns one committed delivery into its Run, or into the conclusion that
      * there is none.
@@ -1306,6 +1328,28 @@ export type RunStatus = (typeof RUN_STATUSES)[number];
  */
 export declare const LIVE_RUN_STATUSES: readonly ["queued", "claimed", "executing"];
 export type LiveRunStatus = (typeof LIVE_RUN_STATUSES)[number];
+/**
+ * The statuses over which a Run may still accept a Result, and the status half
+ * of [ADR 0015](../../../../docs/adr/0015-execution-ownership-and-worker-liveness.md)'s
+ * eligibility window:
+ *
+ * ```text
+ * Result-eligible Run = status IN (claimed, executing)
+ *                     + acceptedAt IS NULL
+ *                     + executionToken matches
+ * ```
+ *
+ * The ADR requires that window be "defined **once** and shared, never
+ * restated", because Acceptance and the liveness termination that ends an
+ * abandoned Run (#56) are two conditional updates racing over exactly it. A
+ * detector scoped more narrowly than Acceptance leaves the guarantee holed, and
+ * the hole is reachable rather than theoretical.
+ *
+ * It excludes `queued` deliberately: a Run that was never claimed has no
+ * execution to submit on behalf of, and `claimableUntil` is what ends it.
+ */
+export declare const RESULT_ELIGIBLE_RUN_STATUSES: readonly ["claimed", "executing"];
+export type ResultEligibleRunStatus = (typeof RESULT_ELIGIBLE_RUN_STATUSES)[number];
 /**
  * `run.cancellation_reason`, on `cancelled`.
  *
@@ -2671,6 +2715,91 @@ export declare const run: import("drizzle-orm/pg-core").PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
+        acceptedAt: import("drizzle-orm/pg-core").PgColumn<{
+            name: "accepted_at";
+            tableName: "run";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        resultSummary: import("drizzle-orm/pg-core").PgColumn<{
+            name: "result_summary";
+            tableName: "run";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        resultStoppedBy: import("drizzle-orm/pg-core").PgColumn<{
+            name: "result_stopped_by";
+            tableName: "run";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        resultDisprovedHypothesisCount: import("drizzle-orm/pg-core").PgColumn<{
+            name: "result_disproved_hypothesis_count";
+            tableName: "run";
+            dataType: "number";
+            columnType: "PgInteger";
+            data: number;
+            driverParam: string | number;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        resultUsage: import("drizzle-orm/pg-core").PgColumn<{
+            name: "result_usage";
+            tableName: "run";
+            dataType: "json";
+            columnType: "PgJsonb";
+            data: unknown;
+            driverParam: unknown;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
         passes: import("drizzle-orm/pg-core").PgColumn<{
             name: "passes";
             tableName: "run";
@@ -2787,6 +2916,23 @@ export declare const finding: import("drizzle-orm/pg-core").PgTableWithColumns<{
         }, {}, {}>;
         line: import("drizzle-orm/pg-core").PgColumn<{
             name: "line";
+            tableName: "finding";
+            dataType: "number";
+            columnType: "PgInteger";
+            data: number;
+            driverParam: string | number;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        endLine: import("drizzle-orm/pg-core").PgColumn<{
+            name: "end_line";
             tableName: "finding";
             dataType: "number";
             columnType: "PgInteger";
@@ -4942,6 +5088,8 @@ export { APP_EVENTS, APP_PERMISSIONS, githubAppManifest, WEBHOOK_PATH, } from ".
 export type { KickProcessing } from "./github/webhook.js";
 export { WEBHOOK_STATUS } from "./github/webhook.js";
 export type { RunLifecyclePort, RunSchedule } from "./run/schedule.js";
+export type { AcceptanceOutcome, AcceptedRunStatus, ResultRejection, SubmittedResult, } from "./worker/acceptance-outcome.js";
+export { WORKER_RESULT_STATUS } from "./worker/acceptance-outcome.js";
 export type { ClaimOutcome, ClaimRefusal, HostedClaimRequest, } from "./worker/claim-outcome.js";
 export { WORKER_CLAIM_STATUS } from "./worker/claim-outcome.js";
 export { WORKER_PROTOCOL_SUPPORT } from "./worker/compatibility.js";
@@ -5086,6 +5234,217 @@ export interface RunLifecyclePort {
      */
     readonly expireUnclaimed: (ownerId: number, runId: string, workflowRunId: string) => Promise<boolean>;
 }
+```
+
+## dist/worker/acceptance-outcome.d.ts
+
+```ts
+/**
+ * What Acceptance can answer, as types a consumer may hold.
+ *
+ * These live apart from `acceptance.ts` for the reason `claim-outcome.ts`
+ * gives:
+ * [ADR 0010](../../../../docs/adr/0010-package-graph-and-open-core-boundary.md)
+ * forbids `apps/control-plane` from depending on Drizzle, and
+ * `tools/verify-packages.mjs` measures that by type-checking the packed
+ * declarations. A type that merely lives in a module importing Drizzle drags
+ * its declaration graph into that check, so everything the published surface
+ * names is declared here over the protocol's own types and nothing else.
+ *
+ * The rejections are **named**, which is ADR 0014's rule - "'rejected' alone
+ * cannot distinguish a superseded Run from a forged tenant, and the distinction
+ * is what makes the boundary auditable" - as
+ * [ADR 0016](../../../../docs/adr/0016-phase-0-acceptance-scenario.md) amended
+ * it. A Worker told only "409" cannot tell an operator whether its Run ended
+ * while it was executing or whether it is holding a token that was rotated out
+ * from under it, and those are different things to go and look at.
+ */
+import type { Result } from "@reprove/protocol/v1";
+/**
+ * The HTTP statuses the result endpoint answers with, one per outcome.
+ *
+ * `unauthenticated` never distinguishes an unknown Owner from an unknown
+ * secret, a revoked credential or an expired one. All four are one answer, so
+ * the response cannot be used to enumerate which Owners exist or which
+ * credentials once did.
+ *
+ * `unavailable` is deliberately not a rejection. A transaction that rolled back
+ * left the Run exactly as it was, so the Result was neither accepted nor
+ * refused; answering `409` would tell a Worker its Run had ended, and a Worker
+ * that believed it would discard a Result it could still resubmit.
+ */
+export declare const WORKER_RESULT_STATUS: {
+    /** The Result was accepted and its Run is terminal. */
+    readonly accepted: 200;
+    /** No usable credential. One answer for every way that can be true. */
+    readonly unauthenticated: 401;
+    /** This Owner has no such Run - and another Owner's Run is the same answer. */
+    readonly unknownRun: 404;
+    /** The Run exists and could not accept this Result. The reason names why. */
+    readonly rejected: 409;
+    /** Over the cap, and refused before being parsed. ADR 0006 rejects rather than truncates. */
+    readonly oversized: 413;
+    /** Authentic, and not a Result this control plane can read. */
+    readonly malformed: 422;
+    /** A protocol version outside the served window (ADR 0006). */
+    readonly incompatible: 426;
+    /** Acceptance could not be attempted. Nothing was decided. */
+    readonly unavailable: 503;
+};
+/**
+ * Why a Result was rejected, once the statement has run and matched nothing.
+ *
+ * These three are what the **database** names. `oversized`, `upgrade_required`
+ * and `malformed` are answered by the endpoint before any transaction opens, so
+ * they are statuses rather than members of this union - the same division
+ * `ClaimRefusal` makes.
+ *
+ * ```text
+ * unknown_run         this Owner has no such Run - and, deliberately, a Run
+ *                     belonging to another Owner is indistinguishable, because
+ *                     the re-probe runs inside withOwner (ADR 0016)
+ * not_eligible        the Run is terminal, or has already accepted a Result
+ * execution_mismatch  the Run is still active and the presented token is not
+ *                     its current one
+ * ```
+ *
+ * `wrong_tenant` is **not** here. ADR 0016 removed it from the set: the
+ * re-probe runs inside `withOwner`, so another Owner's Run is invisible rather
+ * than merely ineligible, and the only answer available from inside the
+ * boundary is `unknown_run`. A cross-tenant submission and a nonsense Run id
+ * are indistinguishable on purpose, which is also the safer disclosure - the
+ * response stops confirming that a Run exists under an Owner the caller cannot
+ * see.
+ *
+ * `execution_mismatch` is ADR 0015's rename of `stale_lease`, because the
+ * rejected condition is a submitted token that is not the Run's current one
+ * rather than an expired Lease, which a hosted Worker never holds.
+ */
+export type ResultRejection = "unknown_run" | "not_eligible" | "execution_mismatch";
+/** The two terminal statuses Acceptance can write (ADR 0007). */
+export type AcceptedRunStatus = "completed" | "incomplete";
+/** What one attempt to accept a Result decided. */
+export type AcceptanceOutcome =
+/** Absorbed into the Run, which is now terminal. */
+{
+    readonly kind: "accepted";
+    readonly runStatus: AcceptedRunStatus;
+}
+/**
+ * The payload is not one this Run can accept, measured against its immutable
+ * spec rather than against its schema. ADR 0007's "a `Patch` is rejected at
+ * acceptance under any Autonomy but `fix`" is the only member in Phase 0.
+ * It carries a reason rather than a name because it is a `422` beside the
+ * schema failures, not a seventh entry in ADR 0016's rejection set.
+ */
+ | {
+    readonly kind: "malformed";
+    readonly reason: string;
+} | {
+    readonly kind: "rejected";
+    readonly reason: ResultRejection;
+};
+/**
+ * One submission, as the acceptance transaction is told about it.
+ *
+ * There is no hosted variant, and that is a difference from the claim rather
+ * than an omission. A claim has two shapes because a self-hosted Worker holds a
+ * durable identity and advertises versions while the hosted placement holds
+ * neither. A submission has one, because ADR 0015 makes `executionToken` the
+ * placement-neutral name for "the execution authorized to submit against this
+ * Run" and both placements are handed one by the same claim.
+ */
+export interface SubmittedResult {
+    readonly ownerId: number;
+    readonly runId: string;
+    /**
+     * The token the claim handed back, as the Worker presented it. It is hashed
+     * and compared as a digest; the plaintext is never stored and never logged.
+     */
+    readonly executionToken: string;
+    /** The Result, already parsed through `@reprove/protocol`'s own schema. */
+    readonly result: Result;
+}
+/**
+ * What the endpoint calls once, after authentication, the compatibility check
+ * and schema validation have all passed. It is a port so that a test can prove
+ * the endpoint never reaches it for a request that failed any of them.
+ */
+export type WorkerResultPort = (submission: SubmittedResult) => Promise<AcceptanceOutcome>;
+```
+
+## dist/worker/acceptance.d.ts
+
+```ts
+import type { Finding } from "@reprove/protocol/v1";
+import type { SQL } from "drizzle-orm";
+import type { TenantTransaction } from "../db/runtime.js";
+import type { AcceptanceOutcome, SubmittedResult } from "./acceptance-outcome.js";
+/** The version of the bucketing algorithm the rows below are keyed under. */
+export declare const BUCKET_KEY_VERSION = 1;
+/** What Acceptance is composed over. No value here is read from anywhere. */
+export interface AcceptanceConfig {
+    /** The clock `acceptedAt` is written from, read once per submission. */
+    readonly now: () => Date;
+}
+/**
+ * ADR 0015's Result-eligibility window, as one predicate, defined here and
+ * nowhere else.
+ *
+ * ```text
+ * Result-eligible Run = status IN (claimed, executing)
+ *                     + acceptedAt IS NULL
+ *                     + executionToken matches
+ * ```
+ *
+ * The ADR requires it be "defined **once** and shared, never restated", because
+ * two conditional updates race over exactly it: Acceptance below, and the
+ * liveness termination to `failed(worker_lost)` (#56). Whichever wins closes the
+ * other path, and a detector scoped more narrowly than Acceptance would leave
+ * the guarantee holed. #56 composes this with its own deadline conjunct rather
+ * than spelling the window again.
+ *
+ * `ownerId` is in the predicate as well as in the tenant context, which is ADR
+ * 0008 rule 1: application scoping **plus** RLS, "not either alone".
+ *
+ * @param ownerId The submitting Owner.
+ * @param runId The Run, already checked with `isRunId`.
+ * @param executionTokenHash The stored form of the presented token.
+ * @returns The window, as a predicate an UPDATE may carry.
+ */
+export declare const resultEligible: (ownerId: number, runId: string, executionTokenHash: string) => SQL | undefined;
+/**
+ * The candidate bucket a Finding belongs to, which is ADR 0007's
+ * `path + normalized anchored-source hash` and deliberately nothing else.
+ *
+ * **Line numbers are excluded** because they move on any unrelated edit above
+ * them, so keying on them would report every Finding as new after any push.
+ * **Severity is excluded** because the same defect rated `high` on one Run and
+ * `medium` on the next must not become a different Finding. The title is
+ * excluded because it is the least stable field a Finding has - a model rewords
+ * it and every Finding re-posts, which is the top complaint about review bots.
+ *
+ * The key produces a **candidate bucket** and nothing more. Matching inside it
+ * is Reconciliation, which is cross-Run and belongs to the phase that publishes
+ * a Review; this module writes the key and leaves `reconciliation` null.
+ *
+ * @param finding One Finding, as it crossed the Worker boundary.
+ * @returns `sha256:` followed by the hex digest of path and normalized anchor.
+ */
+export declare const bucketKeyOf: (finding: Finding) => string;
+/**
+ * Accepts a Result, or names why it could not be accepted.
+ *
+ * The transaction is the caller's, and that is what makes the Run's terminal
+ * status and its Findings one commit: an insert that throws rolls the
+ * acceptance back rather than leaving a `completed` Run with nothing to publish.
+ *
+ * @param tx A tenant transaction already scoped to the submitting Owner.
+ * @param config The clock `acceptedAt` is written from.
+ * @param submission The Run, the presented token and the validated Result.
+ * @returns The acceptance, a named rejection, or a payload refusal.
+ */
+export declare const acceptResult: (tx: TenantTransaction, config: AcceptanceConfig, submission: SubmittedResult) => Promise<AcceptanceOutcome>;
 ```
 
 ## dist/worker/authenticate.d.ts
@@ -5474,6 +5833,155 @@ export declare const mintExecutionToken: () => string;
  * @returns `sha256:` followed by the hex digest of the token.
  */
 export declare const hashExecutionToken: (token: string) => string;
+```
+
+## dist/worker/http.d.ts
+
+```ts
+import type { WorkerIdentity } from "./authenticate.js";
+/** A response carrying a reason a person can read and nothing a stranger can use. */
+export declare const answer: (status: number, reason: string, detail?: Readonly<Record<string, number>>) => Response;
+/**
+ * Which status a named refusal answers with.
+ *
+ * `unknown_run` is the only one that is a `404`, on both endpoints and for the
+ * same reason: it is the answer for a Run this Owner does not hold, which
+ * includes a Run another Owner holds, because the probe that names it runs
+ * inside `withOwner` and cannot see across the boundary.
+ *
+ * @param reason The named refusal.
+ * @param unknownRun The endpoint's `404`.
+ * @param refused The endpoint's `409`.
+ * @returns The status to answer with.
+ */
+export declare const refusalStatus: (reason: string, unknownRun: number, refused: number) => number;
+/**
+ * One decoded JSON body, before any schema has been applied to it. It is what
+ * `JSON.parse` produced and nothing more, which is exactly what a schema is
+ * handed.
+ */
+export type DecodedBody = string | number | boolean | null | readonly DecodedBody[] | {
+    readonly [key: string]: DecodedBody;
+};
+/** The shape of a failed Zod parse, named structurally so this file imports no schema. */
+export interface ParseIssues {
+    readonly issues: readonly {
+        readonly path: readonly PropertyKey[];
+        readonly message: string;
+    }[];
+}
+/** Every field a schema could not read, named, as one line. */
+export declare const fieldsOf: (error: ParseIssues) => string;
+/** What a schema answers, as much of it as this module needs to know. */
+export type ParseOutcome<Payload> = {
+    readonly success: true;
+    readonly data: Payload;
+} | {
+    readonly success: false;
+    readonly error: ParseIssues;
+};
+/** The statuses the shared preamble answers with, as each endpoint spells them. */
+export interface WorkerRequestStatuses {
+    readonly unauthenticated: number;
+    readonly malformed: number;
+    readonly incompatible: number;
+}
+/** What reading one authenticated Worker request is composed over. */
+export interface WorkerRequestConfig<Payload> {
+    readonly request: Request;
+    /** The largest body to accept, before anything is read for meaning. */
+    readonly maximumBytes: number;
+    /** Transaction one: verify the credential, and nothing else. */
+    readonly authenticate: (authorization: string | null) => Promise<WorkerIdentity | null>;
+    /** The endpoint's own request schema, as a function so this file names none. */
+    readonly parse: (body: DecodedBody) => ParseOutcome<Payload>;
+    /** Where the compatibility check reads the advertised version from. */
+    readonly versionOf: (payload: Payload) => number;
+    readonly statuses: WorkerRequestStatuses;
+    /** The endpoint's own refusal for a body over the cap. */
+    readonly onOversized: (limit: number) => Response;
+    /** The endpoint's own answer when the pre-authentication transaction could not run. */
+    readonly onUnavailable: () => Response;
+}
+/** An authenticated, compatible, well-formed request, or the answer that ended it. */
+export type WorkerRequest<Payload> = {
+    readonly kind: "answered";
+    readonly response: Response;
+} | {
+    readonly kind: "ready";
+    readonly worker: WorkerIdentity;
+    readonly payload: Payload;
+};
+/**
+ * Reads one Worker request as far as every Worker endpoint reads it the same
+ * way, and no further.
+ *
+ * **Authentication runs before the body is read for meaning**, which is the
+ * order `github/webhook.ts` gives for a signature: a request Reprove cannot
+ * attribute is not a claim and is not a submission, and nothing about what it
+ * says it is is worth acting on. It costs one transaction against a garbage
+ * body and buys that the request schema is not a surface a stranger can probe.
+ *
+ * **The compatibility check runs last here, and therefore before either
+ * endpoint's own transaction opens.** ADR 0006 requires that a Worker below
+ * `minimum` "does not claim Runs", and handing one a payload it cannot read and
+ * letting it refuse afterwards is a different and weaker guarantee.
+ *
+ * @param config The request, the cap, the authenticator and the schema.
+ * @returns The Worker and its parsed payload, or the response that refused it.
+ */
+export declare const readWorkerRequest: <Payload>(config: WorkerRequestConfig<Payload>) => Promise<WorkerRequest<Payload>>;
+```
+
+## dist/worker/result-endpoint.d.ts
+
+```ts
+import type { WorkerResultPort } from "./acceptance-outcome.js";
+import type { WorkerIdentity } from "./authenticate.js";
+/**
+ * The largest submission to accept.
+ *
+ * ADR 0006 bounds the **Result**, and `resultSchema` enforces that figure over
+ * the Result itself. This is the bound on the whole body, which is the Result
+ * plus an envelope carrying a token, an optional key and a version - so capping
+ * the body at the Result's own figure would refuse a Result that is exactly
+ * within its bound. Eight kilobytes is three orders of magnitude above what the
+ * envelope needs and far below anything that could be called bulk.
+ *
+ * Both bounds are real and each is honest about what it bounds: this one is the
+ * one that refuses **before the bytes are accumulated**, because `readBoundedBody`
+ * abandons the stream at the cap, and ADR 0006 requires an oversized submission
+ * to be rejected rather than truncated into shape.
+ */
+export declare const MAXIMUM_SUBMISSION_BYTES: number;
+/** What the handler is composed over. No value here is read from anywhere. */
+export interface WorkerResultConfig {
+    /** Transaction one: verify the credential, and nothing else. */
+    readonly authenticate: (authorization: string | null) => Promise<WorkerIdentity | null>;
+    /** Transaction two, reached only by an authenticated, compatible, valid submission. */
+    readonly accept: WorkerResultPort;
+    /** The largest body to accept. Defaults to {@link MAXIMUM_SUBMISSION_BYTES}. */
+    readonly maximumBytes?: number;
+}
+/**
+ * Builds the handler.
+ *
+ * @param config The authenticator, the acceptance port and the body cap.
+ * @returns A function from a submission and its Run id to the answer.
+ */
+export declare const createWorkerResultHandler: (config: WorkerResultConfig) => ((request: Request, runId: string) => Promise<Response>);
+```
+
+## dist/worker/run-id.d.ts
+
+```ts
+/**
+ * Whether a Worker-supplied Run id is one this schema could hold.
+ *
+ * @param runId The id as it arrived, unvalidated.
+ * @returns Whether it is shaped like the `uuid` column it would be compared to.
+ */
+export declare const isRunId: (runId: string) => boolean;
 ```
 
 ## dist/worker/run-spec.d.ts

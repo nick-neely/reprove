@@ -35,6 +35,7 @@ import {
 import { PHASE_0_RUN_PROFILE } from "./github/profile.js";
 import { signDelivery } from "./github/signature.js";
 import { WEBHOOK_STATUS } from "./github/webhook.js";
+import { WORKER_RESULT_STATUS } from "./worker/acceptance-outcome.js";
 import { WORKER_CLAIM_STATUS } from "./worker/claim-outcome.js";
 
 const DATABASE = "reprove_test_control_plane_ingress";
@@ -524,5 +525,88 @@ describe("the control plane's GitHub webhook, end to end", () => {
     );
 
     expect(response.status).toBe(WORKER_CLAIM_STATUS.unauthenticated);
+  });
+
+  it("serves the Worker result endpoint, and refuses one with no credential", async () => {
+    // The composition edge only: every named rejection is measured against the
+    // real database in `worker/acceptance.test.ts`. What this says is that the
+    // route has something to call, and that the thing it calls does not
+    // terminalize a Run for a stranger.
+    const response = await controlPlane.handleWorkerResult(
+      new Request(
+        "https://control.example/api/worker/runs/00000000-0000-4000-8000-000000000000/result",
+        { method: "POST", body: JSON.stringify({}) }
+      ),
+      "00000000-0000-4000-8000-000000000000"
+    );
+
+    expect(response.status).toBe(WORKER_RESULT_STATUS.unauthenticated);
+  });
+
+  it("accepts a Result for the execution the hosted claim created", async () => {
+    // The hosted placement's whole round trip through the composition: it
+    // claims, it is handed an execution token, and it submits against that
+    // token with no Worker and no HTTP hop. ADR 0015 makes both halves
+    // placement-neutral, so this is the same UPDATE the endpoint reaches.
+    const number = 13;
+    await controlPlane.handleGitHubWebhook(
+      signedDelivery({
+        deliveryGuid: "delivery-that-becomes-an-accepted-run",
+        body: deliveryBytes({
+          ...OPENED_PULL_REQUEST,
+          number,
+          pull_request: { number },
+        }),
+      })
+    );
+    await untilRunExists(number);
+    const [created] = await database.admin<{ id: string }>(
+      `select id from run where pull_request_number = ${number}`
+    );
+    const runId = created?.id ?? "";
+    const claim = await controlPlane.claimRun({ ownerId: ACME, runId });
+    const executionToken =
+      claim.kind === "granted" ? claim.grant.executionToken : "";
+
+    const outcome = await controlPlane.acceptResult({
+      ownerId: ACME,
+      runId,
+      executionToken,
+      result: {
+        runId,
+        completeness: "complete",
+        stoppedBy: null,
+        summary: "Nothing to report.",
+        disprovedHypothesisCount: 0,
+        findings: [],
+        passes: [
+          {
+            passId: "pass_01",
+            harness: "codex",
+            pinnedModel: "gpt-5.6",
+            resolvedModel: null,
+            startedAt: "2026-02-01T12:01:00Z",
+            endedAt: "2026-02-01T12:18:00Z",
+            outcome: "completed",
+            failureReason: null,
+            repairTurnUsed: false,
+            usage: { inputTokens: 10, outputTokens: 20 },
+          },
+        ],
+        usage: { inputTokens: 10, outputTokens: 20 },
+        protocolVersion: 1,
+        workerBuildVersion: "0.0.0",
+      },
+    });
+
+    expect(outcome).toStrictEqual({ kind: "accepted", runStatus: "completed" });
+    const [accepted] = await database.admin<{
+      status: string;
+      accepted_at: Date | null;
+    }>(
+      `select status, accepted_at from run where pull_request_number = ${number}`
+    );
+    expect(accepted?.status).toBe("completed");
+    expect(accepted?.accepted_at).not.toBeNull();
   });
 });

@@ -7,6 +7,7 @@ import {
   protocolLimits,
   protocolSchemas,
   protocolVersion,
+  submissionSchemas,
 } from "@reprove/protocol/v1";
 import { workerProtocolSchemas as workerSchemas } from "@reprove/worker-core";
 import { describe, expect, it } from "vitest";
@@ -34,6 +35,9 @@ const validRefusal = protocolSchemas.refusal.parse(
 );
 const validClaimRequest = claimSchemas.request.parse(
   JSON.parse(fixtureSource("claim-request"))
+);
+const validSubmission = submissionSchemas.request.parse(
+  JSON.parse(fixtureSource("result-submission"))
 );
 
 describe("protocol v1 compatibility", () => {
@@ -144,6 +148,74 @@ describe("the claim exchange", () => {
   it("stays out of the frozen three, which are the Run's content", () => {
     expect(Object.keys(protocolSchemas)).not.toContain("claim");
     expect(Object.keys(claimSchemas)).toStrictEqual(["request", "grant"]);
+  });
+});
+
+describe("the result submission", () => {
+  it("accepts the golden fixture and carries the Result unchanged", () => {
+    const source = JSON.parse(fixtureSource("result-submission"));
+
+    expect(validSubmission).toStrictEqual(source);
+    expect(protocolSchemas.result.parse(validSubmission.result)).toStrictEqual(
+      validCompleteResult
+    );
+  });
+
+  it("lets a Worker state a version this control plane does not serve", () => {
+    // The same reason the claim request takes a plain integer: ADR 0006
+    // requires a Worker outside the served window to receive a structured
+    // `upgrade_required`, and the envelope is what the compatibility check
+    // reads before the Result inside it is parsed at all.
+    expect(
+      submissionSchemas.request.parse({
+        ...validSubmission,
+        protocolVersion: 99,
+      }).protocolVersion
+    ).toBe(99);
+    expect(() =>
+      submissionSchemas.request.parse({
+        ...validSubmission,
+        protocolVersion: 0,
+      })
+    ).toThrow("protocolVersion");
+  });
+
+  it("leaves the Result unparsed, so the version check reaches it first", () => {
+    // `resultSchema.protocolVersion` is a literal, so a nested parse would
+    // report an incompatible Worker as malformed. The envelope therefore takes
+    // the Result as opaque and the endpoint parses it after the window check.
+    expect(
+      submissionSchemas.request.parse({
+        ...validSubmission,
+        result: {
+          ...validCompleteResult,
+          protocolVersion: protocolVersion + 1,
+        },
+      }).result
+    ).toHaveProperty("protocolVersion", protocolVersion + 1);
+  });
+
+  it("keeps the idempotency key optional, because it enforces nothing", () => {
+    const { idempotencyKey, ...withoutKey } = validSubmission;
+
+    expect(idempotencyKey).toBe("fixture-idempotency-key-0001");
+    expect(submissionSchemas.request.parse(withoutKey)).not.toHaveProperty(
+      "idempotencyKey"
+    );
+  });
+
+  it("requires the execution ownership the claim handed back", () => {
+    expect(() =>
+      submissionSchemas.request.parse({
+        ...validSubmission,
+        executionToken: "",
+      })
+    ).toThrow("executionToken");
+  });
+
+  it("stays out of the frozen three, which are the Run's content", () => {
+    expect(Object.keys(protocolSchemas)).not.toContain("submission");
+    expect(Object.keys(submissionSchemas)).toStrictEqual(["request"]);
   });
 });
 

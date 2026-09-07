@@ -39,6 +39,11 @@ import {
   recordLifecycle,
 } from "./run/lifecycle.js";
 import type { RunLifecyclePort } from "./run/schedule.js";
+import type {
+  AcceptanceOutcome,
+  SubmittedResult,
+} from "./worker/acceptance-outcome.js";
+import { acceptResult } from "./worker/acceptance.js";
 import { createWorkerAuthenticator } from "./worker/authenticate.js";
 import type {
   ClaimOutcome,
@@ -46,6 +51,7 @@ import type {
 } from "./worker/claim-outcome.js";
 import { claimRun } from "./worker/claim.js";
 import { createWorkerClaimHandler } from "./worker/endpoint.js";
+import { createWorkerResultHandler } from "./worker/result-endpoint.js";
 
 /** The database connection, as configuration rather than as a client. */
 export interface ControlPlaneDatabaseConfig {
@@ -140,6 +146,32 @@ export interface ControlPlane {
    * scheduling half of the protocol, so it names its Run and never polls.
    */
   readonly claimRun: (request: HostedClaimRequest) => Promise<ClaimOutcome>;
+  /**
+   * `POST /api/worker/runs/:runId/result`, which is the stale-result boundary
+   * ([ADR 0006](../../../docs/adr/0006-worker-protocol.md)).
+   *
+   * The Run id comes from the route rather than from the body, because the
+   * path is the request's own subject and the body is the Worker's account of
+   * itself. The handler refuses a submission whose Result names a different
+   * Run rather than letting one of the two be decoration.
+   */
+  readonly handleWorkerResult: (
+    request: Request,
+    runId: string
+  ) => Promise<Response>;
+  /**
+   * The same Acceptance, reached by the hosted placement, which has no Worker
+   * and no HTTP hop.
+   *
+   * There is no hosted-specific submission shape, unlike the claim: ADR 0015
+   * makes `executionToken` the placement-neutral name for the execution
+   * authorized to submit, and both placements are handed one by the same claim.
+   * So this is the same conditional UPDATE the endpoint reaches rather than a
+   * second one beside it.
+   */
+  readonly acceptResult: (
+    submission: SubmittedResult
+  ) => Promise<AcceptanceOutcome>;
   /**
    * Turns one committed delivery into its Run, or into the conclusion that
    * there is none.
@@ -274,6 +306,25 @@ export const createControlPlane = async (
       ),
   });
 
+  // Two transactions again, and the same first one. Acceptance is a second
+  // `withOwner` that opens only once the credential has verified, which is what
+  // keeps ADR 0008's restriction on the pre-authentication transaction true on
+  // this path as well as on the claim's.
+  const acceptanceConfig = { now: () => new Date() };
+  // One function, reached two ways. The endpoint and the hosted placement are
+  // the same Acceptance rather than two, which is what stops the hosted path
+  // (#57) growing a stale-result boundary of its own, so naming it here is what
+  // makes that structural rather than a pair of expressions that happen to
+  // agree today.
+  const accept = (submission: SubmittedResult): Promise<AcceptanceOutcome> =>
+    runtime.withOwner(submission.ownerId, (tx) =>
+      acceptResult(tx, acceptanceConfig, submission)
+    );
+  const handleWorkerResult = createWorkerResultHandler({
+    accept,
+    authenticate,
+  });
+
   const lifecycle: RunLifecyclePort = {
     record: (ownerId, runId, workflowRunId) =>
       runtime.withOwner(ownerId, (tx) =>
@@ -299,6 +350,8 @@ export const createControlPlane = async (
           worker: null,
         })
       ),
+    handleWorkerResult,
+    acceptResult: accept,
     processDelivery,
     lifecycle,
     close: runtime.close,
