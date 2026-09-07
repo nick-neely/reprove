@@ -43,7 +43,7 @@ const classification: Classification = {
 };
 
 describe("the committed migration history", () => {
-  it("is drizzle-kit generations and the generated FORCE delta, in order", () => {
+  it("is drizzle-kit generations, the generated FORCE delta and one hand-authored constraint, in order", () => {
     expect(
       readMigrationSources().map((migration) => [migration.tag, migration.kind])
     ).toStrictEqual([
@@ -66,6 +66,14 @@ describe("the committed migration history", () => {
       // the Run, written once by whichever writer gets there first.
       // Classification is untouched, so the generator had nothing to append.
       ["0005_run_lifecycle", "drizzle"],
+      ["0006_run_execution_ownership", "drizzle"],
+      // The first hand-authored migration in this history, and the attribution
+      // is measured rather than declared: it carries the composite foreign key
+      // from `run` to `worker` whose `ON DELETE SET NULL ("worker_id")` the
+      // pinned drizzle-orm cannot express, so `generate --custom` wrote it with
+      // 0006's snapshot copied forward unchanged. It stays away from the tenant
+      // boundary, which is what the grammar below holds it to.
+      ["0007_run_worker_reference", "hand-authored"],
     ]);
   });
 

@@ -15,3 +15,18 @@ three payloads crossing the Worker boundary: `RunSpec`, `Result` and `Refusal`.
 `protocolSchemas` groups exactly those payload schemas for consumers that need
 the whole boundary. Nested schemas are exported for composition, but Adapter
 output is intentionally absent because it stays inside the Worker core.
+
+`claimSchemas` is the scheduling exchange - `ClaimRequest` and `ClaimGrant` -
+and it sits beside `protocolSchemas` rather than inside it, because that
+constant is the three payloads a Run's *content* crosses on and ADR 0006 says a
+hosted Worker never exercises scheduling at all. Two details of the pair are
+decisions rather than shape. A request's `protocolVersion` is a plain positive
+integer and **not** `z.literal(protocolVersion)`, because ADR 0006 requires a
+Worker below the served window to receive a structured `upgrade_required` naming
+the minimum: a literal would turn that Worker's honest self-description into a
+malformed request. A grant's is the literal, because a grant is this control
+plane speaking. And the grant carries `executionToken` and `executionExpiresAt`
+beside the `RunSpec` rather than inside it
+([ADR 0015](../../docs/adr/0015-execution-ownership-and-worker-liveness.md)):
+the spec is fixed at Run creation, and execution ownership is created by the
+claim, so a Run claimed twice would have one spec and two executions.

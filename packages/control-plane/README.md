@@ -71,6 +71,20 @@ scoped differently from the queries that check it. `0003` completes ADR 0013's R
 
 `0005_run_lifecycle` adds `run.workflow_run_id` and is drizzle-kit's own output as well - one nullable `text` column, so it meets an existing row without needing anything of it. **It classifies nothing.** A column changes no table's tenancy and `run` was already a tenant table, so the classification the FORCE generator derives its delta from is the one it was already at, and it emits nothing where the two agree: **no FORCE delta follows `0005`**, and the absence is the generator's own answer rather than a step someone skipped.
 
+`0006_run_execution_ownership` adds ADR 0015's execution-ownership block to `run` - `claimed_at`, `execution_token_hash`, `execution_expires_at`, `worker_id`, `worker_protocol_version`, `worker_build_version` - plus the index a poll reads through and a unique index on `worker_credential (owner_id, secret_hash)`. Drizzle-kit's own output again, six nullable columns and two indexes, so it meets existing rows without needing anything of them, and it classifies nothing for the same reason `0005` did not. It left `worker_id` without its foreign key, which `0007` is.
+
+`0007_run_worker_reference` is the **first hand-authored migration in this history**, and it is one statement:
+
+```sql
+ALTER TABLE "run" ADD CONSTRAINT "run_worker_owner_scoped_fk"
+  FOREIGN KEY ("owner_id","worker_id") REFERENCES "public"."worker"("owner_id","id")
+  ON DELETE SET NULL ("worker_id") ON UPDATE no action;
+```
+
+It is the composite rule of `src/db/schema.ts` rather than an exception to it. A Run records its Worker as audit beside `isolation` and `exposure`, so deleting a Worker must release the reference rather than take the Runs it executed - which rules out the `cascade` every other reference in the schema takes. The column list is PostgreSQL 15's and is the whole difficulty: without it the action would null `owner_id` too, which is `NOT NULL`, so a Worker deletion would fail rather than release. `drizzle-orm@0.45.2` types `onDelete` as a fixed enum with no room for a column list, and `generate --custom` is drizzle-kit's own documented answer to DDL it cannot emit.
+
+**`src/db/schema.ts` therefore does not declare it, and the silence is deliberate.** A declaration drizzle-kit cannot round-trip would make the next `drizzle-kit generate` emit a migration dropping and re-adding the constraint in the form it *can* write - the form that fails - so the column stays bare, the generated snapshot keeps agreeing with the schema module, and `0007` carries what neither of them can say. The cost is that no schema test can see the constraint, which is why `worker/claim.test.ts` measures it against the database that carries it: deleting a claimed Run's Worker leaves the Run present, `claimed`, under its Owner, with `worker_id` released, and a Run naming another Owner's Worker is refused with `23503`. `workflow_run_id` beside it is a different case rather than the same one - it names a durable run inside Vercel Workflow, which is not a table here, so no foreign key of any form is available to it.
+
 All of it is ordinary Vitest - `declared.test.ts`, `force.test.ts`, `force-generate.test.ts` - beside `tools/verify-migrations.mjs`, which is the Git-aware half that proves history was only appended to. None of it sees a database: what actually deployed is `createRuntimeDb()`'s seven checks, and that division is ADR 0017's, not an omission.
 
 ## GitHub ingress
@@ -287,8 +301,12 @@ safety.
 
 `PHASE_0_RUN_PROFILE` carries the half of ADR 0007's immutable spec that no pull request can
 influence - harness, model, strategy, autonomy, placement, hosted-fallback, a real bounded
-normalized `resolvedConfig` parsed through `@reprove/protocol`'s own schema, and the
-claimable-deadline policy. `createControlPlane()` **requires** it and has no default: a value the
+normalized `resolvedConfig` parsed through `@reprove/protocol`'s own schema, and the two Phase 0
+windows: `claimableForMs`, ADR 0014's five-minute unclaimed window written into the spec, and
+`livenessForMs`, ADR 0015's ten-minute execution window read at claim. The two differ on purpose, so
+that a deadline-confusion bug produces an observably different timestamp; both are refused at
+composition if they are not positive, because a non-positive liveness window would make every claim
+born already expired. `createControlPlane()` **requires** it and has no default: a value the
 package chose silently is exactly the "prototype wiring becoming product selection policy" the ADR
 built the profile to prevent. The digest sorts keys at every depth, so two configurations differing
 only in the order zod's defaults filled them in have the same digest - otherwise `configDigest`
@@ -392,6 +410,166 @@ only then: ADR 0014 has that lifecycle "resumed through its cancel hook so it te
 reportably", and this is what the resumer reads. Reporting the Runs rather than performing the
 notification is what lets the orchestration layer do the waking while this package still depends on
 no `workflow`.
+
+## The Worker claim
+
+`POST /api/worker/runs/claim` is composed in [`src/worker/`](src/worker) and reaches the app as
+`createControlPlane(config).handleWorkerClaim`. It is the whole of how work reaches a **self-hosted**
+Worker: [ADR 0006](../../docs/adr/0006-worker-protocol.md) makes the Worker always the HTTP client
+and the control plane always the server, so a daemon on a laptop needs no inbound port, no NAT
+traversal and no certificate, and Reprove never learns its address.
+
+```text
+read the body under a hard cap      -> 413
+authenticate            (txn 1)     -> 401
+parse it as a claim request         -> 422
+check the protocol version          -> 426
+claim                   (txn 2)     -> 200 | 204 | 404 | 409
+```
+
+**Authentication runs before the body is read for meaning**, which is the webhook's order applied to
+a credential rather than a signature: a request Reprove cannot attribute is not a claim. It costs one
+transaction against a garbage body and buys that the request schema is not a surface a stranger can
+probe.
+
+### Two transactions, and the first one does exactly one thing
+
+Every Reprove-minted credential carries a non-secret Owner locator, because
+[ADR 0008](../../docs/adr/0008-persistence-tenancy-and-retention.md) found the Worker paths were the
+only pre-tenant entry points with no locator available:
+
+```text
+rpw1.<ownerId>.<secret>
+
+begin transaction
+  -> set_config('app.owner_id', ownerLocator, true)
+  -> verify the credential                          <- one select, and nothing else
+commit
+  -> only then, a second transaction claims
+```
+
+A forged locator is safe by construction: it only changes which tenant's credential lookup returns
+nothing. **That argument holds only because the pre-authentication transaction does exactly one
+thing**, which the ADR calls load-bearing and part of the decision. So `verifyWorkerCredential` takes
+a `PreAuthTransaction` - a tenant transaction narrowed to `select` - and has no `update`, `insert` or
+`execute` to reach for; a later edit that tried to refresh Worker liveness there would not
+type-check. `authenticate.test.ts` measures the same claim from outside, with a double that records
+every member the transaction was asked for and throws for any but one.
+
+Locator parsing happens **before** either transaction opens, and that is not tidiness: `withOwner`
+throws a `TypeError` on an Owner id it cannot bind, so a locator that is not plain digits has to be a
+refusal here rather than an unhandled throw from inside the database layer.
+
+The credential is stored as `sha256:<hex>` over the secret alone - not a password KDF. The secret is
+32 CSPRNG bytes rather than something a person chose, so no work factor buys anything against a
+2^256 candidate space, while it would spend a deliberate delay on the hot path of every idle poll.
+Credentials are **rows**, so ADR 0006's rotation grace window is an ordinary row lifetime: the
+predecessor takes `expiresAt = graceEnd`, both rows satisfy one predicate until it passes, and
+revocation is a row update rather than a null-out.
+
+Every authenticated claim refreshes `worker.last_seen_at`, including the one that finds nothing:
+ADR 0006 makes idle polling the heartbeat and defines no separate message, so writing it only after a
+grant would make a Worker with nothing to do look offline. It happens in transaction two, never in
+the pre-authentication one.
+
+`401` never distinguishes an unknown Owner, an unknown secret, a revoked credential and an expired
+one. All four are one answer, so the endpoint cannot be used to enumerate which Owners exist or which
+credentials once did.
+
+### The claim is one conditional UPDATE, and the re-probe only names it
+
+```text
+update run
+  set status = 'claimed', claimed_at, execution_token_hash,
+      execution_expires_at, worker_id, worker_protocol_version,
+      worker_build_version
+where <the Run, or the oldest claimable one>
+  and status = 'queued'
+  and claimable_until > now
+  and placement = <the claimant's own>
+  and the Repository records an Installation
+```
+
+The eligibility window and the write are the same statement, which is what makes "a Run cannot be
+actively held twice" a property of Postgres rather than of a check somebody remembered to run first.
+Two concurrent claims of one Run serialize on the row lock: one matches and commits, the other
+re-evaluates its `WHERE` against the committed row and matches zero. A poll takes the oldest
+claimable `self_hosted` Run through a `for update skip locked` subquery, so a second Worker arriving
+mid-claim steps past that row rather than blocking on it.
+
+**The placement predicate applies to a targeted claim too**, and that is the half a poll's filter
+never covered: naming a Run bypassed the `self_hosted` restriction entirely, so a Worker could take a
+Run hosted dispatch was about to run. `placement_mismatch` is a named refusal rather than
+`unknown_run`, because the Run is this Owner's and the caller can see it - hiding it would say
+something false about visibility rather than something safer.
+
+A `runId` that is not a uuid is refused as `unknown_run` **before any SQL runs**. The column is
+`uuid`, so Postgres rejects the string with `22P02` rather than failing to match it, and a
+rolled-back transaction reads as `503` - which would tell a Worker the control plane is unavailable
+when what it actually did was ask for a Run that cannot exist. The protocol schema deliberately keeps
+`runId` an opaque string: pinning the wire to a column type would make a storage decision part of a
+contract a four-month-old Worker depends on.
+
+Zero rows is therefore ambiguous by construction, and the re-probe that follows **writes nothing and
+decides nothing** - it exists only to name what happened. Its order is load-bearing in exactly the way
+[ADR 0016](../../docs/adr/0016-phase-0-acceptance-scenario.md) found Acceptance's to be: both orders
+return a refusal and only the name differs.
+
+```text
+not visible                        -> unknown_run          404
+claimed | executing                -> already_claimed      409
+terminal                           -> not_claimable        409
+queued, and the window has closed  -> claim_window_closed  409
+queued, for the other placement    -> placement_mismatch   409
+queued, in window, no Installation -> installation_unavailable
+```
+
+`unknown_run` covers another Owner's Run **deliberately**. The probe runs inside `withOwner`, so such
+a Run is invisible rather than ineligible, and ADR 0016 makes that indistinguishability the decision:
+the response stops confirming that a Run exists under an Owner the caller cannot see.
+
+The Installation requirement sits in the predicate rather than after the write, because a Repository
+with no live grant cannot have a Workspace materialized for it - claiming first and discovering that
+second would burn the Run's one claim on an execution that could not start. And nothing here checks
+Exposure, Isolation or Provenance: ADR 0006 makes that a two-phase decision whose second phase is the
+claiming Worker's own fresh probe, and pre-empting it would put the authoritative view on the wrong
+side of the seam.
+
+### Execution ownership is written at claim, for both placements
+
+[ADR 0015](../../docs/adr/0015-execution-ownership-and-worker-liveness.md) renamed what the prototype
+called a lease, because a hosted Worker holds none and was carrying one anyway:
+
+```text
+executionToken       identifies the execution authorized to submit. Both placements.
+executionExpiresAt   the control-plane liveness boundary for it.     Both placements.
+Lease                a self-hosted Worker's renewable hold, allowed to advance the boundary.
+```
+
+**The row holds `execution_token_hash`, never the token.** The token is a bearer capability good
+against one Run until `executionExpiresAt`, so it is stored the way every other credential here is -
+`sha256:<hex>`, the same convention `worker_credential.secret_hash` takes - and the plaintext is
+returned to the Worker exactly once, in the claim grant. A database read or a backup therefore yields
+a digest rather than something its reader could submit with, and submission (#55) hashes what is
+presented before comparing.
+
+`executionExpiresAt = claimedAt + livenessFor`, from the injected `Phase0RunProfile` and not from Run
+creation, not from `claimableUntil`, and not from whenever execution happens to begin. The duration
+lives on the profile because ADR 0016 put it there by name: unplaced it would land inline in the
+claim path, which is the hazard ADR 0013 created that profile to prevent.
+
+So `createControlPlane()` returns a placement-neutral `claimRun(request)` beside the endpoint. It is
+the **same** conditional UPDATE, with `worker_id`, `worker_protocol_version` and `worker_build_version`
+left null, and it is what stops the hosted placement growing an execution-ownership story of its own.
+`run (owner_id, worker_id)` references `worker (owner_id, id)` under `MATCH SIMPLE`, so the half-null
+pair a hosted claim writes is not checked at all, while a self-hosted claim can only name a Worker of
+its own Owner.
+A hosted Worker names its Run and never polls, because ADR 0006 keeps it out of the scheduling half of
+the protocol entirely.
+
+There is **no enrollment endpoint**, and that is ADR 0016's assertion rather than an omission: Phase 0
+has no Enrollment. `mintWorkerCredential` exists for the fixtures and for the dashboard flow that will
+own it, and what #54 fixes is the credential format and the verification predicate.
 
 ## Authentication
 

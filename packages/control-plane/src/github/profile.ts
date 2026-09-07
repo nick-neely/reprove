@@ -27,9 +27,13 @@
  * `resolvedConfigSchema` rather than asserted to be one, "so the prototype
  * exercises the true Run shape". `claimableFor` is the claimable-deadline
  * policy ADR 0013 puts in the spec and [#38](https://github.com/nick-neely/reprove/issues/38)
- * fixes the Phase 0 duration of; ADR 0016's `livenessFor` is deliberately absent
- * because it bounds execution rather than creation, and belongs to whichever
- * change builds the claim path.
+ * fixes the Phase 0 duration of. `livenessFor` sits beside it because
+ * [ADR 0016](../../../../docs/adr/0016-phase-0-acceptance-scenario.md) put it
+ * there by name: ADR 0015 fixed `executionExpiresAt = claimedAt + livenessFor`
+ * and never said where the duration is configured, and "left unplaced it lands
+ * inline in the claim path, which is exactly the hazard ADR 0013 created
+ * `Phase0RunProfile` to prevent". The two durations differ on purpose, so that
+ * a deadline-confusion bug is observable rather than invisible.
  */
 import { createHash } from "node:crypto";
 
@@ -45,6 +49,18 @@ import type { JsonValue } from "./json.js";
 
 /** ADR 0014's Phase 0 unclaimed window, which ADR 0016 restates as a fixture. */
 export const PHASE_0_CLAIMABLE_FOR_MS = 5 * 60 * 1000;
+
+/**
+ * ADR 0015's Phase 0 execution-liveness window, measured from `claimedAt`.
+ *
+ * Ten minutes is "as arbitrary as five", and the rationale is deliberately
+ * modest: it differs from the claim window so that deadline-confusion bugs are
+ * observable, and it preserves the real ordering in which execution takes
+ * substantially longer than claiming. It is **not** a claim that a review may
+ * run for at most ten minutes - the deadline detects loss of the execution
+ * owner, and a healthy self-hosted Run may renew past it.
+ */
+export const PHASE_0_LIVENESS_FOR_MS = 10 * 60 * 1000;
 
 /**
  * The half of a Run's spec no pull request can influence.
@@ -64,6 +80,12 @@ export interface Phase0RunProfile {
   readonly resolvedConfig: ResolvedConfig;
   /** How long a created Run stays claimable. Written into the spec. */
   readonly claimableForMs: number;
+  /**
+   * How long a claimed execution stays live without renewed evidence, measured
+   * from `claimedAt` (ADR 0015). Read at claim rather than written at creation,
+   * and named for what it detects rather than for a review timeout.
+   */
+  readonly livenessForMs: number;
 }
 
 /**
@@ -155,6 +177,7 @@ export const PHASE_0_RUN_PROFILE: Phase0RunProfile = {
     security: {},
   }),
   claimableForMs: PHASE_0_CLAIMABLE_FOR_MS,
+  livenessForMs: PHASE_0_LIVENESS_FOR_MS,
 };
 
 /** Resolve the trusted composition profile before any Run can be created. */
@@ -162,6 +185,20 @@ export const normalizeRunProfile = (
   profile: Phase0RunProfile
 ): Phase0RunProfile => {
   const resolvedConfig = normalizeResolvedConfig(profile.resolvedConfig);
+  // Both windows, checked at composition for the same reason the config is: a
+  // non-positive `livenessForMs` would write an `executionExpiresAt` at or
+  // before `claimedAt`, so every claim would be born already expired and the
+  // watchdog would terminalize Runs no Worker had a chance at.
+  for (const [field, milliseconds] of [
+    ["claimableForMs", profile.claimableForMs],
+    ["livenessForMs", profile.livenessForMs],
+  ] as const) {
+    if (!(Number.isFinite(milliseconds) && milliseconds > 0)) {
+      throw new TypeError(
+        `Phase0RunProfile.${field} must be a positive number of milliseconds, not ${String(milliseconds)}`
+      );
+    }
+  }
   if (profile.harness !== "codex") {
     return { ...profile, resolvedConfig };
   }

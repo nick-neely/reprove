@@ -314,6 +314,58 @@ export const runSpecSchema = z.object({
   createdAt: instantSchema,
 });
 
+/**
+ * What a Worker offers when it asks for work, and it is deliberately **not** a
+ * `z.literal(protocolVersion)`.
+ *
+ * ADR 0006 requires a Worker below `minimum` to receive a structured
+ * `upgrade_required` naming the minimum rather than to be told its request was
+ * malformed. A literal here would make an incompatible Worker's honest
+ * statement of its own version a schema failure, so the one message that has to
+ * carry a foreign version is the one message whose version is a plain integer.
+ *
+ * `runId` is optional because the same request is both a poll and a targeted
+ * claim: absent, the control plane picks the oldest claimable Run for this
+ * Owner; present, it claims exactly that one or names why it could not.
+ */
+export const claimRequestSchema = z.object({
+  protocolVersion: z.number().int().positive(),
+  workerBuildVersion: z.string().min(1).max(128),
+  runId: z.string().min(1).max(64).optional(),
+});
+
+/**
+ * What a granted claim returns: the Run to execute, and the execution ownership
+ * created by the claim itself
+ * ([ADR 0015](../../../../docs/adr/0015-execution-ownership-and-worker-liveness.md)).
+ *
+ * `executionToken` identifies the execution authorized to submit against the
+ * Run and `executionExpiresAt` is the control-plane liveness boundary for it.
+ * Both are on the grant rather than on the `RunSpec`, because the spec is fixed
+ * at Run creation and these two are written at claim - a Run that is claimed
+ * twice has the same spec and a different execution.
+ */
+export const claimGrantSchema = z.object({
+  runSpec: runSpecSchema,
+  executionToken: z.string().min(1),
+  executionExpiresAt: instantSchema,
+  protocolVersion: z.literal(protocolVersion),
+});
+
+/**
+ * The claim exchange, as one named pair.
+ *
+ * It sits beside {@link protocolSchemas} rather than inside it: that constant is
+ * "the complete set of protocol v1 payload schemas crossing the Worker seam" in
+ * the direction of a Run's *content*, and a compatibility test asserts its three
+ * keys exactly. The claim is the scheduling half, which ADR 0006 says a hosted
+ * Worker never exercises at all.
+ */
+export const claimSchemas = {
+  request: claimRequestSchema,
+  grant: claimGrantSchema,
+} as const;
+
 /** A Worker's pre-execution decision that it cannot serve the offered Run. */
 export const refusalSchema = z.object({
   runId: z.string().min(1),
@@ -332,6 +384,8 @@ export const protocolSchemas = {
 } as const;
 
 export type Autonomy = z.infer<typeof autonomySchema>;
+export type ClaimGrant = z.infer<typeof claimGrantSchema>;
+export type ClaimRequest = z.infer<typeof claimRequestSchema>;
 export type Evidence = z.infer<typeof evidenceSchema>;
 export type Exposure = z.infer<typeof exposureSchema>;
 export type Finding = z.infer<typeof findingSchema>;

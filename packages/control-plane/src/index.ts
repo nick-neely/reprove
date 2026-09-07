@@ -63,6 +63,13 @@ export {
 export type { KickProcessing } from "./github/webhook.js";
 export { WEBHOOK_STATUS } from "./github/webhook.js";
 export type { RunLifecyclePort, RunSchedule } from "./run/schedule.js";
+export type {
+  ClaimOutcome,
+  ClaimRefusal,
+  HostedClaimRequest,
+} from "./worker/claim-outcome.js";
+export { WORKER_CLAIM_STATUS } from "./worker/claim-outcome.js";
+export { WORKER_PROTOCOL_SUPPORT } from "./worker/compatibility.js";
 
 export const packageName = "@reprove/control-plane" as const;
 

@@ -631,6 +631,344 @@ export declare const runSpecSchema: z.ZodObject<{
     claimableUntil: z.ZodString;
     createdAt: z.ZodString;
 }, z.core.$strip>;
+/**
+ * What a Worker offers when it asks for work, and it is deliberately **not** a
+ * `z.literal(protocolVersion)`.
+ *
+ * ADR 0006 requires a Worker below `minimum` to receive a structured
+ * `upgrade_required` naming the minimum rather than to be told its request was
+ * malformed. A literal here would make an incompatible Worker's honest
+ * statement of its own version a schema failure, so the one message that has to
+ * carry a foreign version is the one message whose version is a plain integer.
+ *
+ * `runId` is optional because the same request is both a poll and a targeted
+ * claim: absent, the control plane picks the oldest claimable Run for this
+ * Owner; present, it claims exactly that one or names why it could not.
+ */
+export declare const claimRequestSchema: z.ZodObject<{
+    protocolVersion: z.ZodNumber;
+    workerBuildVersion: z.ZodString;
+    runId: z.ZodOptional<z.ZodString>;
+}, z.core.$strip>;
+/**
+ * What a granted claim returns: the Run to execute, and the execution ownership
+ * created by the claim itself
+ * ([ADR 0015](../../../../docs/adr/0015-execution-ownership-and-worker-liveness.md)).
+ *
+ * `executionToken` identifies the execution authorized to submit against the
+ * Run and `executionExpiresAt` is the control-plane liveness boundary for it.
+ * Both are on the grant rather than on the `RunSpec`, because the spec is fixed
+ * at Run creation and these two are written at claim - a Run that is claimed
+ * twice has the same spec and a different execution.
+ */
+export declare const claimGrantSchema: z.ZodObject<{
+    runSpec: z.ZodObject<{
+        runId: z.ZodString;
+        ownerId: z.ZodString;
+        repositoryId: z.ZodString;
+        installationId: z.ZodString;
+        pullRequestNumber: z.ZodNumber;
+        baseSha: z.ZodString;
+        headSha: z.ZodString;
+        provenance: z.ZodEnum<{
+            external: "external";
+            internal: "internal";
+        }>;
+        provenanceBasis: z.ZodObject<{
+            ruleVersion: z.ZodNumber;
+            baseRepositoryId: z.ZodNumber;
+            headRepositoryId: z.ZodNullable<z.ZodNumber>;
+            authorAssociation: z.ZodString;
+            authorId: z.ZodNumber;
+            matchedSameRepository: z.ZodBoolean;
+            matchedAssociation: z.ZodBoolean;
+        }, z.core.$strip>;
+        trigger: z.ZodEnum<{
+            automatic: "automatic";
+            manual: "manual";
+        }>;
+        placement: z.ZodEnum<{
+            hosted: "hosted";
+            self_hosted: "self_hosted";
+        }>;
+        allowHostedFallback: z.ZodBoolean;
+        harness: z.ZodEnum<{
+            "claude-code": "claude-code";
+            codex: "codex";
+            opencode: "opencode";
+        }>;
+        model: z.ZodString;
+        strategy: z.ZodEnum<{
+            standard: "standard";
+        }>;
+        autonomy: z.ZodEnum<{
+            fix: "fix";
+            inspect: "inspect";
+            verify: "verify";
+        }>;
+        resolvedConfig: z.ZodPreprocess<z.ZodObject<{
+            schemaVersion: z.ZodNumber;
+            review: z.ZodObject<{
+                enabled: z.ZodDefault<z.ZodBoolean>;
+                worker: z.ZodOptional<z.ZodEnum<{
+                    hosted: "hosted";
+                    "self-hosted": "self-hosted";
+                }>>;
+                harness: z.ZodOptional<z.ZodEnum<{
+                    "claude-code": "claude-code";
+                    codex: "codex";
+                    opencode: "opencode";
+                }>>;
+                model: z.ZodOptional<z.ZodString>;
+                strategy: z.ZodDefault<z.ZodEnum<{
+                    standard: "standard";
+                }>>;
+                autonomy: z.ZodOptional<z.ZodEnum<{
+                    fix: "fix";
+                    inspect: "inspect";
+                    verify: "verify";
+                }>>;
+                budget: z.ZodOptional<z.ZodNumber>;
+                deadline: z.ZodOptional<z.ZodString>;
+                event: z.ZodDefault<z.ZodEnum<{
+                    COMMENT: "COMMENT";
+                    REQUEST_CHANGES: "REQUEST_CHANGES";
+                }>>;
+                threshold: z.ZodDefault<z.ZodObject<{
+                    severity: z.ZodDefault<z.ZodEnum<{
+                        critical: "critical";
+                        high: "high";
+                        low: "low";
+                        medium: "medium";
+                    }>>;
+                    verification: z.ZodDefault<z.ZodEnum<{
+                        any: "any";
+                        verified: "verified";
+                    }>>;
+                }, z.core.$strict>>;
+                ignore: z.ZodDefault<z.ZodArray<z.ZodString>>;
+                commands: z.ZodOptional<z.ZodObject<{
+                    install: z.ZodOptional<z.ZodString>;
+                    build: z.ZodOptional<z.ZodString>;
+                    test: z.ZodOptional<z.ZodString>;
+                    typecheck: z.ZodOptional<z.ZodString>;
+                }, z.core.$strict>>;
+                baseConventions: z.ZodDefault<z.ZodBoolean>;
+                harnessOptions: z.ZodDefault<z.ZodObject<{
+                    codex: z.ZodOptional<z.ZodObject<{
+                        reasoningEffort: z.ZodDefault<z.ZodEnum<{
+                            high: "high";
+                            low: "low";
+                            max: "max";
+                            medium: "medium";
+                            xhigh: "xhigh";
+                        }>>;
+                    }, z.core.$strict>>;
+                    claudeCode: z.ZodOptional<z.ZodObject<{}, z.core.$strict>>;
+                    openCode: z.ZodOptional<z.ZodObject<{}, z.core.$strict>>;
+                }, z.core.$strict>>;
+                overrides: z.ZodDefault<z.ZodArray<z.ZodObject<{
+                    threshold: z.ZodOptional<z.ZodObject<{
+                        severity: z.ZodOptional<z.ZodDefault<z.ZodEnum<{
+                            critical: "critical";
+                            high: "high";
+                            low: "low";
+                            medium: "medium";
+                        }>>>;
+                        verification: z.ZodOptional<z.ZodDefault<z.ZodEnum<{
+                            any: "any";
+                            verified: "verified";
+                        }>>>;
+                    }, z.core.$strict>>;
+                    ignore: z.ZodOptional<z.ZodArray<z.ZodString>>;
+                    paths: z.ZodArray<z.ZodString>;
+                }, z.core.$strict>>>;
+            }, z.core.$strict>;
+            security: z.ZodObject<{
+                maxExposure: z.ZodDefault<z.ZodEnum<{
+                    account: "account";
+                    none: "none";
+                    scoped: "scoped";
+                }>>;
+                allowExternalProvenance: z.ZodDefault<z.ZodBoolean>;
+                installScripts: z.ZodDefault<z.ZodEnum<{
+                    allow: "allow";
+                    deny: "deny";
+                }>>;
+                allowHostedFallback: z.ZodDefault<z.ZodBoolean>;
+                egress: z.ZodDefault<z.ZodArray<z.ZodString>>;
+            }, z.core.$strict>;
+        }, z.core.$strict>, unknown>;
+        configDigest: z.ZodString;
+        claimableUntil: z.ZodString;
+        createdAt: z.ZodString;
+    }, z.core.$strip>;
+    executionToken: z.ZodString;
+    executionExpiresAt: z.ZodString;
+    protocolVersion: z.ZodLiteral<1>;
+}, z.core.$strip>;
+/**
+ * The claim exchange, as one named pair.
+ *
+ * It sits beside {@link protocolSchemas} rather than inside it: that constant is
+ * "the complete set of protocol v1 payload schemas crossing the Worker seam" in
+ * the direction of a Run's *content*, and a compatibility test asserts its three
+ * keys exactly. The claim is the scheduling half, which ADR 0006 says a hosted
+ * Worker never exercises at all.
+ */
+export declare const claimSchemas: {
+    readonly request: z.ZodObject<{
+        protocolVersion: z.ZodNumber;
+        workerBuildVersion: z.ZodString;
+        runId: z.ZodOptional<z.ZodString>;
+    }, z.core.$strip>;
+    readonly grant: z.ZodObject<{
+        runSpec: z.ZodObject<{
+            runId: z.ZodString;
+            ownerId: z.ZodString;
+            repositoryId: z.ZodString;
+            installationId: z.ZodString;
+            pullRequestNumber: z.ZodNumber;
+            baseSha: z.ZodString;
+            headSha: z.ZodString;
+            provenance: z.ZodEnum<{
+                external: "external";
+                internal: "internal";
+            }>;
+            provenanceBasis: z.ZodObject<{
+                ruleVersion: z.ZodNumber;
+                baseRepositoryId: z.ZodNumber;
+                headRepositoryId: z.ZodNullable<z.ZodNumber>;
+                authorAssociation: z.ZodString;
+                authorId: z.ZodNumber;
+                matchedSameRepository: z.ZodBoolean;
+                matchedAssociation: z.ZodBoolean;
+            }, z.core.$strip>;
+            trigger: z.ZodEnum<{
+                automatic: "automatic";
+                manual: "manual";
+            }>;
+            placement: z.ZodEnum<{
+                hosted: "hosted";
+                self_hosted: "self_hosted";
+            }>;
+            allowHostedFallback: z.ZodBoolean;
+            harness: z.ZodEnum<{
+                "claude-code": "claude-code";
+                codex: "codex";
+                opencode: "opencode";
+            }>;
+            model: z.ZodString;
+            strategy: z.ZodEnum<{
+                standard: "standard";
+            }>;
+            autonomy: z.ZodEnum<{
+                fix: "fix";
+                inspect: "inspect";
+                verify: "verify";
+            }>;
+            resolvedConfig: z.ZodPreprocess<z.ZodObject<{
+                schemaVersion: z.ZodNumber;
+                review: z.ZodObject<{
+                    enabled: z.ZodDefault<z.ZodBoolean>;
+                    worker: z.ZodOptional<z.ZodEnum<{
+                        hosted: "hosted";
+                        "self-hosted": "self-hosted";
+                    }>>;
+                    harness: z.ZodOptional<z.ZodEnum<{
+                        "claude-code": "claude-code";
+                        codex: "codex";
+                        opencode: "opencode";
+                    }>>;
+                    model: z.ZodOptional<z.ZodString>;
+                    strategy: z.ZodDefault<z.ZodEnum<{
+                        standard: "standard";
+                    }>>;
+                    autonomy: z.ZodOptional<z.ZodEnum<{
+                        fix: "fix";
+                        inspect: "inspect";
+                        verify: "verify";
+                    }>>;
+                    budget: z.ZodOptional<z.ZodNumber>;
+                    deadline: z.ZodOptional<z.ZodString>;
+                    event: z.ZodDefault<z.ZodEnum<{
+                        COMMENT: "COMMENT";
+                        REQUEST_CHANGES: "REQUEST_CHANGES";
+                    }>>;
+                    threshold: z.ZodDefault<z.ZodObject<{
+                        severity: z.ZodDefault<z.ZodEnum<{
+                            critical: "critical";
+                            high: "high";
+                            low: "low";
+                            medium: "medium";
+                        }>>;
+                        verification: z.ZodDefault<z.ZodEnum<{
+                            any: "any";
+                            verified: "verified";
+                        }>>;
+                    }, z.core.$strict>>;
+                    ignore: z.ZodDefault<z.ZodArray<z.ZodString>>;
+                    commands: z.ZodOptional<z.ZodObject<{
+                        install: z.ZodOptional<z.ZodString>;
+                        build: z.ZodOptional<z.ZodString>;
+                        test: z.ZodOptional<z.ZodString>;
+                        typecheck: z.ZodOptional<z.ZodString>;
+                    }, z.core.$strict>>;
+                    baseConventions: z.ZodDefault<z.ZodBoolean>;
+                    harnessOptions: z.ZodDefault<z.ZodObject<{
+                        codex: z.ZodOptional<z.ZodObject<{
+                            reasoningEffort: z.ZodDefault<z.ZodEnum<{
+                                high: "high";
+                                low: "low";
+                                max: "max";
+                                medium: "medium";
+                                xhigh: "xhigh";
+                            }>>;
+                        }, z.core.$strict>>;
+                        claudeCode: z.ZodOptional<z.ZodObject<{}, z.core.$strict>>;
+                        openCode: z.ZodOptional<z.ZodObject<{}, z.core.$strict>>;
+                    }, z.core.$strict>>;
+                    overrides: z.ZodDefault<z.ZodArray<z.ZodObject<{
+                        threshold: z.ZodOptional<z.ZodObject<{
+                            severity: z.ZodOptional<z.ZodDefault<z.ZodEnum<{
+                                critical: "critical";
+                                high: "high";
+                                low: "low";
+                                medium: "medium";
+                            }>>>;
+                            verification: z.ZodOptional<z.ZodDefault<z.ZodEnum<{
+                                any: "any";
+                                verified: "verified";
+                            }>>>;
+                        }, z.core.$strict>>;
+                        ignore: z.ZodOptional<z.ZodArray<z.ZodString>>;
+                        paths: z.ZodArray<z.ZodString>;
+                    }, z.core.$strict>>>;
+                }, z.core.$strict>;
+                security: z.ZodObject<{
+                    maxExposure: z.ZodDefault<z.ZodEnum<{
+                        account: "account";
+                        none: "none";
+                        scoped: "scoped";
+                    }>>;
+                    allowExternalProvenance: z.ZodDefault<z.ZodBoolean>;
+                    installScripts: z.ZodDefault<z.ZodEnum<{
+                        allow: "allow";
+                        deny: "deny";
+                    }>>;
+                    allowHostedFallback: z.ZodDefault<z.ZodBoolean>;
+                    egress: z.ZodDefault<z.ZodArray<z.ZodString>>;
+                }, z.core.$strict>;
+            }, z.core.$strict>, unknown>;
+            configDigest: z.ZodString;
+            claimableUntil: z.ZodString;
+            createdAt: z.ZodString;
+        }, z.core.$strip>;
+        executionToken: z.ZodString;
+        executionExpiresAt: z.ZodString;
+        protocolVersion: z.ZodLiteral<1>;
+    }, z.core.$strip>;
+};
 /** A Worker's pre-execution decision that it cannot serve the offered Run. */
 export declare const refusalSchema: z.ZodObject<{
     runId: z.ZodString;
@@ -874,6 +1212,8 @@ export declare const protocolSchemas: {
     }, z.core.$strip>;
 };
 export type Autonomy = z.infer<typeof autonomySchema>;
+export type ClaimGrant = z.infer<typeof claimGrantSchema>;
+export type ClaimRequest = z.infer<typeof claimRequestSchema>;
 export type Evidence = z.infer<typeof evidenceSchema>;
 export type Exposure = z.infer<typeof exposureSchema>;
 export type Finding = z.infer<typeof findingSchema>;

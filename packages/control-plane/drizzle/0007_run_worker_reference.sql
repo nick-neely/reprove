@@ -1,0 +1,22 @@
+-- The Run's reference to the self-hosted Worker that claimed it.
+--
+-- Hand-authored, and `src/db/schema.ts` deliberately does not declare it: the
+-- action needs PostgreSQL 15's column list, and `drizzle-orm@0.45.2` types
+-- `onDelete` as a fixed enum with no room for one. drizzle-kit's documented
+-- answer to DDL it cannot emit is `generate --custom`, which is this file.
+--
+-- The column list is the whole point. A Run records its Worker as audit beside
+-- `isolation` and `exposure`, so deleting a Worker must release the reference
+-- rather than take the Runs with it - which rules out the `cascade` every other
+-- reference in this schema takes. A bare `ON DELETE SET NULL` would null
+-- `owner_id` too, which is `NOT NULL`, so the Worker deletion would fail
+-- instead of releasing. Naming `worker_id` alone nulls exactly the half that
+-- may be null and leaves the Run under its Owner.
+--
+-- `MATCH SIMPLE` is the default and is what lets the hosted placement pass: it
+-- holds no durable Worker identity, so its Runs carry `worker_id IS NULL` and
+-- the pair is not checked at all. The composite is also what keeps the
+-- reference inside one tenant - `(owner_id, worker_id)` against `worker
+-- (owner_id, id)` has no match for another Owner's Worker, whatever the
+-- inserting session can see.
+ALTER TABLE "run" ADD CONSTRAINT "run_worker_owner_scoped_fk" FOREIGN KEY ("owner_id","worker_id") REFERENCES "public"."worker"("owner_id","id") ON DELETE SET NULL ("worker_id") ON UPDATE no action;

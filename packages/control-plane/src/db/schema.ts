@@ -210,6 +210,16 @@ export const workerCredential = pgTable(
   (t) => [
     tenantPolicy("worker_credential_tenant", t.ownerId),
     index("worker_credential_owner_idx").on(t.ownerId),
+    // Verification is one predicate - same Owner, hash matches, not revoked,
+    // not expired - and this is the index it reads through, on the hot path of
+    // every poll. Unique because the hash is over a 256-bit CSPRNG secret: two
+    // rows sharing one within an Owner is a duplicated credential rather than a
+    // collision, and a lookup that could return two rows is one whose answer
+    // depends on which it saw first.
+    uniqueIndex("worker_credential_owner_secret_idx").on(
+      t.ownerId,
+      t.secretHash
+    ),
     foreignKey({
       name: "worker_credential_worker_owner_scoped_fk",
       columns: [t.ownerId, t.workerId],
@@ -374,6 +384,78 @@ export const run = pgTable(
       .notNull()
       .defaultNow(),
 
+    // execution ownership - written at claim, placement-neutral (ADR 0015)
+    //
+    // All six are null on a `queued` Run and written together by the one
+    // conditional UPDATE that claims it, so a Run carrying an
+    // `executionExpiresAt` and no `claimedAt` is not a state this schema can
+    // reach.
+    /** When the claim succeeded. `executionExpiresAt` is measured from here. */
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    /**
+     * What the execution currently authorized to submit against this Run is
+     * recognized by, and deliberately not a `lease_token`: ADR 0015 renamed it
+     * because a hosted Worker holds no Lease and would otherwise carry one
+     * anyway.
+     *
+     * **Stored as `sha256:<hex>` over the minted token, never as the token**,
+     * which is the same posture `worker_credential.secret_hash` and
+     * `enrollment_code.code_hash` take and ADR 0006's rule for every credential
+     * this control plane holds. The plaintext is returned to the Worker exactly
+     * once, in the claim grant, and is not recoverable from the row afterwards:
+     * a database read or a backup would otherwise hand its reader a bearer
+     * token it could submit with until `executionExpiresAt`. Submission (#55)
+     * hashes the presented token and compares digests, so nothing needs the
+     * plaintext back.
+     */
+    executionTokenHash: text("execution_token_hash"),
+    /**
+     * The control-plane liveness boundary for that execution, `claimedAt +
+     * livenessFor`. Not from Run creation, not from `claimableUntil`. A
+     * self-hosted Worker's Lease is what may advance it; a hosted Worker cannot
+     * renew, so its boundary is fixed at claim.
+     */
+    executionExpiresAt: timestamp("execution_expires_at", {
+      withTimezone: true,
+    }),
+    /**
+     * Which self-hosted Worker holds it, and `null` for the hosted placement,
+     * which holds no durable identity at all (ADR 0006).
+     *
+     * **The composite foreign key exists and is not declared here**: it lives
+     * in the hand-authored `0007_run_worker_reference` migration, because it is
+     * the one reference in this schema whose action drizzle-kit cannot write.
+     * A Run records `worker` alongside `isolation` and `exposure` as audit, so
+     * deleting a Worker must release the reference rather than delete the Runs
+     * it executed - which rules out the `cascade` every other reference here
+     * takes. The constraint is therefore `(owner_id, worker_id) REFERENCES
+     * worker (owner_id, id) ON DELETE SET NULL ("worker_id")`, and that column
+     * list is PostgreSQL 15's: without it the action would null `owner_id`
+     * too, which is `NOT NULL`, so a Worker deletion would fail rather than
+     * release. `drizzle-orm@0.45.2` types `onDelete` as a fixed enum with no
+     * room for a column list, so `foreignKey({...})` cannot express it.
+     *
+     * Silence here is the deliberate half of that. A declaration drizzle-kit
+     * cannot round-trip would make the next `drizzle-kit generate` emit a
+     * migration dropping and re-adding the constraint in the form it *can*
+     * write, which is the form that fails. Leaving the column bare leaves the
+     * generated snapshot agreeing with the schema module, and `0007` adds what
+     * neither of them can say. `run_worker_owner_scoped_fk` is still the
+     * constraint naming this file uses everywhere else.
+     *
+     * `workflow_run_id` beside it is a different case rather than the same one:
+     * it names a durable run inside Vercel Workflow, which is not a table in
+     * this database, so no foreign key of any form is available to it.
+     */
+    workerId: uuid("worker_id"),
+    /**
+     * What the claiming Worker advertised, recorded on the Run for the same
+     * auditability reason `isolation` and `exposure` are (ADR 0006). The
+     * protocol integer and the Worker's own build are two versions, not one.
+     */
+    workerProtocolVersion: integer("worker_protocol_version"),
+    workerBuildVersion: text("worker_build_version"),
+
     // bounded, always read with the parent, never queried independently
     passes: jsonb("passes"),
     refusals: jsonb("refusals"),
@@ -415,6 +497,18 @@ export const run = pgTable(
     uniqueIndex("run_one_automatic_per_head")
       .on(t.ownerId, t.repositoryId, t.pullRequestNumber, t.headSha)
       .where(sql`${t.trigger} = 'automatic'`),
+    // What a polling self-hosted Worker reads: this Owner's Runs, still
+    // `queued`, whose claim window has not closed. Ordered `owner_id, status,
+    // claimable_until` because the claim's predicate is an equality on the
+    // first two and a range on the third, and because every probe in front of
+    // it runs inside `withOwner`.
+    //
+    // It covers the **filter** and not the **sort**: a poll also equality-filters
+    // `placement` and orders by `created_at`, so Postgres still sorts what this
+    // index returns. That is the right trade while a poll reads a handful of
+    // rows, and the honest place to say so - extend the index with those two
+    // columns when polling volume is real rather than on principle.
+    index("run_claimable_idx").on(t.ownerId, t.status, t.claimableUntil),
     unique("run_owner_scoped_id").on(t.ownerId, t.id),
     foreignKey({
       name: "run_repository_owner_scoped_fk",
