@@ -11,6 +11,7 @@
  *   and status in ('claimed','executing')
  *   and accepted_at is null
  *   and execution_token_hash = sha256(the presented token)
+ *   and (the Result carries no Patch or autonomy = 'fix')
  * ```
  *
  * The eligibility window and the write are **the same statement**, which is
@@ -27,16 +28,33 @@
  * follows exists **only to name it**. Its order is the ticket:
  *
  * ```text
- * not visible                            -> unknown_run
+ * not visible                              -> unknown_run
  * status not eligible, or already accepted -> not_eligible
- * still eligible, token is not ours      -> execution_mismatch
- * anything else                          -> not_eligible
+ * still eligible, token is not ours        -> execution_mismatch
+ * a Patch this Run's Autonomy forbids      -> malformed
+ * anything else                            -> not_eligible
  * ```
  *
  * The second line is the **whole** eligibility half of the predicate rather
  * than terminality alone, which matters for the one case terminality misses: a
  * `queued` Run holds no execution at all, so answering `execution_mismatch`
  * would blame a token for a Run that was never claimed.
+ *
+ * **The Autonomy line is last, and it is inside the statement rather than in
+ * front of it.** ADR 0007 rejects a `Patch` under any Autonomy but `fix`, and
+ * that check began life as a `select` ahead of the UPDATE - which made it a
+ * second thing that decided, reachable before the boundary had run at all. A
+ * concurrent submission committing between the two statements then produced a
+ * `422` naming the Autonomy of a Run that had already ended, where the promised
+ * answer is `not_eligible`. So the Autonomy is a conjunct of the one statement,
+ * and the re-probe names it only after terminal state and token identity, which
+ * is the same ordering every other name here obeys.
+ *
+ * **The re-probe takes the row lock**, which is what makes each of those names
+ * true when it is answered rather than merely when it was read: a concurrent
+ * acceptance either committed before the probe, and the probe sees it, or waits
+ * behind it. Every path here locks the same single row and no other, so there
+ * is no ordering for two of them to disagree about.
  *
  * [ADR 0016](../../../../docs/adr/0016-phase-0-acceptance-scenario.md) found
  * that order backwards in the prototype it lifted this from. Testing the token
@@ -196,35 +214,53 @@ const findingRow = (
   bucketKeyVersion: BUCKET_KEY_VERSION,
 });
 
+/** One named refusal, as the outcome the caller returns. */
+const rejected = (reason: ResultRejection): AcceptanceOutcome => ({
+  kind: "rejected",
+  reason,
+});
+
 /**
  * Reads the Run again, only to say what happened to it.
  *
  * Nothing is written here and nothing is decided: the conditional UPDATE above
  * already decided, and this turns its zero rows into a word. The order is the
  * decision, and it is documented at the top of this module.
+ *
+ * `for update` is what makes the word true at the moment it is answered. The
+ * UPDATE above matched nothing and therefore locked nothing, so without it a
+ * concurrent acceptance could commit between this read and the response, and
+ * the name would describe a row that no longer exists in that state. The lock
+ * costs a rejection waiting behind an acceptance on the same row, which is one
+ * row and one short transaction, and it cannot deadlock: every path through
+ * this module locks that row and no other.
  */
-const nameRejection = async (
+const nameRefusal = async (
   tx: TenantTransaction,
   probe: {
     readonly ownerId: number;
     readonly runId: string;
     readonly executionTokenHash: string;
+    /** Where the payload carries a Patch, or `-1`. */
+    readonly patchAt: number;
   }
-): Promise<ResultRejection> => {
+): Promise<AcceptanceOutcome> => {
   const [row] = await tx
     .select({
       status: schema.run.status,
       acceptedAt: schema.run.acceptedAt,
+      autonomy: schema.run.autonomy,
       executionTokenHash: schema.run.executionTokenHash,
     })
     .from(schema.run)
     .where(
       and(eq(schema.run.ownerId, probe.ownerId), eq(schema.run.id, probe.runId))
     )
-    .limit(1);
+    .limit(1)
+    .for("update");
 
   if (!row) {
-    return "unknown_run";
+    return rejected("unknown_run");
   }
   // The eligibility half first, and the whole of it. A Result arriving after a
   // `worker_lost` transition has won is `not_eligible` rather than
@@ -233,15 +269,26 @@ const nameRejection = async (
   // the stale-result boundary. The same reading covers `queued`, which holds no
   // execution at all, so blaming its token would be blaming the wrong thing.
   if (!statusIsEligible(row.status) || row.acceptedAt !== null) {
-    return "not_eligible";
+    return rejected("not_eligible");
   }
   if (row.executionTokenHash !== probe.executionTokenHash) {
-    return "execution_mismatch";
+    return rejected("execution_mismatch");
   }
-  // Eligible, with the current token, and the UPDATE still matched nothing:
-  // a row whose state moved under a snapshot this transaction cannot see.
-  // Reporting it as acceptable would be the one answer that is certainly wrong.
-  return "not_eligible";
+  if (probe.patchAt !== -1 && row.autonomy !== "fix") {
+    // ADR 0007's payload rule, reached only once the Run itself has answered
+    // for nothing. It is a `422` beside the schema failures rather than a
+    // seventh entry in ADR 0016's rejection set, because it is a statement
+    // about the payload measured against the Run's immutable spec.
+    return {
+      kind: "malformed",
+      reason: `findings.${probe.patchAt}.patch is not accepted under autonomy=${row.autonomy}`,
+    };
+  }
+  // Eligible, with the current token, carrying nothing this Run forbids, and
+  // the UPDATE still matched nothing: a row whose state moved under a snapshot
+  // this transaction cannot see. Reporting it as acceptable would be the one
+  // answer that is certainly wrong.
+  return rejected("not_eligible");
 };
 
 /**
@@ -273,32 +320,13 @@ export const acceptResult = async (
   const executionTokenHash = hashExecutionToken(submission.executionToken);
 
   // ADR 0007: "A `Patch` is rejected at acceptance under any Autonomy but
-  // `fix`." Autonomy lives in the Run's immutable spec, so this is the one
-  // payload check that needs a read - and it is issued only when the payload
-  // actually carries a Patch, so the ordinary submission pays nothing for it.
-  //
-  // **It is scoped by the whole eligibility predicate, token included.** On the
-  // Run id alone it would answer a caller that cannot submit at all, so a
-  // rotated token or a Run that had already ended would learn the Run's
-  // Autonomy by sending a Patch - a disclosure with nothing to do with the
-  // payload, reached ahead of the rejection order that exists to prevent
-  // exactly this. Where the predicate matches nothing, this says nothing: the
-  // statement below runs and `nameRejection` answers `unknown_run`,
-  // `not_eligible` or `execution_mismatch` as it would for any other Result.
+  // `fix`." Autonomy lives in the Run's immutable spec, so it is a conjunct of
+  // the one statement rather than a read in front of it: as a separate `select`
+  // it was a second thing that decided, and a concurrent submission committing
+  // between the two produced a `422` naming the Autonomy of a Run that had
+  // already ended. `nameRefusal` reaches it last, after terminal state and
+  // token identity, so a Run that ended answers for itself first.
   const patchAt = result.findings.findIndex((finding) => finding.patch);
-  if (patchAt !== -1) {
-    const [spec] = await tx
-      .select({ autonomy: schema.run.autonomy })
-      .from(schema.run)
-      .where(resultEligible(ownerId, runId, executionTokenHash))
-      .limit(1);
-    if (spec && spec.autonomy !== "fix") {
-      return {
-        kind: "malformed",
-        reason: `findings.${patchAt}.patch is not accepted under autonomy=${spec.autonomy}`,
-      };
-    }
-  }
 
   // ADR 0007: `incomplete` is a status rather than a flag inside the Result,
   // because the Run's own status is what reports the operational outcome.
@@ -320,14 +348,23 @@ export const acceptResult = async (
       // second value here would be two audit facts that can disagree with no
       // rule for which is true.
     })
-    .where(resultEligible(ownerId, runId, executionTokenHash))
+    .where(
+      and(
+        resultEligible(ownerId, runId, executionTokenHash),
+        // `and` drops an `undefined`, so a Result carrying no Patch adds no
+        // conjunct at all and the window stays exactly ADR 0015's.
+        patchAt === -1 ? undefined : eq(schema.run.autonomy, "fix")
+      )
+    )
     .returning({ id: schema.run.id });
 
   if (!accepted) {
-    return {
-      kind: "rejected",
-      reason: await nameRejection(tx, { executionTokenHash, ownerId, runId }),
-    };
+    return await nameRefusal(tx, {
+      executionTokenHash,
+      ownerId,
+      patchAt,
+      runId,
+    });
   }
 
   if (result.findings.length > 0) {

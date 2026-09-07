@@ -639,6 +639,7 @@ where the Run, under this Owner
   and status in ('claimed','executing')
   and accepted_at is null
   and execution_token_hash = sha256(the presented token)
+  and (the Result carries no Patch or autonomy = 'fix')
 ```
 
 The eligibility window and the write are **the same statement**, which is what makes ADR 0006's
@@ -662,6 +663,7 @@ its order is load-bearing:
 not visible                               -> unknown_run          404
 status not eligible, or already accepted  -> not_eligible         409
 still eligible, token is not ours         -> execution_mismatch   409
+a Patch this Run's Autonomy forbids       -> malformed            422
 anything else                             -> not_eligible         409
 ```
 
@@ -673,6 +675,12 @@ tests the **whole** eligibility half rather than terminality alone, which matter
 terminality misses: a `queued` Run holds no execution at all, so blaming its token would blame the
 wrong thing. Both orders return a rejection and only the name differs, so nothing but a test that
 reads the name catches it.
+
+**The re-probe takes the row lock.** The UPDATE matched nothing and therefore locked nothing, so
+without it a concurrent acceptance could commit between the read and the response, and the name would
+describe a row that is no longer in that state. It costs a rejection waiting behind an acceptance on
+the same row, which is one row and one short transaction, and it cannot deadlock: every path through
+Acceptance locks that row and no other.
 
 **`wrong_tenant` is unreachable rather than missing.** The whole path runs inside `withOwner`, so
 another Owner's Run is *invisible* rather than merely ineligible and the only answer available from
@@ -706,13 +714,14 @@ Reconciliation, which is cross-Run and belongs to the phase that publishes a Rev
 
 One rejection is a `422` rather than a name: ADR 0007 rejects a `Patch` at acceptance under any
 Autonomy but `fix`, and that is a statement about the payload measured against the Run's immutable
-spec rather than a seventh entry in ADR 0016's fixed rejection set. The read it needs is issued only
-when the payload actually carries a Patch, so an ordinary submission pays nothing for it - and it is
-**scoped by the whole eligibility predicate, token included**. On the Run id alone it would answer a
-caller that cannot submit at all, so a rotated token or an already-ended Run would learn the Run's
-Autonomy by sending a Patch, ahead of the rejection order that exists to prevent exactly that. Where
-the predicate matches nothing this says nothing, and the ordinary statement and re-probe name
-`unknown_run`, `not_eligible` or `execution_mismatch` as they would for any other Result.
+spec rather than a seventh entry in ADR 0016's fixed rejection set.
+
+**It is a conjunct of the one statement, not a read in front of it.** As a separate `select` it was a
+second thing that decided, reachable before the boundary had run at all: a concurrent submission
+committing between the two statements produced a `422` naming the Autonomy of a Run that had already
+ended, where the promised answer is `not_eligible`. So the Autonomy joins the UPDATE's predicate, and
+the re-probe reaches it **last**, after terminal state and token identity, which is the ordering every
+other name here obeys. An ordinary Result adds no conjunct and pays nothing for any of it.
 
 **Acceptance decides, and notification follows.** Nothing here wakes the lifecycle: ADR 0014 puts the
 database transition first and the notification after it, so a Run's terminal state never depends on a

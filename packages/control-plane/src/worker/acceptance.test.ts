@@ -1,3 +1,5 @@
+import { setTimeout } from "node:timers/promises";
+
 /**
  * Acceptance against the real database, because every claim #55 makes is a
  * claim about Postgres.
@@ -17,6 +19,7 @@
 import type { Finding, Result } from "@reprove/protocol/v1";
 import { protocolVersion } from "@reprove/protocol/v1";
 import { eq } from "drizzle-orm";
+import { Client } from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { bootstrap } from "../db/bootstrap.js";
@@ -675,6 +678,102 @@ describe("accepting a Result", () => {
       await expect(response.json()).resolves.toMatchObject({
         reason: "unknown_run",
       });
+    });
+
+    it("never names the Autonomy of a Run another submission has terminalized", async () => {
+      // The interleaving the reviewer found, forced rather than raced. A second
+      // connection terminalizes the Run and holds the write uncommitted; the
+      // Patch submission then runs against a row that still reads `claimed`.
+      //
+      // The Autonomy is a fact about a Run that has ended, so naming it would
+      // answer the payload's question about a Run whose stronger and clearer
+      // fact is that it is over - the exact ordering ADR 0015 requires and ADR
+      // 0016 found stated but not implemented. The answer must be
+      // `not_eligible` whichever side of the commit this lands on.
+      const runId = await seedRun(ACME);
+      const rival = new Client(database.adminUrl);
+      await rival.connect();
+      await rival.query("begin");
+      await rival.query(
+        "update run set status = 'completed', accepted_at = now() where id = $1",
+        [runId]
+      );
+
+      const answering = submit(
+        runId,
+        {},
+        {
+          ...resultFor(runId),
+          findings: [{ ...FINDING, patch: PATCH }],
+        }
+      );
+      // Long enough that the submission is inside Acceptance rather than still
+      // reading its body. Where it is not, the rival's commit simply lands
+      // first and the answer is the same one.
+      await setTimeout(150);
+      await rival.query("commit");
+      await rival.end();
+      const response = await answering;
+
+      expect(response.status).toBe(WORKER_RESULT_STATUS.rejected);
+      await expect(response.json()).resolves.toStrictEqual({
+        status: WORKER_RESULT_STATUS.rejected,
+        reason: "not_eligible",
+      });
+      await expect(findingRows(ACME, runId)).resolves.toStrictEqual([]);
+    });
+
+    it("keeps one answer when a Patch and an ordinary Result arrive together", async () => {
+      // The same interleaving as it actually occurs. The ordinary Result is
+      // always accepted, because a payload this Run cannot take never blocks
+      // one it can; the Patch is refused either for the Run having ended or for
+      // its own Autonomy, and never accepted. Five races, on five Runs of their
+      // own, because one is a coin toss.
+      const raceOnce = async () => {
+        const runId = await seedRun(ACME);
+        const [patched, ordinary] = await Promise.all([
+          submit(
+            runId,
+            {},
+            {
+              ...resultFor(runId),
+              findings: [{ ...FINDING, patch: PATCH }],
+            }
+          ),
+          submit(runId),
+        ]);
+        return {
+          findings: await findingRows(ACME, runId),
+          ordinary: ordinary.status,
+          patched: patched.status,
+          row: await runRow(ACME, runId),
+        };
+      };
+
+      const races = await Promise.all(
+        Array.from({ length: 5 }, () => raceOnce())
+      );
+
+      for (const race of races) {
+        // One acceptance, one set of Findings, and the Patch in none of it.
+        expect({
+          acceptedAt: race.row?.acceptedAt,
+          findings: race.findings.length,
+          ordinary: race.ordinary,
+          patch: race.findings[0]?.patch,
+          status: race.row?.status,
+        }).toStrictEqual({
+          acceptedAt: NOW,
+          findings: 1,
+          ordinary: WORKER_RESULT_STATUS.accepted,
+          patch: null,
+          status: "completed",
+        });
+        expect([
+          WORKER_RESULT_STATUS.rejected,
+          WORKER_RESULT_STATUS.malformed,
+        ]).toContain(race.patched);
+      }
     });
 
     it("accepts the same Patch under autonomy=fix", async () => {
