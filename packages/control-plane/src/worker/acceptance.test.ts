@@ -53,6 +53,14 @@ const EXECUTION_EXPIRES_AT = new Date("2026-02-01T12:10:00.000Z");
 const TOKEN = "an-execution-token-handed-back-by-the-claim";
 const OTHER_TOKEN = "a-token-that-was-rotated-out-from-under-it";
 
+/** A proposed change, which only autonomy=fix may carry (ADR 0007). */
+const PATCH = {
+  path: "src/session.ts",
+  startLine: 41,
+  endLine: 43,
+  replacement: "if (timingSafeEqual(token, stored)) return true",
+};
+
 let database: TestDatabase;
 let runtime: RuntimeDb;
 let pullRequest = 0;
@@ -605,6 +613,68 @@ describe("accepting a Result", () => {
       expect(row?.status).toBe("claimed");
       expect(row?.acceptedAt).toBeNull();
       await expect(findingRows(ACME, runId)).resolves.toStrictEqual([]);
+    });
+
+    it("says nothing about the Autonomy to a caller holding a stale token", async () => {
+      // The probe that reads Autonomy is scoped by the whole eligibility
+      // predicate, token included. Scoped on the Run id alone it would answer a
+      // caller that cannot submit at all, so a rotated token would learn the
+      // Run's Autonomy by sending a Patch - a disclosure that has nothing to do
+      // with the payload and that the rejection order exists to prevent.
+      const runId = await seedRun(ACME);
+
+      const response = await submit(
+        runId,
+        { executionToken: OTHER_TOKEN },
+        {
+          ...resultFor(runId),
+          findings: [{ ...FINDING, patch: PATCH }],
+        }
+      );
+
+      expect(response.status).toBe(WORKER_RESULT_STATUS.rejected);
+      await expect(response.json()).resolves.toStrictEqual({
+        status: WORKER_RESULT_STATUS.rejected,
+        reason: "execution_mismatch",
+      });
+    });
+
+    it("says nothing about the Autonomy of a Run that has ended", async () => {
+      const runId = await seedRun(ACME, { status: "failed" });
+
+      const response = await submit(
+        runId,
+        {},
+        {
+          ...resultFor(runId),
+          findings: [{ ...FINDING, patch: PATCH }],
+        }
+      );
+
+      expect(response.status).toBe(WORKER_RESULT_STATUS.rejected);
+      await expect(response.json()).resolves.toStrictEqual({
+        status: WORKER_RESULT_STATUS.rejected,
+        reason: "not_eligible",
+      });
+    });
+
+    it("says nothing about the Autonomy of a Run another Owner holds", async () => {
+      await seedOwner(GLOBEX);
+      const runId = await seedRun(GLOBEX);
+
+      const response = await submit(
+        runId,
+        {},
+        {
+          ...resultFor(runId),
+          findings: [{ ...FINDING, patch: PATCH }],
+        }
+      );
+
+      expect(response.status).toBe(WORKER_RESULT_STATUS.unknownRun);
+      await expect(response.json()).resolves.toMatchObject({
+        reason: "unknown_run",
+      });
     });
 
     it("accepts the same Patch under autonomy=fix", async () => {

@@ -284,15 +284,22 @@ export const acceptResult = async (
   // ADR 0007: "A `Patch` is rejected at acceptance under any Autonomy but
   // `fix`." Autonomy lives in the Run's immutable spec, so this is the one
   // payload check that needs a read - and it is issued only when the payload
-  // actually carries a Patch, so the ordinary submission pays nothing for it. A
-  // Run this Owner cannot see falls through to the statement below, where it is
-  // named `unknown_run` like any other.
+  // actually carries a Patch, so the ordinary submission pays nothing for it.
+  //
+  // **It is scoped by the whole eligibility predicate, token included.** On the
+  // Run id alone it would answer a caller that cannot submit at all, so a
+  // rotated token or a Run that had already ended would learn the Run's
+  // Autonomy by sending a Patch - a disclosure with nothing to do with the
+  // payload, reached ahead of the rejection order that exists to prevent
+  // exactly this. Where the predicate matches nothing, this says nothing: the
+  // statement below runs and `nameRejection` answers `unknown_run`,
+  // `not_eligible` or `execution_mismatch` as it would for any other Result.
   const patchAt = result.findings.findIndex((finding) => finding.patch);
   if (patchAt !== -1) {
     const [spec] = await tx
       .select({ autonomy: schema.run.autonomy })
       .from(schema.run)
-      .where(and(eq(schema.run.ownerId, ownerId), eq(schema.run.id, runId)))
+      .where(resultEligible(ownerId, runId, executionTokenHash))
       .limit(1);
     if (spec && spec.autonomy !== "fix") {
       return {
