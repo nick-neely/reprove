@@ -37,8 +37,13 @@ import {
   expireUnclaimed,
   readSchedule,
   recordLifecycle,
+  terminateLostExecution,
 } from "./run/lifecycle.js";
-import type { RunLifecyclePort } from "./run/schedule.js";
+import type {
+  ExecutionLoss,
+  ExecutionLossOutcome,
+  RunLifecyclePort,
+} from "./run/schedule.js";
 import type {
   AcceptanceOutcome,
   SubmittedResult,
@@ -195,6 +200,25 @@ export interface ControlPlane {
    * write is conditional on the writer being the recorded lifecycle.
    */
   readonly lifecycle: RunLifecyclePort;
+  /**
+   * ADR 0015's terminal transition, reached by the **in-process** detector: the
+   * `try`/`catch` around a hosted pass, which witnessed the throw and does not
+   * wait out a deadline for it.
+   *
+   * It is the same function `lifecycle.terminateLostExecution` is, for the
+   * reason `acceptResult` is one function reached two ways. The detectors
+   * differ because the evidence differs; the terminal write does not fork, and
+   * a second entry point that happened to write the same row today would be
+   * two liveness stories tomorrow.
+   *
+   * It absorbs no Result, so Acceptance remains the only path by which a Result
+   * enters a Run. It is **not** where a hosted Worker's *structured* Failure
+   * goes: that keeps its own specific reason, so `sandbox_teardown_incomplete`
+   * is never collapsed into `worker_lost`.
+   */
+  readonly reportExecutionLost: (
+    loss: ExecutionLoss
+  ) => Promise<ExecutionLossOutcome>;
   /** Drains the connection pool. */
   readonly close: () => Promise<void>;
 }
@@ -325,6 +349,15 @@ export const createControlPlane = async (
     authenticate,
   });
 
+  // One function, reached two ways, for the reason Acceptance is: the lifecycle
+  // watchdog and the in-process detector are ADR 0015's two Phase 0 detectors
+  // and they must not become two transitions. Naming it once here is what makes
+  // that structural rather than a pair of expressions that happen to agree.
+  const reportExecutionLost = (
+    loss: ExecutionLoss
+  ): Promise<ExecutionLossOutcome> =>
+    runtime.withOwner(loss.ownerId, (tx) => terminateLostExecution(tx, loss));
+
   const lifecycle: RunLifecyclePort = {
     record: (ownerId, runId, workflowRunId) =>
       runtime.withOwner(ownerId, (tx) =>
@@ -336,6 +369,7 @@ export const createControlPlane = async (
       runtime.withOwner(ownerId, (tx) =>
         expireUnclaimed(tx, runId, workflowRunId)
       ),
+    terminateLostExecution: reportExecutionLost,
   };
 
   return {
@@ -354,6 +388,7 @@ export const createControlPlane = async (
     acceptResult: accept,
     processDelivery,
     lifecycle,
+    reportExecutionLost,
     close: runtime.close,
   };
 };

@@ -14,17 +14,37 @@
  * that started and lost the race to be recorded - wakes at its deadline, finds a
  * predicate that names someone else, and ends having changed nothing.
  *
+ * The module holds **two** windows' transitions, not one:
+ *
+ * ```text
+ * claimableUntil       queued -> unscheduled          expireUnclaimed
+ * executionExpiresAt   claimed | executing -> failed  terminateLostExecution
+ * ```
+ *
+ * The second is [ADR 0015](../../../../docs/adr/0015-execution-ownership-and-worker-liveness.md)'s,
+ * and it is the one transition here that is not the lifecycle's alone: the
+ * in-process detector reaches it too, presenting an execution token where the
+ * watchdog presents the recorded lifecycle. That is why its ownership guard is
+ * part of the evidence rather than hard-coded into the statement.
+ *
  * Nothing in this module is exported from `src/index.ts`. Every signature names
  * a Drizzle transaction, and ADR 0010 forbids the only consumer from depending
  * on Drizzle; the orchestration package reaches this through the
  * `RunLifecyclePort` that `createControlPlane()` composes.
  */
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, lte, sql } from "drizzle-orm";
 
 import type { TenantTransaction } from "../db/runtime.js";
-import type { RunStatus } from "../db/schema-values.js";
+import type { LostFrom, RunStatus } from "../db/schema-values.js";
 import * as schema from "../db/schema.js";
-import type { RunSchedule } from "./schedule.js";
+import { hashExecutionToken } from "../worker/execution-token.js";
+import { resultEligibleWindow } from "./eligibility.js";
+import type {
+  ExecutionLoss,
+  ExecutionLossEvidence,
+  ExecutionLossOutcome,
+  RunSchedule,
+} from "./schedule.js";
 
 /**
  * Records which durable run schedules this Run, if none is recorded yet.
@@ -67,6 +87,7 @@ export const readSchedule = async (
     .select({
       status: schema.run.status,
       claimableUntil: schema.run.claimableUntil,
+      executionExpiresAt: schema.run.executionExpiresAt,
       workflowRunId: schema.run.workflowRunId,
     })
     .from(schema.run)
@@ -82,6 +103,7 @@ export const readSchedule = async (
     // answer for than to report it as it stands.
     status: row.status as RunStatus,
     claimableUntil: row.claimableUntil,
+    executionExpiresAt: row.executionExpiresAt,
     workflowRunId: row.workflowRunId,
   };
 };
@@ -117,4 +139,97 @@ export const expireUnclaimed = async (
     )
     .returning({ id: schema.run.id });
   return expired.length > 0;
+};
+
+/**
+ * What one detector can show for itself, as the conjunct it adds to the shared
+ * window.
+ *
+ * This is the whole of the difference between ADR 0015's three detectors. The
+ * window is Acceptance's and is not restated; the terminal write below is one
+ * statement and does not fork.
+ */
+const evidenceHolds = (evidence: ExecutionLossEvidence) =>
+  evidence.kind === "deadline"
+    ? and(
+        // NULL-safe rather than NULL-blind: a Run carrying no deadline matches
+        // nothing here instead of being terminalized on a comparison that is
+        // neither true nor false.
+        lte(schema.run.executionExpiresAt, evidence.now),
+        // ADR 0014's ownership guard, which every lifecycle-side mutation
+        // keeps. An orphan wakes at the same deadline and stays inert.
+        eq(schema.run.workflowRunId, evidence.workflowRunId)
+      )
+    : eq(
+        schema.run.executionTokenHash,
+        hashExecutionToken(evidence.executionToken)
+      );
+
+/**
+ * Ends a Run whose execution stopped answering, or writes nothing.
+ *
+ * ```text
+ * update run
+ *    set status = 'failed', failure_reason = 'worker_lost',
+ *        failure_detail = { detector, observation, lostFrom: <the OLD status> }
+ *  where <Acceptance's eligibility window>
+ *    and <this detector's evidence>
+ * ```
+ *
+ * **The window is Acceptance's, exactly.** ADR 0015 makes this and Acceptance
+ * two conditional updates racing over one predicate, so whichever wins closes
+ * the other path: a Result arriving after this transition is rejected
+ * `not_eligible`, and this transition over a Run that just accepted one writes
+ * nothing. A detector scoped more narrowly - to `executing` alone, say - would
+ * leave a Run abandoned at `claimed` eligible forever, which is the hole ADR
+ * 0016 makes the mandatory Phase 0 case.
+ *
+ * **`lostFrom` is the row's own pre-update `status`.** Inside `SET`, a column
+ * reference is the old value, so the detail records `claimed` or `executing`
+ * without a second statement that could disagree with the first. That is what
+ * keeps this one conditional statement rather than a read and a write.
+ *
+ * **It decides; it does not reclaim.** The database write is the correctness
+ * boundary and `cancel()` of a still-running pass is best-effort clean-up that
+ * follows a transition that won - cancelling first would make a resource
+ * operation load-bearing for correctness. The caller gets `terminalized` for
+ * exactly that ordering. Where no pass was ever recorded there is nothing to
+ * cancel, and that is fine: a pass emerging afterwards cannot change a Run
+ * whose Acceptance has already closed.
+ *
+ * @param tx A tenant transaction already scoped to the Run's Owner.
+ * @param loss The Run, the detector's account of itself, and its evidence.
+ * @returns Whether the transition was written, and what it was lost from.
+ */
+export const terminateLostExecution = async (
+  tx: TenantTransaction,
+  loss: ExecutionLoss
+): Promise<ExecutionLossOutcome> => {
+  const [terminalized] = await tx
+    .update(schema.run)
+    .set({
+      status: "failed" satisfies RunStatus,
+      failureReason: "worker_lost",
+      // The one place `lostFrom` can be read without a second statement: on the
+      // right of `SET`, `run.status` is still the pre-update value.
+      failureDetail: sql`jsonb_build_object(
+        'detector', ${loss.detector}::text,
+        'observation', ${loss.observation}::text,
+        'lostFrom', ${schema.run.status})`,
+    })
+    .where(
+      and(
+        resultEligibleWindow(loss.ownerId, loss.runId),
+        evidenceHolds(loss.evidence)
+      )
+    )
+    .returning({ failureDetail: schema.run.failureDetail });
+
+  if (!terminalized) {
+    return { lostFrom: null, terminalized: false };
+  }
+  // SAFETY: written by the statement above, out of the row's own `status`,
+  // which the window has just constrained to exactly these two values.
+  const { lostFrom } = terminalized.failureDetail as { lostFrom: LostFrom };
+  return { lostFrom, terminalized: true };
 };

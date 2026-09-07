@@ -25,9 +25,7 @@ const ACME = 1001;
 const RUN = "11111111-1111-4111-8111-111111111111";
 const TOKEN_HASH = "sha256:0123456789abcdef";
 
-const render = (
-  predicate: ReturnType<typeof resultEligibleWindow>
-): { sql: string; params: unknown[] } => {
+const render = (predicate: ReturnType<typeof resultEligibleWindow>) => {
   if (predicate === undefined) {
     throw new Error("the window rendered to nothing at all");
   }
