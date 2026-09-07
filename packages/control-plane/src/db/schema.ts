@@ -353,6 +353,39 @@ export const run = pgTable(
     /** pull_request_closed | pull_request_drafted, on `cancelled` */
     cancellationReason: text("cancellation_reason"),
     /**
+     * `worker_lost`, on `failed`. ADR 0007's `state` carries "failure reason and
+     * its structured detail"; this is the reason half.
+     *
+     * **One code for both Worker kinds and all three detectors** (ADR 0015).
+     * Parallel codes - `hosted_pass_failed`, `workflow_lost` - were rejected
+     * because ADR 0001's single Worker concept is load-bearing, and the
+     * operational question "my daemon or your infrastructure?" is answered by
+     * the `detector` below, which is evidence rather than domain vocabulary.
+     */
+    failureReason: text("failure_reason"),
+    /**
+     * What was observed, beside the reason that names it:
+     *
+     * ```text
+     * detector     hosted_prompt | hosted_watchdog | lease_expired
+     * observation  uncaught_throw | workflow_failed | workflow_cancelled
+     *              | workflow_terminal_without_result
+     *              | workflow_state_unavailable | deadline_elapsed
+     * lostFrom     claimed | executing
+     * ```
+     *
+     * `jsonb` rather than three columns, for the reason `resolved_config` and
+     * `provenance_basis` are: it is read with its parent and never queried
+     * independently, and the three fields are one account of one event rather
+     * than three facts a query would filter on.
+     *
+     * **`lostFrom` is written from the row's own pre-update `status`**, inside
+     * the terminal UPDATE. A Run abandoned at `claimed` and one abandoned at
+     * `executing` both end `failed(worker_lost)`, and this is what records
+     * which - without a second statement that could disagree with the first.
+     */
+    failureDetail: jsonb("failure_detail"),
+    /**
      * Not nullable, because ADR 0013 puts it in the immutable `spec`: "no field
      * is left null or filled in later", and it is written at creation from the
      * profile's claimable-deadline policy. A nullable column would let a Run
