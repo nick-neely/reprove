@@ -71,7 +71,19 @@ scoped differently from the queries that check it. `0003` completes ADR 0013's R
 
 `0005_run_lifecycle` adds `run.workflow_run_id` and is drizzle-kit's own output as well - one nullable `text` column, so it meets an existing row without needing anything of it. **It classifies nothing.** A column changes no table's tenancy and `run` was already a tenant table, so the classification the FORCE generator derives its delta from is the one it was already at, and it emits nothing where the two agree: **no FORCE delta follows `0005`**, and the absence is the generator's own answer rather than a step someone skipped.
 
-`0006_run_execution_ownership` adds ADR 0015's execution-ownership block to `run` - `claimed_at`, `execution_token_hash`, `execution_expires_at`, `worker_id`, `worker_protocol_version`, `worker_build_version` - plus the index a poll reads through and a unique index on `worker_credential (owner_id, secret_hash)`. Drizzle-kit's own output again, six nullable columns and two indexes, so it meets existing rows without needing anything of them, and it classifies nothing for the same reason `0005` did not. **`worker_id` carries no foreign key**, and that is the composite rule of `src/db/schema.ts` rather than an exception to it: a Run records its Worker as audit, so deleting a Worker must not cascade into the Runs it executed, and the correct constraint - a composite `(owner_id, worker_id)` reference with `ON DELETE SET NULL (worker_id)` - needs a PostgreSQL 15 column list that drizzle-kit 0.31 cannot emit. Without the list the clause would null `owner_id` too, which is `NOT NULL`, so a Worker deletion would fail rather than release. Same posture as `workflow_run_id` beside it.
+`0006_run_execution_ownership` adds ADR 0015's execution-ownership block to `run` - `claimed_at`, `execution_token_hash`, `execution_expires_at`, `worker_id`, `worker_protocol_version`, `worker_build_version` - plus the index a poll reads through and a unique index on `worker_credential (owner_id, secret_hash)`. Drizzle-kit's own output again, six nullable columns and two indexes, so it meets existing rows without needing anything of them, and it classifies nothing for the same reason `0005` did not. It left `worker_id` without its foreign key, which `0007` is.
+
+`0007_run_worker_reference` is the **first hand-authored migration in this history**, and it is one statement:
+
+```sql
+ALTER TABLE "run" ADD CONSTRAINT "run_worker_owner_scoped_fk"
+  FOREIGN KEY ("owner_id","worker_id") REFERENCES "public"."worker"("owner_id","id")
+  ON DELETE SET NULL ("worker_id") ON UPDATE no action;
+```
+
+It is the composite rule of `src/db/schema.ts` rather than an exception to it. A Run records its Worker as audit beside `isolation` and `exposure`, so deleting a Worker must release the reference rather than take the Runs it executed - which rules out the `cascade` every other reference in the schema takes. The column list is PostgreSQL 15's and is the whole difficulty: without it the action would null `owner_id` too, which is `NOT NULL`, so a Worker deletion would fail rather than release. `drizzle-orm@0.45.2` types `onDelete` as a fixed enum with no room for a column list, and `generate --custom` is drizzle-kit's own documented answer to DDL it cannot emit.
+
+**`src/db/schema.ts` therefore does not declare it, and the silence is deliberate.** A declaration drizzle-kit cannot round-trip would make the next `drizzle-kit generate` emit a migration dropping and re-adding the constraint in the form it *can* write - the form that fails - so the column stays bare, the generated snapshot keeps agreeing with the schema module, and `0007` carries what neither of them can say. The cost is that no schema test can see the constraint, which is why `worker/claim.test.ts` measures it against the database that carries it: deleting a claimed Run's Worker leaves the Run present, `claimed`, under its Owner, with `worker_id` released, and a Run naming another Owner's Worker is refused with `23503`. `workflow_run_id` beside it is a different case rather than the same one - it names a durable run inside Vercel Workflow, which is not a table here, so no foreign key of any form is available to it.
 
 All of it is ordinary Vitest - `declared.test.ts`, `force.test.ts`, `force-generate.test.ts` - beside `tools/verify-migrations.mjs`, which is the Git-aware half that proves history was only appended to. None of it sees a database: what actually deployed is `createRuntimeDb()`'s seven checks, and that division is ADR 0017's, not an omission.
 
@@ -549,6 +561,9 @@ claim path, which is the hazard ADR 0013 created that profile to prevent.
 So `createControlPlane()` returns a placement-neutral `claimRun(request)` beside the endpoint. It is
 the **same** conditional UPDATE, with `worker_id`, `worker_protocol_version` and `worker_build_version`
 left null, and it is what stops the hosted placement growing an execution-ownership story of its own.
+`run (owner_id, worker_id)` references `worker (owner_id, id)` under `MATCH SIMPLE`, so the half-null
+pair a hosted claim writes is not checked at all, while a self-hosted claim can only name a Worker of
+its own Owner.
 A hosted Worker names its Run and never polls, because ADR 0006 keeps it out of the scheduling half of
 the protocol entirely.
 

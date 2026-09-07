@@ -422,16 +422,30 @@ export const run = pgTable(
      * Which self-hosted Worker holds it, and `null` for the hosted placement,
      * which holds no durable identity at all (ADR 0006).
      *
-     * **No foreign key, and the reason is the composite rule above rather than
-     * an exception to it.** A Run records `worker` alongside `isolation` and
-     * `exposure` as audit, so deleting a Worker must not delete the Runs it
-     * executed - which rules out the `CASCADE` every other reference here
-     * takes. The correct constraint is a composite `(owner_id, worker_id)`
-     * reference with `ON DELETE SET NULL (worker_id)`, and that column list is
-     * PostgreSQL 15's and unrepresentable in drizzle-kit 0.31: without it the
-     * clause would null `owner_id` too, which is `NOT NULL`, so a Worker
-     * deletion would fail rather than release. Same posture, and the same
-     * reason, as `workflow_run_id` beside it.
+     * **The composite foreign key exists and is not declared here**: it lives
+     * in the hand-authored `0007_run_worker_reference` migration, because it is
+     * the one reference in this schema whose action drizzle-kit cannot write.
+     * A Run records `worker` alongside `isolation` and `exposure` as audit, so
+     * deleting a Worker must release the reference rather than delete the Runs
+     * it executed - which rules out the `cascade` every other reference here
+     * takes. The constraint is therefore `(owner_id, worker_id) REFERENCES
+     * worker (owner_id, id) ON DELETE SET NULL ("worker_id")`, and that column
+     * list is PostgreSQL 15's: without it the action would null `owner_id`
+     * too, which is `NOT NULL`, so a Worker deletion would fail rather than
+     * release. `drizzle-orm@0.45.2` types `onDelete` as a fixed enum with no
+     * room for a column list, so `foreignKey({...})` cannot express it.
+     *
+     * Silence here is the deliberate half of that. A declaration drizzle-kit
+     * cannot round-trip would make the next `drizzle-kit generate` emit a
+     * migration dropping and re-adding the constraint in the form it *can*
+     * write, which is the form that fails. Leaving the column bare leaves the
+     * generated snapshot agreeing with the schema module, and `0007` adds what
+     * neither of them can say. `run_worker_owner_scoped_fk` is still the
+     * constraint naming this file uses everywhere else.
+     *
+     * `workflow_run_id` beside it is a different case rather than the same one:
+     * it names a durable run inside Vercel Workflow, which is not a table in
+     * this database, so no foreign key of any form is available to it.
      */
     workerId: uuid("worker_id"),
     /**

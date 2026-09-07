@@ -22,6 +22,7 @@ import { bootstrap } from "../db/bootstrap.js";
 import type { TestDatabase } from "../db/local-stack.test-support.js";
 import {
   createTestDatabase,
+  driverFailure,
   onRuntimeConnection,
   RUNTIME_PASSWORD,
 } from "../db/local-stack.test-support.js";
@@ -724,6 +725,62 @@ describe("claiming a Run", () => {
 
       expect(row?.secret_hash).toBe(hashWorkerSecret(acmeCredential.secret));
       expect(row?.secret_hash).not.toBe(acmeCredential.credential);
+    });
+  });
+
+  describe("the Run's reference to its Worker", () => {
+    // `0007_run_worker_reference` is hand-authored, because
+    // `ON DELETE SET NULL ("worker_id")` needs PostgreSQL 15's column list and
+    // the pinned drizzle-orm types `onDelete` as a fixed enum. A constraint no
+    // schema module declares is one no schema test can see, so it is measured
+    // here, against the database that actually carries it.
+    it("releases the Run rather than deleting it when its Worker goes", async () => {
+      const runId = await seedRun(ACME);
+      await handle(
+        claiming(acmeCredential.credential, {
+          protocolVersion: WORKER_PROTOCOL_SUPPORT.current,
+          workerBuildVersion: BUILD,
+          runId,
+        })
+      );
+      await expect(runRow(ACME, runId)).resolves.toMatchObject({
+        workerId: acmeWorker,
+      });
+
+      await runtime.withOwner(ACME, (tx) =>
+        tx.delete(schema.worker).where(eq(schema.worker.id, acmeWorker))
+      );
+
+      // The audit survives the identity: the Run is still there, still under
+      // its Owner and still `claimed`, with only the half of the pair that may
+      // be null released. A `cascade` would have taken the row, and a bare
+      // `ON DELETE SET NULL` would have failed on `owner_id NOT NULL` and left
+      // the Worker undeletable.
+      await expect(runRow(ACME, runId)).resolves.toMatchObject({
+        status: "claimed",
+        ownerId: ACME,
+        workerId: null,
+        workerBuildVersion: BUILD,
+        claimedAt: NOW,
+      });
+    });
+
+    it("refuses a Run naming a Worker of another Owner", async () => {
+      // What makes the composite composite. A reference on `worker_id` alone
+      // would accept this, because the Worker exists; the pair does not exist
+      // under ACME, and referential integrity is checked against the table
+      // rather than through the tenant a session can see.
+      await seedOwner(GLOBEX, INSTALLATION + 1);
+      const foreignWorker = await seedWorker(GLOBEX, {
+        secretHash: mintWorkerCredential(GLOBEX).secretHash,
+      });
+
+      const failure = await driverFailure(
+        seedRun(ACME, { workerId: foreignWorker })
+      );
+
+      expect(failure.code).toBe("23503");
+      expect(failure.message).toContain("run_worker_owner_scoped_fk");
     });
   });
 
