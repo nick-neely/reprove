@@ -62,14 +62,13 @@ import {
   submissionSchemas,
 } from "@reprove/protocol/v1";
 
-import { readBoundedBody } from "../github/body.js";
 import type {
   ResultRejection,
   WorkerResultPort,
 } from "./acceptance-outcome.js";
 import { WORKER_RESULT_STATUS } from "./acceptance-outcome.js";
 import type { WorkerIdentity } from "./authenticate.js";
-import { checkProtocolVersion } from "./compatibility.js";
+import { answer, fieldsOf, readWorkerRequest, refusalStatus } from "./http.js";
 
 /**
  * The largest submission to accept.
@@ -100,13 +99,6 @@ export interface WorkerResultConfig {
   readonly maximumBytes?: number;
 }
 
-/** A response carrying a reason a person can read and nothing a stranger can use. */
-const answer = (
-  status: number,
-  reason: string,
-  detail: Readonly<Record<string, number>> = {}
-): Response => Response.json({ status, reason, ...detail }, { status });
-
 /**
  * A refusal naming the cap it broke, which is the one refusal that is worth a
  * number: a Worker cannot shrink a payload it has not been told the size of.
@@ -128,20 +120,11 @@ const resultBytesOf = (submission: ResultSubmission): number =>
 
 /** Which status a named rejection answers with. */
 const statusOf = (reason: ResultRejection): number =>
-  reason === "unknown_run"
-    ? WORKER_RESULT_STATUS.unknownRun
-    : WORKER_RESULT_STATUS.rejected;
-
-/** Every field a schema could not read, named, as one line. */
-const fieldsOf = (error: {
-  readonly issues: readonly {
-    readonly path: readonly PropertyKey[];
-    readonly message: string;
-  }[];
-}): string =>
-  error.issues
-    .map((issue) => `${issue.path.join(".") || "body"} ${issue.message}`)
-    .join("; ");
+  refusalStatus(
+    reason,
+    WORKER_RESULT_STATUS.unknownRun,
+    WORKER_RESULT_STATUS.rejected
+  );
 
 /**
  * Builds the handler.
@@ -155,54 +138,24 @@ export const createWorkerResultHandler = (
   const maximumBytes = config.maximumBytes ?? MAXIMUM_SUBMISSION_BYTES;
 
   const handle = async (request: Request, runId: string): Promise<Response> => {
-    const body = await readBoundedBody(request, maximumBytes);
-    if (body.kind === "oversized") {
-      return oversized(body.limit);
+    const read = await readWorkerRequest({
+      authenticate: config.authenticate,
+      maximumBytes,
+      onOversized: oversized,
+      onUnavailable: () =>
+        answer(
+          WORKER_RESULT_STATUS.unavailable,
+          "the credential could not be verified, so nothing was accepted"
+        ),
+      parse: (body) => submissionSchemas.request.safeParse(body),
+      request,
+      statuses: WORKER_RESULT_STATUS,
+      versionOf: (envelope) => envelope.protocolVersion,
+    });
+    if (read.kind === "answered") {
+      return read.response;
     }
-
-    let worker: WorkerIdentity | null;
-    try {
-      worker = await config.authenticate(request.headers.get("authorization"));
-    } catch {
-      // The pre-authentication transaction could not run. Nothing was decided,
-      // so this is not a `401`: telling a Worker its credential is bad when the
-      // database was unreachable would send an operator after the wrong thing.
-      return answer(
-        WORKER_RESULT_STATUS.unavailable,
-        "the credential could not be verified, so nothing was accepted"
-      );
-    }
-    if (!worker) {
-      return answer(
-        WORKER_RESULT_STATUS.unauthenticated,
-        "no valid Worker credential"
-      );
-    }
-
-    let envelope: ReturnType<typeof submissionSchemas.request.safeParse>;
-    try {
-      envelope = submissionSchemas.request.safeParse(
-        JSON.parse(new TextDecoder().decode(body.bytes))
-      );
-    } catch {
-      return answer(WORKER_RESULT_STATUS.malformed, "the body is not JSON");
-    }
-    if (!envelope.success) {
-      return answer(WORKER_RESULT_STATUS.malformed, fieldsOf(envelope.error));
-    }
-    const submission = envelope.data;
-
-    const compatibility = checkProtocolVersion(submission.protocolVersion);
-    if (compatibility.kind === "incompatible") {
-      return answer(
-        WORKER_RESULT_STATUS.incompatible,
-        compatibility.reason,
-        // Both numbers, both ways round: a Worker below the window needs the
-        // minimum to upgrade to, and a Worker above it needs the current
-        // version, because telling that one to upgrade would be false.
-        { minimum: compatibility.minimum, current: compatibility.current }
-      );
-    }
+    const { payload: submission, worker } = read;
 
     if (resultBytesOf(submission) > protocolLimits.resultBytes) {
       return oversized(protocolLimits.resultBytes);

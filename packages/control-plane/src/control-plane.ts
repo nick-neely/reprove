@@ -311,12 +311,18 @@ export const createControlPlane = async (
   // keeps ADR 0008's restriction on the pre-authentication transaction true on
   // this path as well as on the claim's.
   const acceptanceConfig = { now: () => new Date() };
+  // One function, reached two ways. The endpoint and the hosted placement are
+  // the same Acceptance rather than two, which is what stops the hosted path
+  // (#57) growing a stale-result boundary of its own, so naming it here is what
+  // makes that structural rather than a pair of expressions that happen to
+  // agree today.
+  const accept = (submission: SubmittedResult): Promise<AcceptanceOutcome> =>
+    runtime.withOwner(submission.ownerId, (tx) =>
+      acceptResult(tx, acceptanceConfig, submission)
+    );
   const handleWorkerResult = createWorkerResultHandler({
+    accept,
     authenticate,
-    accept: (submission) =>
-      runtime.withOwner(submission.ownerId, (tx) =>
-        acceptResult(tx, acceptanceConfig, submission)
-      ),
   });
 
   const lifecycle: RunLifecyclePort = {
@@ -345,10 +351,7 @@ export const createControlPlane = async (
         })
       ),
     handleWorkerResult,
-    acceptResult: (submission) =>
-      runtime.withOwner(submission.ownerId, (tx) =>
-        acceptResult(tx, acceptanceConfig, submission)
-      ),
+    acceptResult: accept,
     processDelivery,
     lifecycle,
     close: runtime.close,

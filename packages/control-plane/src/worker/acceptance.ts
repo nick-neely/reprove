@@ -75,18 +75,7 @@ import type {
   SubmittedResult,
 } from "./acceptance-outcome.js";
 import { hashExecutionToken } from "./execution-token.js";
-
-/**
- * What a Run id looks like, checked before it reaches a `uuid` column.
- *
- * The same guard `claim.ts` carries, and for the same measured reason: `runId`
- * is an opaque string on the wire, so a Worker naming `not-a-uuid` would
- * otherwise reach Postgres, which raises `22P02` from inside the UPDATE - and
- * the endpoint reports that rolled-back transaction as `503`, telling a Worker
- * the control plane is unavailable when what actually happened is that it named
- * a Run that cannot exist.
- */
-const RUN_ID = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/iu;
+import { isRunId } from "./run-id.js";
 
 /** The version of the bucketing algorithm the rows below are keyed under. */
 export const BUCKET_KEY_VERSION = 1;
@@ -118,7 +107,7 @@ export interface AcceptanceConfig {
  * 0008 rule 1: application scoping **plus** RLS, "not either alone".
  *
  * @param ownerId The submitting Owner.
- * @param runId The Run, already checked against {@link RUN_ID}.
+ * @param runId The Run, already checked with `isRunId`.
  * @param executionTokenHash The stored form of the presented token.
  * @returns The window, as a predicate an UPDATE may carry.
  */
@@ -274,8 +263,10 @@ export const acceptResult = async (
 ): Promise<AcceptanceOutcome> => {
   const { ownerId, result, runId } = submission;
 
-  if (!RUN_ID.test(runId)) {
-    // Before any SQL, for the reason above `RUN_ID`.
+  if (!isRunId(runId)) {
+    // Before any SQL, for the reason `run-id.ts` gives: a `uuid` column rejects
+    // the string rather than failing to match it, and a rolled-back transaction
+    // reads as `503`.
     return { kind: "rejected", reason: "unknown_run" };
   }
 

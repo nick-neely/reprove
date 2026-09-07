@@ -36,11 +36,10 @@
  */
 import { claimRequestSchema } from "@reprove/protocol/v1";
 
-import { readBoundedBody } from "../github/body.js";
 import type { WorkerIdentity } from "./authenticate.js";
 import type { ClaimRefusal, WorkerClaimPort } from "./claim-outcome.js";
 import { WORKER_CLAIM_STATUS } from "./claim-outcome.js";
-import { checkProtocolVersion } from "./compatibility.js";
+import { answer, readWorkerRequest, refusalStatus } from "./http.js";
 
 /**
  * The largest claim request to accept.
@@ -65,18 +64,13 @@ export interface WorkerClaimConfig {
   readonly maximumBytes?: number;
 }
 
-/** A response carrying a reason a person can read and nothing a stranger can use. */
-const answer = (
-  status: number,
-  reason: string,
-  detail: Readonly<Record<string, number>> = {}
-): Response => Response.json({ status, reason, ...detail }, { status });
-
 /** Which status a named refusal answers with. */
 const statusOf = (reason: ClaimRefusal): number =>
-  reason === "unknown_run"
-    ? WORKER_CLAIM_STATUS.unknownRun
-    : WORKER_CLAIM_STATUS.refused;
+  refusalStatus(
+    reason,
+    WORKER_CLAIM_STATUS.unknownRun,
+    WORKER_CLAIM_STATUS.refused
+  );
 
 /**
  * Builds the handler.
@@ -90,75 +84,39 @@ export const createWorkerClaimHandler = (
   const maximumBytes = config.maximumBytes ?? MAXIMUM_CLAIM_BYTES;
 
   const handle = async (request: Request): Promise<Response> => {
-    const body = await readBoundedBody(request, maximumBytes);
-    if (body.kind === "oversized") {
-      return answer(
-        WORKER_CLAIM_STATUS.oversized,
-        `a claim may not exceed ${body.limit} bytes`
-      );
+    const read = await readWorkerRequest({
+      authenticate: config.authenticate,
+      maximumBytes,
+      onOversized: (limit) =>
+        answer(
+          WORKER_CLAIM_STATUS.oversized,
+          `a claim may not exceed ${limit} bytes`
+        ),
+      onUnavailable: () =>
+        answer(
+          WORKER_CLAIM_STATUS.unavailable,
+          "the credential could not be verified, so nothing was claimed"
+        ),
+      parse: (body) => claimRequestSchema.safeParse(body),
+      request,
+      statuses: WORKER_CLAIM_STATUS,
+      versionOf: (claimRequest) => claimRequest.protocolVersion,
+    });
+    if (read.kind === "answered") {
+      return read.response;
     }
-
-    let worker: WorkerIdentity | null;
-    try {
-      worker = await config.authenticate(request.headers.get("authorization"));
-    } catch {
-      // The pre-authentication transaction could not run. Nothing was decided
-      // and nothing was claimed, so this is not a `401`: telling a Worker its
-      // credential is bad when the database was unreachable would send an
-      // operator after the wrong thing.
-      return answer(
-        WORKER_CLAIM_STATUS.unavailable,
-        "the credential could not be verified, so nothing was claimed"
-      );
-    }
-    if (!worker) {
-      return answer(
-        WORKER_CLAIM_STATUS.unauthenticated,
-        "no valid Worker credential"
-      );
-    }
-
-    let parsed: ReturnType<typeof claimRequestSchema.safeParse>;
-    try {
-      parsed = claimRequestSchema.safeParse(
-        JSON.parse(new TextDecoder().decode(body.bytes))
-      );
-    } catch {
-      return answer(WORKER_CLAIM_STATUS.malformed, "the body is not JSON");
-    }
-    if (!parsed.success) {
-      return answer(
-        WORKER_CLAIM_STATUS.malformed,
-        parsed.error.issues
-          .map((issue) => `${issue.path.join(".") || "body"} ${issue.message}`)
-          .join("; ")
-      );
-    }
-    const claimRequest = parsed.data;
-
-    const compatibility = checkProtocolVersion(claimRequest.protocolVersion);
-    if (compatibility.kind === "incompatible") {
-      return answer(
-        WORKER_CLAIM_STATUS.incompatible,
-        compatibility.reason,
-        // Both numbers, both ways round. ADR 0006 requires `upgrade_required`
-        // to name the minimum, and a Worker ahead of this control plane needs
-        // the current version for the same reason: a version it can act on
-        // rather than an instruction it cannot follow.
-        { minimum: compatibility.minimum, current: compatibility.current }
-      );
-    }
+    const { payload: claimRequest, worker } = read;
 
     let outcome: Awaited<ReturnType<WorkerClaimPort>>;
     try {
       outcome = await config.claim({
         ownerId: worker.ownerId,
+        runId: claimRequest.runId,
         worker: {
-          workerId: worker.workerId,
           protocolVersion: claimRequest.protocolVersion,
           workerBuildVersion: claimRequest.workerBuildVersion,
+          workerId: worker.workerId,
         },
-        runId: claimRequest.runId,
       });
     } catch {
       // The claim transaction rolled back, so no Run is held by an execution
