@@ -154,6 +154,7 @@ import type { DeliveryToProcess, ProcessedDelivery } from "./github/delivery.js"
 import type { Phase0RunProfile } from "./github/profile.js";
 import type { KickProcessing } from "./github/webhook.js";
 import type { RunLifecyclePort } from "./run/schedule.js";
+import type { ClaimOutcome, HostedClaimRequest } from "./worker/claim-outcome.js";
 /** The database connection, as configuration rather than as a client. */
 export interface ControlPlaneDatabaseConfig {
     /**
@@ -226,6 +227,24 @@ export interface ControlPlane {
     readonly checks: readonly CheckOutcome[];
     /** `POST /api/github/webhook`. */
     readonly handleGitHubWebhook: (request: Request) => Promise<Response>;
+    /**
+     * `POST /api/worker/runs/claim`, which is how work reaches a **self-hosted**
+     * Worker: it is always the HTTP client, so there is no inbound port on it and
+     * the control plane never learns its address (ADR 0006).
+     */
+    readonly handleWorkerClaim: (request: Request) => Promise<Response>;
+    /**
+     * The same claim, taken by the hosted placement, which has no Worker and no
+     * HTTP hop.
+     *
+     * [ADR 0015](../../../docs/adr/0015-execution-ownership-and-worker-liveness.md)
+     * makes `executionToken` and `executionExpiresAt` placement-neutral, so this
+     * is the same conditional UPDATE the endpoint reaches rather than a second
+     * one beside it - which is what stops the hosted path (#57) from growing an
+     * execution-ownership story of its own. ADR 0006 keeps hosted out of the
+     * scheduling half of the protocol, so it names its Run and never polls.
+     */
+    readonly claimRun: (request: HostedClaimRequest) => Promise<ClaimOutcome>;
     /**
      * Turns one committed delivery into its Run, or into the conclusion that
      * there is none.
@@ -2550,6 +2569,108 @@ export declare const run: import("drizzle-orm/pg-core").PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
+        claimedAt: import("drizzle-orm/pg-core").PgColumn<{
+            name: "claimed_at";
+            tableName: "run";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        executionToken: import("drizzle-orm/pg-core").PgColumn<{
+            name: "execution_token";
+            tableName: "run";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        executionExpiresAt: import("drizzle-orm/pg-core").PgColumn<{
+            name: "execution_expires_at";
+            tableName: "run";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        workerId: import("drizzle-orm/pg-core").PgColumn<{
+            name: "worker_id";
+            tableName: "run";
+            dataType: "string";
+            columnType: "PgUUID";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        workerProtocolVersion: import("drizzle-orm/pg-core").PgColumn<{
+            name: "worker_protocol_version";
+            tableName: "run";
+            dataType: "number";
+            columnType: "PgInteger";
+            data: number;
+            driverParam: string | number;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        workerBuildVersion: import("drizzle-orm/pg-core").PgColumn<{
+            name: "worker_build_version";
+            tableName: "run";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
         passes: import("drizzle-orm/pg-core").PgColumn<{
             name: "passes";
             tableName: "run";
@@ -4370,6 +4491,17 @@ import type { JsonValue } from "./json.js";
 /** ADR 0014's Phase 0 unclaimed window, which ADR 0016 restates as a fixture. */
 export declare const PHASE_0_CLAIMABLE_FOR_MS: number;
 /**
+ * ADR 0015's Phase 0 execution-liveness window, measured from `claimedAt`.
+ *
+ * Ten minutes is "as arbitrary as five", and the rationale is deliberately
+ * modest: it differs from the claim window so that deadline-confusion bugs are
+ * observable, and it preserves the real ordering in which execution takes
+ * substantially longer than claiming. It is **not** a claim that a review may
+ * run for at most ten minutes - the deadline detects loss of the execution
+ * owner, and a healthy self-hosted Run may renew past it.
+ */
+export declare const PHASE_0_LIVENESS_FOR_MS: number;
+/**
  * The half of a Run's spec no pull request can influence.
  *
  * Every field is named from `RunSpec` rather than respelled, so a value this
@@ -4387,6 +4519,12 @@ export interface Phase0RunProfile {
     readonly resolvedConfig: ResolvedConfig;
     /** How long a created Run stays claimable. Written into the spec. */
     readonly claimableForMs: number;
+    /**
+     * How long a claimed execution stays live without renewed evidence, measured
+     * from `claimedAt` (ADR 0015). Read at claim rather than written at creation,
+     * and named for what it detects rather than for a review timeout.
+     */
+    readonly livenessForMs: number;
 }
 /**
  * The digest of one resolved configuration.
@@ -4804,6 +4942,9 @@ export { APP_EVENTS, APP_PERMISSIONS, githubAppManifest, WEBHOOK_PATH, } from ".
 export type { KickProcessing } from "./github/webhook.js";
 export { WEBHOOK_STATUS } from "./github/webhook.js";
 export type { RunLifecyclePort, RunSchedule } from "./run/schedule.js";
+export type { ClaimOutcome, ClaimRefusal, HostedClaimRequest, } from "./worker/claim-outcome.js";
+export { WORKER_CLAIM_STATUS } from "./worker/claim-outcome.js";
+export { WORKER_PROTOCOL_SUPPORT } from "./worker/compatibility.js";
 export declare const packageName: "@reprove/control-plane";
 export { availableModels, availableReasoningEfforts, DEFAULT_CODEX_REASONING_EFFORT, DEFAULT_CODEX_MODEL, MODEL_CATALOGUE, } from "./models.js";
 /**
@@ -4945,4 +5086,425 @@ export interface RunLifecyclePort {
      */
     readonly expireUnclaimed: (ownerId: number, runId: string, workflowRunId: string) => Promise<boolean>;
 }
+```
+
+## dist/worker/authenticate.d.ts
+
+```ts
+import type { TenantTransaction } from "../db/runtime.js";
+/**
+ * A tenant transaction narrowed to the one capability the pre-authentication
+ * transaction is allowed to have.
+ */
+export type PreAuthTransaction = Pick<TenantTransaction, "select">;
+/** The Worker a verified credential names, and the tenant it belongs to. */
+export interface WorkerIdentity {
+    readonly ownerId: number;
+    readonly workerId: string;
+}
+/** What the authenticator is composed over. */
+export interface WorkerAuthenticatorConfig {
+    /** The one entry point to a tenant transaction. */
+    readonly withOwner: <T>(ownerId: number, fn: (tx: TenantTransaction) => Promise<T>) => Promise<T>;
+    /** The clock the expiry half of the predicate is read against. */
+    readonly now?: () => Date;
+}
+/**
+ * The one statement transaction one is permitted to issue.
+ *
+ * @param tx A tenant transaction already scoped to the locator's Owner.
+ * @param ownerId The locator's Owner, written into the predicate as well as
+ *   into the tenant context. ADR 0008 rule 1 is application scoping **plus**
+ *   RLS, "not either alone", and this is the scoping half; the policy is what
+ *   makes a forgotten one return zero rows rather than another tenant's row.
+ * @param secretHash The stored form of the presented secret.
+ * @param now The instant expiry is measured against.
+ * @returns The Worker the credential names, or `null` for every way it does not.
+ */
+export declare const verifyWorkerCredential: (tx: PreAuthTransaction, ownerId: number, secretHash: string, now: Date) => Promise<{
+    workerId: string;
+} | null>;
+/**
+ * Builds the authenticator.
+ *
+ * @param config The tenant transaction factory and the clock.
+ * @returns A function from an `Authorization` header to a Worker, or `null`.
+ */
+export declare const createWorkerAuthenticator: (config: WorkerAuthenticatorConfig) => ((authorization: string | null | undefined) => Promise<WorkerIdentity | null>);
+```
+
+## dist/worker/claim-outcome.d.ts
+
+```ts
+/**
+ * What a claim can answer, as types a consumer may hold.
+ *
+ * These live apart from `claim.ts` for the reason `run/schedule.ts` gives:
+ * [ADR 0010](../../../../docs/adr/0010-package-graph-and-open-core-boundary.md)
+ * forbids `apps/control-plane` from depending on Drizzle, and
+ * `tools/verify-packages.mjs` measures that by type-checking the packed
+ * declarations. A type that merely lives in a module importing Drizzle drags
+ * its declaration graph into that check, so everything the published surface
+ * names is declared here over the protocol's own types and nothing else.
+ *
+ * The refusals are **named**, which is ADR 0014's rule applied one seam earlier:
+ * "'rejected' alone cannot distinguish a superseded Run from a forged tenant,
+ * and the distinction is what makes the boundary auditable." A Worker that is
+ * told only "409" cannot tell an operator whether to look at a second daemon,
+ * at the clock, or at nothing at all.
+ */
+import type { ClaimGrant } from "@reprove/protocol/v1";
+/**
+ * The HTTP statuses the claim endpoint answers with, one per outcome.
+ *
+ * `noRunAvailable` is `204` rather than a `404` or an empty `200`, because an
+ * idle poll is the ordinary case: ADR 0006 makes idle polling the heartbeat, so
+ * the answer a Worker sees most often should carry no body and mean nothing is
+ * wrong.
+ *
+ * `unauthenticated` never distinguishes an unknown Owner from an unknown
+ * secret, a revoked credential or an expired one. All four are one answer, so
+ * the response cannot be used to enumerate which Owners exist or which
+ * credentials once did.
+ */
+export declare const WORKER_CLAIM_STATUS: {
+    /** A Run was claimed. The body is a claim grant. */
+    readonly granted: 200;
+    /** Nothing is claimable for this Owner right now. No body. */
+    readonly noRunAvailable: 204;
+    /** No usable credential. One answer for every way that can be true. */
+    readonly unauthenticated: 401;
+    /** A Run was named and this Owner has no such Run. */
+    readonly unknownRun: 404;
+    /** The Run exists and could not be claimed. The reason names why. */
+    readonly refused: 409;
+    /** Over the cap, and refused before being parsed. */
+    readonly oversized: 413;
+    /** Authentic, and not a claim request. */
+    readonly malformed: 422;
+    /** A protocol version outside the served window (ADR 0006). */
+    readonly incompatible: 426;
+    /** The claim could not be attempted. Nothing was decided. */
+    readonly unavailable: 503;
+};
+/**
+ * Why a claim was refused, once the Run itself has been reached.
+ *
+ * Each one is a different fact about the Run and a different thing for an
+ * operator to do, which is why there is no single `refused`:
+ *
+ * ```text
+ * unknown_run              this Owner has no such Run - and, deliberately, a
+ *                          Run belonging to another Owner is indistinguishable,
+ *                          because the probe runs inside withOwner (ADR 0016)
+ * already_claimed          another execution owns it; a Run is never actively
+ *                          held twice
+ * claim_window_closed      claimableUntil has passed and nothing has moved the
+ *                          Run off `queued` yet
+ * not_claimable            the Run is terminal, or otherwise past claiming
+ * installation_unavailable the Run is claimable and its Repository records no
+ *                          live grant, so no Workspace could be materialized
+ * ```
+ */
+export type ClaimRefusal = "unknown_run" | "already_claimed" | "claim_window_closed" | "not_claimable" | "installation_unavailable";
+/** What one attempt to claim decided. */
+export type ClaimOutcome =
+/** The Run is claimed, and this is the execution ownership it created. */
+{
+    readonly kind: "granted";
+    readonly grant: ClaimGrant;
+}
+/** A poll that found nothing. Not a refusal: nothing was wrong. */
+ | {
+    readonly kind: "no_run_available";
+} | {
+    readonly kind: "refused";
+    readonly reason: ClaimRefusal;
+};
+/** Which Worker is claiming, and what it advertised about itself. */
+export interface ClaimingWorker {
+    /** The durable Worker identity Enrollment established. */
+    readonly workerId: string;
+    /** ADR 0006's two versions, both recorded on the Run. */
+    readonly protocolVersion: number;
+    readonly workerBuildVersion: string;
+}
+/** One authenticated Worker's request to take execution ownership. */
+export interface WorkerClaimRequest {
+    readonly ownerId: number;
+    readonly worker: ClaimingWorker;
+    /**
+     * The Run to claim, or absent to poll for the oldest claimable one. A poll
+     * only ever reaches a `self_hosted` Run.
+     */
+    readonly runId?: string;
+}
+/**
+ * What the endpoint calls once, after authentication and the compatibility
+ * check have both passed. It is a port so that a test can prove the endpoint
+ * never reaches it for an unauthenticated or incompatible request.
+ */
+export type WorkerClaimPort = (request: WorkerClaimRequest) => Promise<ClaimOutcome>;
+/**
+ * A hosted claim, which is the same execution ownership with no Worker behind
+ * it.
+ *
+ * ADR 0006: a hosted Worker "does not enroll, register, advertise capabilities,
+ * hold a durable identity, poll, claim, hold a lease, or heartbeat", so there
+ * is no `workerId` and no advertised version to record. ADR 0015 is what makes
+ * the shape shared anyway: `executionToken` and `executionExpiresAt` are
+ * written at claim for **both** placements, so the hosted placement (#57) is a
+ * caller of the same conditional UPDATE rather than a second one beside it.
+ *
+ * It always names its Run: hosted dispatch already knows which Run it is
+ * dispatching, and polling is the half of the protocol hosted never exercises.
+ */
+export interface HostedClaimRequest {
+    readonly ownerId: number;
+    readonly runId: string;
+}
+```
+
+## dist/worker/claim.d.ts
+
+```ts
+import type { TenantTransaction } from "../db/runtime.js";
+import type { ClaimingWorker, ClaimOutcome } from "./claim-outcome.js";
+/** What the claim is composed over. No value here is read from anywhere. */
+export interface ClaimConfig {
+    /**
+     * ADR 0015's execution-liveness window, from the injected run profile.
+     * `executionExpiresAt = claimedAt + livenessForMs`, and not from Run
+     * creation, `claimableUntil`, or whenever execution happens to begin.
+     */
+    readonly livenessForMs: number;
+    /** The clock the whole claim reads once. */
+    readonly now: () => Date;
+    /** Mints one execution token. Injected so a test can pin it. */
+    readonly mintToken?: () => string;
+}
+/** Who is claiming: a self-hosted Worker, or the hosted placement, which is no one. */
+export type ClaimingParty = ClaimingWorker | null;
+/** One attempt to take execution ownership, inside the caller's transaction. */
+export interface RunClaim {
+    /**
+     * The claimant's Owner, written into every predicate as well as into the
+     * tenant context. ADR 0008 rule 1 is application scoping **plus** RLS, "not
+     * either alone".
+     */
+    readonly ownerId: number;
+    /** The Run to claim, or absent to poll for the oldest claimable one. */
+    readonly runId?: string;
+    /**
+     * The self-hosted Worker taking ownership, or `null` for the hosted
+     * placement, which holds no durable identity and advertises nothing.
+     */
+    readonly worker: ClaimingParty;
+}
+/**
+ * Claims a Run, or names why it could not be claimed.
+ *
+ * The transaction is the caller's, and that is what makes the claim atomic with
+ * the spec it returns: `runSpecOf` may throw, and a throw rolls the claim back
+ * rather than leaving a Run owned by an execution that was never handed a spec.
+ *
+ * @param tx A tenant transaction already scoped to the claimant's Owner.
+ * @param config The liveness window, the clock and the token mint.
+ * @param claim Which Run, and who is claiming it.
+ * @returns The grant, the absence of work, or a named refusal.
+ * @throws {Error} When the claimed Run cannot be rendered as a valid `RunSpec`.
+ */
+export declare const claimRun: (tx: TenantTransaction, config: ClaimConfig, claim: RunClaim) => Promise<ClaimOutcome>;
+```
+
+## dist/worker/compatibility.d.ts
+
+```ts
+/**
+ * What this control plane serves, as ADR 0006's two advertised integers.
+ *
+ * They are equal because there is exactly one shipped family. A migration
+ * lowers `minimum` for the length of the window and raises it afterwards, which
+ * is a change to this constant and to nothing else.
+ */
+export declare const WORKER_PROTOCOL_SUPPORT: {
+    readonly current: 1;
+    readonly minimum: 1;
+};
+/** Why an offered version is not served. */
+export type ProtocolIncompatibility =
+/** Below `minimum`. The Worker has an upgrade to install. */
+"upgrade_required"
+/** Above `current`. This control plane is the older half. */
+ | "unsupported_protocol_version";
+/** The answer, carrying the window either way so the reason is actionable. */
+export type ProtocolCompatibility = {
+    readonly kind: "compatible";
+} | {
+    readonly kind: "incompatible";
+    readonly reason: ProtocolIncompatibility;
+    readonly minimum: number;
+    readonly current: number;
+};
+/**
+ * Whether a Worker's advertised protocol version is one this control plane
+ * serves.
+ *
+ * @param offered The integer the Worker advertised, whatever it was.
+ * @returns Compatibility, or the named reason and the window it fell outside.
+ */
+export declare const checkProtocolVersion: (offered: number) => ProtocolCompatibility;
+```
+
+## dist/worker/credential.d.ts
+
+```ts
+/**
+ * The credential's own scheme, which is the first segment rather than a header
+ * parameter: a bearer token that says what it is cannot be mistaken for one of
+ * a later shape, and a Worker presenting `rpw2` to a control plane that serves
+ * `rpw1` is refused by the parser instead of failing a lookup.
+ */
+export declare const WORKER_CREDENTIAL_SCHEME = "rpw1";
+/** A credential, and the only two forms of it that ever exist. */
+export interface MintedWorkerCredential {
+    /** What the Worker persists and presents. Reprove never stores this. */
+    readonly credential: string;
+    /** The secret half alone, which is what the hash is taken over. */
+    readonly secret: string;
+    /** What `worker_credential.secret_hash` holds. */
+    readonly secretHash: string;
+}
+/** What a presented credential names, before anything has verified it. */
+export interface PresentedWorkerCredential {
+    /** The Owner locator. A tenant selector, never an identity claim. */
+    readonly ownerId: number;
+    /** The secret half, unverified. */
+    readonly secret: string;
+}
+/**
+ * The stored form of a secret.
+ *
+ * @param secret The secret half of a credential.
+ * @returns `sha256:` followed by the hex digest of the secret alone.
+ */
+export declare const hashWorkerSecret: (secret: string) => string;
+/**
+ * Mints one credential for an Owner.
+ *
+ * @param ownerId GitHub's durable numeric Owner id, which is the tenant key.
+ * @returns The credential to hand over, its secret, and what to store.
+ */
+export declare const mintWorkerCredential: (ownerId: number) => MintedWorkerCredential;
+/**
+ * Reads what an `Authorization` header presents, verifying nothing.
+ *
+ * @param authorization The header value, or `null` where there was none.
+ * @returns The Owner locator and the secret, or `null` for anything that is not
+ *   a well-formed Reprove Worker credential.
+ */
+export declare const parseWorkerCredential: (authorization: string | null | undefined) => PresentedWorkerCredential | null;
+```
+
+## dist/worker/endpoint.d.ts
+
+```ts
+import type { WorkerIdentity } from "./authenticate.js";
+import type { WorkerClaimPort } from "./claim-outcome.js";
+/**
+ * The largest claim request to accept.
+ *
+ * A claim carries a version, a build string and at most one Run id, so the cap
+ * is three orders of magnitude above anything legitimate and still small enough
+ * that an endpoint reachable by an unauthenticated caller cannot be made to
+ * accumulate a body. ADR 0006's size bound is about Results; this is the same
+ * reflex applied to the one request that arrives before authentication.
+ */
+export declare const MAXIMUM_CLAIM_BYTES: number;
+/** What the handler is composed over. No value here is read from anywhere. */
+export interface WorkerClaimConfig {
+    /** Transaction one: verify the credential, and nothing else. */
+    readonly authenticate: (authorization: string | null) => Promise<WorkerIdentity | null>;
+    /** Transaction two, reached only by an authenticated, compatible Worker. */
+    readonly claim: WorkerClaimPort;
+    /** The largest body to accept. Defaults to {@link MAXIMUM_CLAIM_BYTES}. */
+    readonly maximumBytes?: number;
+}
+/**
+ * Builds the handler.
+ *
+ * @param config The authenticator, the claim port and the body cap.
+ * @returns A function from a claim request to its grant or its refusal.
+ */
+export declare const createWorkerClaimHandler: (config: WorkerClaimConfig) => ((request: Request) => Promise<Response>);
+```
+
+## dist/worker/run-spec.d.ts
+
+```ts
+/**
+ * The claimed Run, as the `RunSpec` a Worker executes from.
+ *
+ * The spec is "fixed when the control plane creates a Run and sent unchanged to
+ * a Worker", so nothing here decides anything: it reads the row the claim just
+ * wrote, reads the one field that does not live on it, and renders both into
+ * the protocol's shape.
+ *
+ * **It is parsed through `runSpecSchema` before it is returned**, rather than
+ * asserted to be one. The control plane is the authoritative side of this seam
+ * and a Worker has no way to tell a malformed spec from a hostile one, so a
+ * spec that would not validate is a defect this module raises rather than
+ * something the Worker discovers a Sandbox later. That is also the literal
+ * acceptance criterion: a claim returns a **valid** `RunSpec`.
+ *
+ * Every identifier crosses as a string. `ownerId`, `repositoryId` and
+ * `installationId` are GitHub's numeric ids and all three exceed what JSON's
+ * number type carries safely in general, so the protocol takes them as strings
+ * and the conversion happens here at the seam rather than anywhere a comparison
+ * could be made against the number.
+ */
+import type { RunSpec } from "@reprove/protocol/v1";
+import type { TenantTransaction } from "../db/runtime.js";
+/** The columns of the Run the claim returned, which are its whole spec. */
+export interface ClaimedRunRow {
+    readonly id: string;
+    readonly ownerId: number;
+    readonly repositoryId: number;
+    readonly pullRequestNumber: number;
+    readonly baseSha: string;
+    readonly headSha: string;
+    readonly provenance: string;
+    readonly provenanceBasis: unknown;
+    readonly trigger: string;
+    readonly placement: string;
+    readonly allowHostedFallback: boolean;
+    readonly harness: string;
+    readonly model: string;
+    readonly strategy: string;
+    readonly autonomy: string;
+    readonly resolvedConfig: unknown;
+    readonly configDigest: string;
+    readonly claimableUntil: Date;
+    readonly createdAt: Date;
+}
+/**
+ * Renders the claimed Run as the spec its Worker executes from.
+ *
+ * @param tx A tenant transaction already scoped to the Run's Owner.
+ * @param row The Run the conditional UPDATE returned.
+ * @returns The parsed `RunSpec`.
+ * @throws {Error} When the Repository records no live Installation, or when the
+ *   row does not render a valid spec. Neither is caught, and that is the point:
+ *   the claim and this render share one transaction, so a throw is what
+ *   **un-claims** the Run rather than leaving it claimed by an execution that
+ *   was never given a spec.
+ *
+ *   The ordinary `installation_unavailable` is not this path. The claim's own
+ *   predicate excludes a Repository with no Installation, so that Run stays
+ *   `queued` and the re-probe names the refusal without anything being written.
+ *   What reaches here is the narrow race in which the grant was removed between
+ *   the two statements, which is a `503` rather than a named refusal because
+ *   nothing about the Run itself is wrong.
+ */
+export declare const runSpecOf: (tx: TenantTransaction, row: ClaimedRunRow) => Promise<RunSpec>;
 ```
