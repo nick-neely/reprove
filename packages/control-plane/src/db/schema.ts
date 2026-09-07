@@ -210,6 +210,16 @@ export const workerCredential = pgTable(
   (t) => [
     tenantPolicy("worker_credential_tenant", t.ownerId),
     index("worker_credential_owner_idx").on(t.ownerId),
+    // Verification is one predicate - same Owner, hash matches, not revoked,
+    // not expired - and this is the index it reads through, on the hot path of
+    // every poll. Unique because the hash is over a 256-bit CSPRNG secret: two
+    // rows sharing one within an Owner is a duplicated credential rather than a
+    // collision, and a lookup that could return two rows is one whose answer
+    // depends on which it saw first.
+    uniqueIndex("worker_credential_owner_secret_idx").on(
+      t.ownerId,
+      t.secretHash
+    ),
     foreignKey({
       name: "worker_credential_worker_owner_scoped_fk",
       columns: [t.ownerId, t.workerId],
@@ -374,6 +384,62 @@ export const run = pgTable(
       .notNull()
       .defaultNow(),
 
+    // execution ownership - written at claim, placement-neutral (ADR 0015)
+    //
+    // All six are null on a `queued` Run and written together by the one
+    // conditional UPDATE that claims it, so a Run carrying an
+    // `executionExpiresAt` and no `claimedAt` is not a state this schema can
+    // reach.
+    /** When the claim succeeded. `executionExpiresAt` is measured from here. */
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    /**
+     * The execution currently authorized to submit against this Run, and
+     * deliberately not a `lease_token`: ADR 0015 renamed it because a hosted
+     * Worker holds no Lease and would otherwise carry one anyway.
+     *
+     * Stored as it was minted rather than hashed, unlike `worker_credential`.
+     * The two differ in what a database read would buy an attacker: a Worker
+     * credential outlives every Run and reaches the whole scheduling surface,
+     * while this token authorizes one submission against one Run inside one
+     * bounded liveness window, and the control plane has to hand it back to the
+     * Worker at claim anyway. Hashing it would cost the same read a second
+     * round trip and secure nothing that is not already reachable from the same
+     * row.
+     */
+    executionToken: text("execution_token"),
+    /**
+     * The control-plane liveness boundary for that execution, `claimedAt +
+     * livenessFor`. Not from Run creation, not from `claimableUntil`. A
+     * self-hosted Worker's Lease is what may advance it; a hosted Worker cannot
+     * renew, so its boundary is fixed at claim.
+     */
+    executionExpiresAt: timestamp("execution_expires_at", {
+      withTimezone: true,
+    }),
+    /**
+     * Which self-hosted Worker holds it, and `null` for the hosted placement,
+     * which holds no durable identity at all (ADR 0006).
+     *
+     * **No foreign key, and the reason is the composite rule above rather than
+     * an exception to it.** A Run records `worker` alongside `isolation` and
+     * `exposure` as audit, so deleting a Worker must not delete the Runs it
+     * executed - which rules out the `CASCADE` every other reference here
+     * takes. The correct constraint is a composite `(owner_id, worker_id)`
+     * reference with `ON DELETE SET NULL (worker_id)`, and that column list is
+     * PostgreSQL 15's and unrepresentable in drizzle-kit 0.31: without it the
+     * clause would null `owner_id` too, which is `NOT NULL`, so a Worker
+     * deletion would fail rather than release. Same posture, and the same
+     * reason, as `workflow_run_id` beside it.
+     */
+    workerId: uuid("worker_id"),
+    /**
+     * What the claiming Worker advertised, recorded on the Run for the same
+     * auditability reason `isolation` and `exposure` are (ADR 0006). The
+     * protocol integer and the Worker's own build are two versions, not one.
+     */
+    workerProtocolVersion: integer("worker_protocol_version"),
+    workerBuildVersion: text("worker_build_version"),
+
     // bounded, always read with the parent, never queried independently
     passes: jsonb("passes"),
     refusals: jsonb("refusals"),
@@ -415,6 +481,12 @@ export const run = pgTable(
     uniqueIndex("run_one_automatic_per_head")
       .on(t.ownerId, t.repositoryId, t.pullRequestNumber, t.headSha)
       .where(sql`${t.trigger} = 'automatic'`),
+    // What a polling self-hosted Worker reads: this Owner's Runs, still
+    // `queued`, whose claim window has not closed. Ordered `owner_id, status,
+    // claimable_until` because the claim's predicate is an equality on the
+    // first two and a range on the third, and because every probe in front of
+    // it runs inside `withOwner`.
+    index("run_claimable_idx").on(t.ownerId, t.status, t.claimableUntil),
     unique("run_owner_scoped_id").on(t.ownerId, t.id),
     foreignKey({
       name: "run_repository_owner_scoped_fk",

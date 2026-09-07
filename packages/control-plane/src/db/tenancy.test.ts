@@ -61,6 +61,15 @@ const seed = async (tx: TenantTransaction, ownerId: number): Promise<void> => {
     resolvedConfig: { schemaVersion: 1 },
     configDigest: `sha256:${ownerId}`,
     claimableUntil: new Date("2026-01-01T00:00:00.000Z"),
+    // The execution-ownership block ADR 0015 writes at claim, seeded here so
+    // the boundary is measured over the columns that authorize a submission
+    // rather than only over the ones that describe a Run.
+    status: "claimed",
+    claimedAt: new Date("2026-01-01T00:05:00.000Z"),
+    executionToken: `execution-token-for-${ownerId}`,
+    executionExpiresAt: new Date("2026-01-01T00:15:00.000Z"),
+    workerProtocolVersion: 1,
+    workerBuildVersion: "0.0.0",
   });
 };
 
@@ -100,6 +109,28 @@ describe("two Owners through withOwner", () => {
       "select count(*)::text as n from run"
     );
     expect(all[0]?.n).toBe(SEEDED_RUNS);
+  });
+
+  it("hides the execution ownership a claim wrote from the other Owner", async () => {
+    // `executionToken` is what authorizes a submission against a Run, so a
+    // read that crossed the boundary would not merely leak a fact - it would
+    // hand one Owner the capability to submit into another's Run. The query
+    // carries no tenant predicate, exactly like the one above it.
+    const tokensFor = async (ownerId: number) => {
+      const rows = await runtime.withOwner(ownerId, (tx) =>
+        tx
+          .select({ executionToken: schema.run.executionToken })
+          .from(schema.run)
+      );
+      return rows.map((row) => row.executionToken);
+    };
+
+    await expect(tokensFor(ACME)).resolves.toStrictEqual([
+      `execution-token-for-${ACME}`,
+    ]);
+    await expect(tokensFor(GLOBEX)).resolves.toStrictEqual([
+      `execution-token-for-${GLOBEX}`,
+    ]);
   });
 
   it("rejects an insert carrying another Owner's id", async () => {
