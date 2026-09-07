@@ -98,21 +98,34 @@ export interface ExecutionLoss {
   readonly evidence: ExecutionLossEvidence;
 }
 
-/** What one attempt at the terminal transition decided. */
-export interface ExecutionLossOutcome {
-  /**
-   * Whether this call wrote the transition. It is what gates reclamation: the
-   * database write is the correctness boundary and cancelling a still-running
-   * pass is best-effort clean-up that follows it (ADR 0015).
-   */
-  readonly terminalized: boolean;
-  /**
-   * Which side of the window the Run was lost from, or `null` where nothing was
-   * written. Read back out of the row rather than from the caller, because the
-   * statement is what decided.
-   */
-  readonly lostFrom: LostFrom | null;
-}
+/**
+ * What one attempt at the terminal transition decided.
+ *
+ * A union rather than one shape with two nullable fields, because the two
+ * outcomes carry different facts and only one of them has a `lostFrom` at all.
+ * Narrowing on `terminalized` is then what hands a caller the status, so
+ * nothing downstream needs a fallback for a value that cannot be missing.
+ */
+export type ExecutionLossOutcome =
+  | {
+      /**
+       * This call wrote the transition. It is what gates reclamation: the
+       * database write is the correctness boundary and cancelling a
+       * still-running pass is best-effort clean-up that follows it (ADR 0015).
+       */
+      readonly terminalized: true;
+      /**
+       * Which side of the window the Run was lost from. Read back out of the
+       * row rather than taken from the caller, because the statement is what
+       * decided.
+       */
+      readonly lostFrom: LostFrom;
+    }
+  | {
+      /** The window had closed, or this caller's evidence did not hold. */
+      readonly terminalized: false;
+      readonly lostFrom: null;
+    };
 
 /**
  * The lifecycle's whole reach into a Run, composed over a tenant transaction.

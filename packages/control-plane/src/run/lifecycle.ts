@@ -35,7 +35,11 @@
 import { and, eq, isNull, lte, sql } from "drizzle-orm";
 
 import type { TenantTransaction } from "../db/runtime.js";
-import type { LostFrom, RunStatus } from "../db/schema-values.js";
+import type {
+  LostFrom,
+  RunFailureReason,
+  RunStatus,
+} from "../db/schema-values.js";
 import * as schema from "../db/schema.js";
 import { hashExecutionToken } from "../worker/execution-token.js";
 import { resultEligibleWindow } from "./eligibility.js";
@@ -209,7 +213,7 @@ export const terminateLostExecution = async (
     .update(schema.run)
     .set({
       status: "failed" satisfies RunStatus,
-      failureReason: "worker_lost",
+      failureReason: "worker_lost" satisfies RunFailureReason,
       // The one place `lostFrom` can be read without a second statement: on the
       // right of `SET`, `run.status` is still the pre-update value.
       failureDetail: sql`jsonb_build_object(
