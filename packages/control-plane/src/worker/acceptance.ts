@@ -137,6 +137,11 @@ export const resultEligible = (
 
 /** The status half of the eligibility window, read back off a probed row. */
 const statusIsEligible = (status: string): boolean =>
+  // SAFETY: the probe reads a `text` column, because ADR 0008 keeps the state
+  // machine in the application rather than in a Postgres `ENUM`, so the value
+  // is a string that may or may not be one of these. Widening the tuple is what
+  // lets an unknown status be asked about at all; narrowing the string instead
+  // would assert a membership this line exists to test.
   (RESULT_ELIGIBLE_RUN_STATUSES as readonly string[]).includes(status);
 
 /**
@@ -171,7 +176,10 @@ const normalizeAnchor = (anchoredText: string): string =>
  */
 export const bucketKeyOf = (finding: Finding): string =>
   `sha256:${createHash("sha256")
-    .update(`${finding.location.path}\n${normalizeAnchor(finding.anchoredText)}`, "utf-8")
+    .update(
+      `${finding.location.path}\n${normalizeAnchor(finding.anchoredText)}`,
+      "utf-8"
+    )
     .digest("hex")}`;
 
 /** One Finding, as the row that outlives the crossing. */

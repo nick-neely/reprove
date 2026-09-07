@@ -167,11 +167,16 @@ describe("the result submission", () => {
     // `upgrade_required`, and the envelope is what the compatibility check
     // reads before the Result inside it is parsed at all.
     expect(
-      submissionSchemas.request.parse({ ...validSubmission, protocolVersion: 99 })
-        .protocolVersion
+      submissionSchemas.request.parse({
+        ...validSubmission,
+        protocolVersion: 99,
+      }).protocolVersion
     ).toBe(99);
     expect(() =>
-      submissionSchemas.request.parse({ ...validSubmission, protocolVersion: 0 })
+      submissionSchemas.request.parse({
+        ...validSubmission,
+        protocolVersion: 0,
+      })
     ).toThrow("protocolVersion");
   });
 
@@ -182,7 +187,10 @@ describe("the result submission", () => {
     expect(
       submissionSchemas.request.parse({
         ...validSubmission,
-        result: { ...validCompleteResult, protocolVersion: protocolVersion + 1 },
+        result: {
+          ...validCompleteResult,
+          protocolVersion: protocolVersion + 1,
+        },
       }).result
     ).toHaveProperty("protocolVersion", protocolVersion + 1);
   });
@@ -198,7 +206,10 @@ describe("the result submission", () => {
 
   it("requires the execution ownership the claim handed back", () => {
     expect(() =>
-      submissionSchemas.request.parse({ ...validSubmission, executionToken: "" })
+      submissionSchemas.request.parse({
+        ...validSubmission,
+        executionToken: "",
+      })
     ).toThrow("executionToken");
   });
 

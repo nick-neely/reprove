@@ -38,10 +38,17 @@
  * The refusal body is `{ status, reason }`, like the claim's, and carries
  * nothing a stranger can use.
  */
-import { protocolLimits, resultSchema, submissionSchemas } from "@reprove/protocol/v1";
+import {
+  protocolLimits,
+  resultSchema,
+  submissionSchemas,
+} from "@reprove/protocol/v1";
 
 import { readBoundedBody } from "../github/body.js";
-import type { ResultRejection, WorkerResultPort } from "./acceptance-outcome.js";
+import type {
+  ResultRejection,
+  WorkerResultPort,
+} from "./acceptance-outcome.js";
 import { WORKER_RESULT_STATUS } from "./acceptance-outcome.js";
 import type { WorkerIdentity } from "./authenticate.js";
 import { checkProtocolVersion } from "./compatibility.js";
@@ -89,10 +96,12 @@ const statusOf = (reason: ResultRejection): number =>
     : WORKER_RESULT_STATUS.rejected;
 
 /** Every field a schema could not read, named, as one line. */
-const fieldsOf = (error: { readonly issues: readonly {
-  readonly path: readonly PropertyKey[];
-  readonly message: string;
-}[] }): string =>
+const fieldsOf = (error: {
+  readonly issues: readonly {
+    readonly path: readonly PropertyKey[];
+    readonly message: string;
+  }[];
+}): string =>
   error.issues
     .map((issue) => `${issue.path.join(".") || "body"} ${issue.message}`)
     .join("; ");

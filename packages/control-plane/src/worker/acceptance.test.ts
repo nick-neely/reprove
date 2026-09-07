@@ -16,7 +16,7 @@
  */
 import type { Finding, Result } from "@reprove/protocol/v1";
 import { protocolVersion } from "@reprove/protocol/v1";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { bootstrap } from "../db/bootstrap.js";
@@ -79,10 +79,7 @@ const FINDING: Finding = {
   ],
 };
 
-const resultFor = (
-  runId: string,
-  overrides: Partial<Result> = {}
-): Result => ({
+const resultFor = (runId: string, overrides: Partial<Result> = {}): Result => ({
   runId,
   completeness: "complete",
   stoppedBy: null,
@@ -235,10 +232,21 @@ const handle = createWorkerResultHandler({
     ),
 });
 
+/**
+ * The envelope, with every field optional and unknown, because several cases
+ * below send shapes a Worker should not be able to send at all.
+ */
+interface SubmissionBody {
+  readonly protocolVersion?: unknown;
+  readonly executionToken?: unknown;
+  readonly idempotencyKey?: unknown;
+  readonly result?: unknown;
+}
+
 const submitting = (
   credential: string,
   runId: string,
-  body: Readonly<Record<string, unknown>>
+  body: SubmissionBody
 ): [Request, string] => [
   new Request(`https://control.example/api/worker/runs/${runId}/result`, {
     method: "POST",
@@ -253,8 +261,8 @@ describe("accepting a Result", () => {
 
   const submit = (
     runId: string,
-    overrides: Readonly<Record<string, unknown>> = {},
-    result: Result | Record<string, unknown> = resultFor(runId)
+    overrides: SubmissionBody = {},
+    result: Result = resultFor(runId)
   ) =>
     handle(
       ...submitting(acmeCredential.credential, runId, {
@@ -332,11 +340,15 @@ describe("accepting a Result", () => {
       // Result, because the Run's own status is what reports the outcome.
       const runId = await seedRun(ACME);
 
-      const response = await submit(runId, {}, {
-        ...resultFor(runId),
-        completeness: "partial",
-        stoppedBy: "budget_exhausted",
-      });
+      const response = await submit(
+        runId,
+        {},
+        {
+          ...resultFor(runId),
+          completeness: "partial",
+          stoppedBy: "budget_exhausted",
+        }
+      );
 
       expect(response.status).toBe(WORKER_RESULT_STATUS.accepted);
       const row = await runRow(ACME, runId);
@@ -566,20 +578,24 @@ describe("accepting a Result", () => {
       // a seventh entry in ADR 0016's rejection set.
       const runId = await seedRun(ACME);
 
-      const response = await submit(runId, {}, {
-        ...resultFor(runId),
-        findings: [
-          {
-            ...FINDING,
-            patch: {
-              path: "src/session.ts",
-              startLine: 41,
-              endLine: 43,
-              replacement: "if (timingSafeEqual(token, stored)) return true",
+      const response = await submit(
+        runId,
+        {},
+        {
+          ...resultFor(runId),
+          findings: [
+            {
+              ...FINDING,
+              patch: {
+                path: "src/session.ts",
+                startLine: 41,
+                endLine: 43,
+                replacement: "if (timingSafeEqual(token, stored)) return true",
+              },
             },
-          },
-        ],
-      });
+          ],
+        }
+      );
 
       expect(response.status).toBe(WORKER_RESULT_STATUS.malformed);
       await expect(response.json()).resolves.toMatchObject({
@@ -600,10 +616,14 @@ describe("accepting a Result", () => {
         replacement: "if (timingSafeEqual(token, stored)) return true",
       };
 
-      const response = await submit(runId, {}, {
-        ...resultFor(runId),
-        findings: [{ ...FINDING, patch }],
-      });
+      const response = await submit(
+        runId,
+        {},
+        {
+          ...resultFor(runId),
+          findings: [{ ...FINDING, patch }],
+        }
+      );
 
       expect(response.status).toBe(WORKER_RESULT_STATUS.accepted);
       const [row] = await findingRows(ACME, runId);
@@ -615,10 +635,14 @@ describe("accepting a Result", () => {
     it("is rejected before it can affect Run state", async () => {
       const runId = await seedRun(ACME);
 
-      const response = await submit(runId, {}, {
-        ...resultFor(runId),
-        findings: [{ ...FINDING, verification: "verified", evidence: [] }],
-      });
+      const response = await submit(
+        runId,
+        {},
+        {
+          ...resultFor(runId),
+          findings: [{ ...FINDING, verification: "verified", evidence: [] }],
+        }
+      );
 
       expect(response.status).toBe(WORKER_RESULT_STATUS.malformed);
       const row = await runRow(ACME, runId);
@@ -661,19 +685,15 @@ describe("accepting a Result", () => {
       // other re-evaluates its `WHERE` against the committed row.
       const runId = await seedRun(ACME);
 
-      const [first, second] = await Promise.all([
-        submit(runId),
-        submit(runId),
-      ]);
+      const [first, second] = await Promise.all([submit(runId), submit(runId)]);
 
       const statuses = [first.status, second.status].toSorted();
       expect(statuses).toStrictEqual([
         WORKER_RESULT_STATUS.accepted,
         WORKER_RESULT_STATUS.rejected,
       ]);
-      const rejected = first.status === WORKER_RESULT_STATUS.accepted
-        ? second
-        : first;
+      const rejected =
+        first.status === WORKER_RESULT_STATUS.accepted ? second : first;
       await expect(rejected.json()).resolves.toStrictEqual({
         status: WORKER_RESULT_STATUS.rejected,
         reason: "not_eligible",
@@ -707,7 +727,7 @@ describe("accepting a Result", () => {
   });
 
   describe("the bucket key", () => {
-    it("keys on path and normalized anchored source, and on nothing else", async () => {
+    it("keys on path and normalized anchored source, and on nothing else", () => {
       // ADR 0007 excludes line numbers, because they move on any unrelated edit
       // above them, and severity, because the same defect rated `high` then
       // `medium` must not become a different Finding.
@@ -721,13 +741,16 @@ describe("accepting a Result", () => {
       expect(bucketKeyOf(moved)).toBe(bucketKeyOf(FINDING));
     });
 
-    it("separates two Findings that anchor at different source", async () => {
+    it("separates two Findings that anchor at different source", () => {
       expect(
         bucketKeyOf({ ...FINDING, anchoredText: "return false" })
       ).not.toBe(bucketKeyOf(FINDING));
-      expect(bucketKeyOf({ ...FINDING, location: { ...FINDING.location, path: "src/other.ts" } })).not.toBe(
-        bucketKeyOf(FINDING)
-      );
+      expect(
+        bucketKeyOf({
+          ...FINDING,
+          location: { ...FINDING.location, path: "src/other.ts" },
+        })
+      ).not.toBe(bucketKeyOf(FINDING));
     });
   });
 });

@@ -14,7 +14,10 @@ import type { Result } from "@reprove/protocol/v1";
 import { protocolLimits, protocolVersion } from "@reprove/protocol/v1";
 import { describe, expect, it } from "vitest";
 
-import type { AcceptanceOutcome, SubmittedResult } from "./acceptance-outcome.js";
+import type {
+  AcceptanceOutcome,
+  SubmittedResult,
+} from "./acceptance-outcome.js";
 import { WORKER_RESULT_STATUS } from "./acceptance-outcome.js";
 import type { WorkerIdentity } from "./authenticate.js";
 import {
@@ -118,8 +121,16 @@ const submissionRequest = (
     body,
   });
 
-/** The envelope, including the shapes a Worker should not be able to send. */
-type SubmissionBody = Readonly<Record<string, unknown>>;
+/**
+ * The envelope, with every field optional and unknown, because half the cases
+ * below send shapes a Worker should not be able to send at all.
+ */
+interface SubmissionBody {
+  readonly protocolVersion?: unknown;
+  readonly executionToken?: unknown;
+  readonly idempotencyKey?: unknown;
+  readonly result?: unknown;
+}
 
 const ENVELOPE = {
   protocolVersion,
@@ -273,11 +284,13 @@ describe("what never reaches Acceptance", () => {
     expect(submissions).toStrictEqual([]);
   });
 
-  it("caps the envelope above the Result bound rather than at it", async () => {
+  it("caps the envelope above the Result bound rather than at it", () => {
     // ADR 0006 bounds the Result. The envelope around it carries a token, an
     // optional key and a version, so capping the whole body at the Result's
     // own figure would refuse a Result that is exactly within its bound.
-    expect(MAXIMUM_SUBMISSION_BYTES).toBeGreaterThan(protocolLimits.resultBytes);
+    expect(MAXIMUM_SUBMISSION_BYTES).toBeGreaterThan(
+      protocolLimits.resultBytes
+    );
   });
 
   it("refuses a version this control plane does not serve, and accepts nothing", async () => {
@@ -309,7 +322,11 @@ describe("what never reaches Acceptance", () => {
       sending({
         ...ENVELOPE,
         protocolVersion: protocolVersion + 1,
-        result: { ...RESULT, protocolVersion: protocolVersion + 1, summary: "" },
+        result: {
+          ...RESULT,
+          protocolVersion: protocolVersion + 1,
+          summary: "",
+        },
       }),
       RUN
     );
