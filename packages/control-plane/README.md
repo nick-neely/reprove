@@ -573,6 +573,134 @@ There is **no enrollment endpoint**, and that is ADR 0016's assertion rather tha
 has no Enrollment. `mintWorkerCredential` exists for the fixtures and for the dashboard flow that will
 own it, and what #54 fixes is the credential format and the verification predicate.
 
+## Acceptance
+
+`POST /api/worker/runs/:runId/result` is composed in [`src/worker/`](src/worker) and reaches the app
+as `createControlPlane(config).handleWorkerResult`. `CONTEXT.md` defines Acceptance as "the control
+plane's decision to absorb a submitted Result into its Run, permitted only while that Run is still
+eligible to accept one", and [ADR 0006](../../docs/adr/0006-worker-protocol.md) makes it the
+**stale-result boundary**: once a Run is terminal or superseded, a later Result cannot change its
+outcome, however the Worker behaves. That is what holds against a Worker which ignores a cancel,
+loses its network, or returns from a partition holding a Run declared lost twenty minutes earlier -
+rather than against one that is merely slow.
+
+```text
+read the body under a hard cap        -> 413  oversized
+authenticate               (txn 1)    -> 401
+parse the envelope                    -> 422  malformed
+check the protocol version            -> 426  upgrade_required | unsupported_protocol_version
+parse the Result                      -> 422  malformed
+accept                     (txn 2)    -> 200 | 404 | 409 | 422
+```
+
+The two transactions are the claim's, unchanged: the pre-authentication transaction verifies the
+credential and does nothing else, and Acceptance opens a second `withOwner` only once it has answered.
+The cap is `protocolLimits.resultBytes + 8 KiB`, because ADR 0006 bounds the *Result* and the body is
+the Result plus an envelope - capping the body at the Result's own figure would refuse a Result that
+is exactly within its bound. Both bounds are real, and `readBoundedBody` is the one that abandons the
+stream rather than accumulating and then measuring, which is what makes "rejected rather than
+truncated" a statement about the bytes.
+
+### The envelope exists so that the version can be read first
+
+A submission is `{ protocolVersion, executionToken, idempotencyKey?, result }`, and `result` is left
+**unparsed** by the envelope schema. `resultSchema` pins `protocolVersion` with a literal, so parsing
+the Result as part of the envelope would report a Worker outside the served window as `malformed` and
+lose ADR 0006's one actionable instruction - a structured `upgrade_required` naming the minimum. So
+the envelope's plain integer is read first, the window is checked, and the Result is parsed after.
+`result-endpoint.test.ts` measures that by making the Result fail on its own account and asserting
+the answer is still `426`.
+
+**A Result that fails `@reprove/protocol` validation never reaches a Run.** The acceptance port is
+the only thing on this path that touches one, and every refusal above returns before reaching it, so
+"rejected before it can affect Run state" is structural rather than careful. The tests hold a double
+that records every call and assert it stayed empty.
+
+### Acceptance is one conditional UPDATE, and the re-probe only names it
+
+```text
+update run
+  set status = 'completed' | 'incomplete', accepted_at, result_summary,
+      result_stopped_by, result_disproved_hypothesis_count, result_usage, passes
+where the Run, under this Owner
+  and status in ('claimed','executing')
+  and accepted_at is null
+  and execution_token_hash = sha256(the presented token)
+```
+
+The eligibility window and the write are **the same statement**, which is what makes ADR 0006's
+invariant - *"at most one accepted terminal Result for the current Run state"* - a property of
+Postgres. Two concurrent submissions serialize on the row lock: one matches a row and commits, the
+other re-evaluates its `WHERE` against the committed row and matches zero. **Only a concurrent
+submission tests it as one**; two sequential ones would prove merely that a terminal Run rejects a
+Result, which the already-accepted case covers. A Worker-supplied idempotency key is parsed, bounded
+and then dropped at the endpoint, because ADR 0006 says in the same sentence that it is "a
+convenience for network retry" and "must not" be what enforces this.
+
+The window is exported once, as `resultEligible()`, because
+[ADR 0015](../../docs/adr/0015-execution-ownership-and-worker-liveness.md) requires it be "defined
+**once** and shared, never restated": Acceptance and the liveness termination to `failed(worker_lost)`
+(#56) are two conditional updates racing over exactly it, and whichever wins closes the other path.
+
+Zero rows is ambiguous by construction, so the re-probe that follows exists **only to name it**, and
+its order is load-bearing:
+
+```text
+not visible                               -> unknown_run          404
+status not eligible, or already accepted  -> not_eligible         409
+still eligible, token is not ours         -> execution_mismatch   409
+anything else                             -> not_eligible         409
+```
+
+[ADR 0016](../../docs/adr/0016-phase-0-acceptance-scenario.md) found that order backwards in the
+prototype it lifted this from. Testing the token first reports `execution_mismatch` - a rotated
+token - for a Run whose actual problem is that it **ended**, and ADR 0015 requires the opposite:
+*"the Run is terminal, which is a stronger and clearer fact than token rotation."* The second line
+tests the **whole** eligibility half rather than terminality alone, which matters for the one case
+terminality misses: a `queued` Run holds no execution at all, so blaming its token would blame the
+wrong thing. Both orders return a rejection and only the name differs, so nothing but a test that
+reads the name catches it.
+
+**`wrong_tenant` is unreachable rather than missing.** The whole path runs inside `withOwner`, so
+another Owner's Run is *invisible* rather than merely ineligible and the only answer available from
+inside the boundary is `unknown_run`. ADR 0016 makes that indistinguishability the decision: the
+response stops confirming that a Run exists under an Owner the caller cannot see, and the forged
+tenant is consequently named nowhere in Acceptance. `execution_mismatch` is ADR 0015's rename of
+`stale_lease`, because the rejected condition is a token that is not the Run's current one rather
+than an expired Lease a hosted Worker never holds.
+
+### The Result is absorbed, and the Findings become rows
+
+ADR 0007: **`Result` has no table.** It is "what crosses the Worker boundary rather than something
+that outlives the crossing", so its summary, its `stoppedBy`, its disproved-hypothesis count, its
+usage and its passes are columns of the Run it terminalized. `completeness` becomes the Run's status -
+`completed` or `incomplete` - because the status is what reports the operational outcome, and folding
+partial into `completed` would force everything downstream to reach through into the Result to learn
+it.
+
+The Findings are rows, because they are queried across Runs by bucket key for Reconciliation, and
+each carries `owner_id` **denormalized** - which is what the `finding_tenant` policy and the
+owner-scoped composite foreign key both read. They are inserted in the same transaction, after the
+UPDATE has matched, so a rejected submission writes none and a throw rolls back both: a Run cannot
+end `completed` with its Findings missing.
+
+`bucket_key` is ADR 0007's `path + normalized anchored-source hash` at version 1, excluding line
+numbers because they move on any unrelated edit above them, severity because the same defect rated
+`high` then `medium` must not become a different Finding, and the title because it is the least
+stable field a Finding has. It is a **candidate bucket** and nothing more - matching inside it is
+Reconciliation, which is cross-Run and belongs to the phase that publishes a Review, so
+`reconciliation` and `publication_disposition` are left null.
+
+One rejection is a `422` rather than a name: ADR 0007 rejects a `Patch` at acceptance under any
+Autonomy but `fix`, and that is a statement about the payload measured against the Run's immutable
+spec rather than a seventh entry in ADR 0016's fixed rejection set. The read it needs is issued only
+when the payload actually carries a Patch, so an ordinary submission pays nothing for it.
+
+**Acceptance decides, and notification follows.** Nothing here wakes the lifecycle: ADR 0014 puts the
+database transition first and the notification after it, so a Run's terminal state never depends on a
+resume having been delivered. The lifecycle's own loop re-reads authoritative Run state on every wake
+and finds the Run terminal.
+
 ## Authentication
 
 `createAuth(config)` in [`src/auth/`](src/auth) composes Better Auth over the four tables Reprove **adopted** rather than four it manages ([ADR 0008](../../docs/adr/0008-persistence-tenancy-and-retention.md)). `user`, `session`, `account` and `verification` are declared in `src/db/schema.ts` beside everything else, so they share the one migration history and Better Auth runs no migration tool of its own. The Drizzle adapter is handed those table objects directly, which is what makes the sharing real rather than coincidental: it resolves every field against the object it was given.

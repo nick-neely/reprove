@@ -93,15 +93,20 @@ const FLOW_ROUTE = path.join(
 
 /**
  * The routes that compose the control plane, and whose output trace therefore
- * has to carry what its steps need. The claim route is here for the same reason
- * the webhook is: it reaches the same composition, so a deployment that shipped
- * it without the driver or the migration folder would answer every claim with a
- * boot refusal. The flow route is deliberately absent: the workflow bundle needs
- * nothing, which the bundle check asserts directly.
+ * has to carry what its steps need. The two Worker routes are here for the same
+ * reason the webhook is: they reach the same composition, so a deployment that
+ * shipped either without the driver or the migration folder would answer every
+ * claim and every Result with a boot refusal. The flow route is deliberately
+ * absent: the workflow bundle needs nothing, which the bundle check asserts
+ * directly.
+ *
+ * The result route is dynamic, and its trace is written under the literal
+ * segment Next names it by, brackets and all.
  */
 const TRACED_ROUTES = [
   "api/github/webhook",
   "api/worker/runs/claim",
+  "api/worker/runs/[runId]/result",
   ".well-known/workflow/v1/step",
 ];
 
