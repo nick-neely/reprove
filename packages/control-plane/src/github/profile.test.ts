@@ -15,6 +15,7 @@ import {
   normalizeResolvedConfig,
   normalizeRunProfile,
   PHASE_0_CLAIMABLE_FOR_MS,
+  PHASE_0_LIVENESS_FOR_MS,
   PHASE_0_RUN_PROFILE,
 } from "./profile.js";
 
@@ -40,11 +41,33 @@ describe("the Phase 0 profile", () => {
       placement: "hosted",
       allowHostedFallback: false,
       claimableForMs: PHASE_0_CLAIMABLE_FOR_MS,
+      livenessForMs: PHASE_0_LIVENESS_FOR_MS,
     });
   });
 
   it("bounds the unclaimed window at ADR 0014's five minutes", () => {
     expect(PHASE_0_CLAIMABLE_FOR_MS).toBe(300_000);
+  });
+
+  it("bounds an execution at ADR 0015's ten minutes, which is not five", () => {
+    // Ten is as arbitrary as five. What is not arbitrary is that the two
+    // differ: equal windows would make a deadline-confusion bug invisible,
+    // because either duration would produce the same timestamp.
+    expect(PHASE_0_LIVENESS_FOR_MS).toBe(600_000);
+    expect(PHASE_0_LIVENESS_FOR_MS).not.toBe(PHASE_0_CLAIMABLE_FOR_MS);
+  });
+
+  it.each([
+    ["claimableForMs", 0],
+    ["livenessForMs", 0],
+    ["claimableForMs", -1],
+    ["livenessForMs", Number.NaN],
+  ])("refuses a %s of %s at composition", (field, milliseconds) => {
+    // A non-positive liveness window would write an `executionExpiresAt` at or
+    // before `claimedAt`, so every claim would be born already expired.
+    expect(() =>
+      normalizeRunProfile({ ...PHASE_0_RUN_PROFILE, [field]: milliseconds })
+    ).toThrow(field);
   });
 
   it("refuses a configuration the Worker protocol would reject", () => {
