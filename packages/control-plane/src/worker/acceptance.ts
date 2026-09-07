@@ -14,6 +14,12 @@
  *   and (the Result carries no Patch or autonomy = 'fix')
  * ```
  *
+ * **The window itself is `run/eligibility.ts`'s**, not this module's, because
+ * ADR 0015 makes two conditional updates race over exactly it: Acceptance here,
+ * and the liveness termination to `failed(worker_lost)`. The watchdog holds no
+ * execution token - its whole evidence is that nobody is answering - so what is
+ * shared is the window and what this module adds is the token conjunct.
+ *
  * The eligibility window and the write are **the same statement**, which is
  * what makes [ADR 0006](../../../../docs/adr/0006-worker-protocol.md)'s
  * invariant - "at most one accepted terminal Result for the current Run state" -
@@ -79,13 +85,12 @@
 import { createHash } from "node:crypto";
 
 import type { Finding } from "@reprove/protocol/v1";
-import type { SQL } from "drizzle-orm";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import type { TenantTransaction } from "../db/runtime.js";
 import type { RunStatus } from "../db/schema-values.js";
-import { RESULT_ELIGIBLE_RUN_STATUSES } from "../db/schema-values.js";
 import * as schema from "../db/schema.js";
+import { resultEligible, statusIsEligible } from "../run/eligibility.js";
 import type {
   AcceptanceOutcome,
   AcceptedRunStatus,
@@ -103,53 +108,6 @@ export interface AcceptanceConfig {
   /** The clock `acceptedAt` is written from, read once per submission. */
   readonly now: () => Date;
 }
-
-/**
- * ADR 0015's Result-eligibility window, as one predicate, defined here and
- * nowhere else.
- *
- * ```text
- * Result-eligible Run = status IN (claimed, executing)
- *                     + acceptedAt IS NULL
- *                     + executionToken matches
- * ```
- *
- * The ADR requires it be "defined **once** and shared, never restated", because
- * two conditional updates race over exactly it: Acceptance below, and the
- * liveness termination to `failed(worker_lost)` (#56). Whichever wins closes the
- * other path, and a detector scoped more narrowly than Acceptance would leave
- * the guarantee holed. #56 composes this with its own deadline conjunct rather
- * than spelling the window again.
- *
- * `ownerId` is in the predicate as well as in the tenant context, which is ADR
- * 0008 rule 1: application scoping **plus** RLS, "not either alone".
- *
- * @param ownerId The submitting Owner.
- * @param runId The Run, already checked with `isRunId`.
- * @param executionTokenHash The stored form of the presented token.
- * @returns The window, as a predicate an UPDATE may carry.
- */
-export const resultEligible = (
-  ownerId: number,
-  runId: string,
-  executionTokenHash: string
-): SQL | undefined =>
-  and(
-    eq(schema.run.ownerId, ownerId),
-    eq(schema.run.id, runId),
-    inArray(schema.run.status, RESULT_ELIGIBLE_RUN_STATUSES),
-    isNull(schema.run.acceptedAt),
-    eq(schema.run.executionTokenHash, executionTokenHash)
-  );
-
-/** The status half of the eligibility window, read back off a probed row. */
-const statusIsEligible = (status: string): boolean =>
-  // SAFETY: the probe reads a `text` column, because ADR 0008 keeps the state
-  // machine in the application rather than in a Postgres `ENUM`, so the value
-  // is a string that may or may not be one of these. Widening the tuple is what
-  // lets an unknown status be asked about at all; narrowing the string instead
-  // would assert a membership this line exists to test.
-  (RESULT_ELIGIBLE_RUN_STATUSES as readonly string[]).includes(status);
 
 /**
  * The anchored source a bucket key is taken over, with the whitespace that
