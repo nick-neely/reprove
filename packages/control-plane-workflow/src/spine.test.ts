@@ -36,6 +36,8 @@ import {
   migrate,
   PHASE_0_RUN_PROFILE,
 } from "@reprove/control-plane";
+import type { Result } from "@reprove/protocol/v1";
+import { protocolVersion } from "@reprove/protocol/v1";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { getRun, start } from "workflow/api";
 
@@ -195,6 +197,89 @@ const shortWindowRun = async (): Promise<{
     await short.close();
   }
 };
+
+/**
+ * A **claimed** Run with a short execution-liveness window, taken through the
+ * real hosted claim so that every execution-ownership column is written the way
+ * a claim writes them - together, in one statement.
+ *
+ * Only the two durations are moved (ADR 0016): the loop, the durable sleep and
+ * the conditional UPDATE are all the real ones. A fake clock was rejected
+ * upstream because Workflow's own `sleep` runs on wall time, so a control plane
+ * advancing one would disagree with the schedule it is supposed to be testing.
+ */
+const shortLivenessRun = async (): Promise<{
+  runId: string;
+  executionToken: string;
+}> => {
+  const repository = freshRepository();
+  github.pullRequest(1, {
+    headSha: "b".repeat(40),
+    baseSha: "a".repeat(40),
+    open: true,
+    draft: false,
+  });
+  const shortProfile: Phase0RunProfile = {
+    ...PHASE_0_RUN_PROFILE,
+    claimableForMs: SHORT_WINDOW_MS,
+    livenessForMs: SHORT_WINDOW_MS,
+  };
+  const short = await createControlPlane({
+    database: { connectionString: RUNTIME_URL },
+    github: {
+      webhookSecret: WEBHOOK_SECRET,
+      appId: APP_ID,
+      privateKey: PRIVATE_KEY,
+      runProfile: shortProfile,
+      apiUrl: github.url,
+    },
+    kick: () => {},
+  });
+  try {
+    const delivery = await commit({
+      action: "opened",
+      repositoryId: repository,
+      pullRequestNumber: 1,
+      headSha: "b".repeat(40),
+    });
+    const processed = await short.processDelivery(delivery);
+    if (processed.runId === null) {
+      throw new Error(
+        `no Run was created: ${JSON.stringify(processed.outcome)}`
+      );
+    }
+    const claimed = await short.claimRun({
+      ownerId: ACME,
+      runId: processed.runId,
+    });
+    if (claimed.kind !== "granted") {
+      throw new Error(`the Run was not claimed: ${JSON.stringify(claimed)}`);
+    }
+    return {
+      executionToken: claimed.grant.executionToken,
+      runId: processed.runId,
+    };
+  } finally {
+    await short.close();
+  }
+};
+
+/**
+ * The smallest Result Acceptance will take: no Findings, so nothing here is a
+ * claim about review quality, which is Phase 1's.
+ */
+const acceptableResult = (runId: string): Result => ({
+  completeness: "complete",
+  disprovedHypothesisCount: 0,
+  findings: [],
+  passes: [],
+  protocolVersion,
+  runId,
+  stoppedBy: null,
+  summary: "Reviewed the change and found nothing to report.",
+  usage: { inputTokens: 1000, outputTokens: 100 },
+  workerBuildVersion: "0.1.0",
+});
 
 const dispatch = async (
   runId: string
@@ -410,6 +495,93 @@ describe("the durable spine", () => {
       status: "queued",
       workflowRunId: null,
     });
+  });
+
+  it("ends a claimed Run nobody came back for, from the same durable run", async () => {
+    // ADR 0016's mandatory abandoned case, through the real loop: the Run is
+    // claimed, no pass is ever recorded, and no Result ever arrives.
+    // `claimableUntil` cannot touch it - it writes only over `queued` - so
+    // without the second window this Run stays Result-eligible forever.
+    //
+    // The lifecycle that closes it is the *same* durable run that was
+    // scheduling the claim window, which is what "a state-driven loop over both
+    // windows rather than a second durable run" means observably.
+    const { runId } = await shortLivenessRun();
+
+    const lifecycle = await dispatch(runId);
+    await expect(
+      controlPlane.lifecycle.record(ACME, runId, lifecycle.workflowRunId)
+    ).resolves.toBeTruthy();
+
+    await expect(lifecycle.outcome).resolves.toStrictEqual({
+      kind: "worker_lost",
+      lostFrom: "claimed",
+    });
+    await expect(
+      controlPlane.lifecycle.schedule(ACME, runId)
+    ).resolves.toMatchObject({
+      status: "failed",
+      workflowRunId: lifecycle.workflowRunId,
+    });
+    // Exactly one durable run was ever started for this Run: the watchdog is a
+    // branch of the lifecycle, not a workflow beside it. A second `start()`
+    // would be a third orphan window of the kind that created the `claimed`
+    // hole this case exists to close.
+    expect(started.filter((id) => id === lifecycle.workflowRunId)).toHaveLength(
+      1
+    );
+  });
+
+  it("leaves an orphaned lifecycle inert over the executing window too", async () => {
+    // ADR 0014's ownership guard holds on the second window as on the first.
+    const { runId } = await shortLivenessRun();
+
+    const recorded = await dispatch(runId);
+    const orphan = await dispatch(runId);
+    await expect(
+      controlPlane.lifecycle.record(ACME, runId, recorded.workflowRunId)
+    ).resolves.toBeTruthy();
+
+    await expect(orphan.outcome).resolves.toStrictEqual({
+      kind: "orphaned",
+      recordedLifecycle: recorded.workflowRunId,
+    });
+    await expect(recorded.outcome).resolves.toMatchObject({
+      kind: "worker_lost",
+    });
+  });
+
+  it("reports a Run that ended while it slept, rather than terminalizing it", async () => {
+    // The loop re-reads authoritative state on every wake rather than trusting
+    // the timestamp it slept toward, and this is what that buys: Acceptance
+    // absorbed a Result while the lifecycle was asleep toward the execution
+    // deadline, so the wake finds a terminal Run and reports it instead of
+    // writing a Failure over a completed one.
+    //
+    // It is the same re-read that will make self-hosted Lease renewal a column
+    // write rather than a second liveness system (ADR 0015) - a renewal that
+    // lands mid-sleep is simply the next deadline. Renewal itself has no
+    // transport in Phase 0, so what is exercised here is the re-read.
+    const { executionToken, runId } = await shortLivenessRun();
+    const lifecycle = await dispatch(runId);
+    await controlPlane.lifecycle.record(ACME, runId, lifecycle.workflowRunId);
+
+    await expect(
+      controlPlane.acceptResult({
+        executionToken,
+        ownerId: ACME,
+        result: acceptableResult(runId),
+        runId,
+      })
+    ).resolves.toStrictEqual({ kind: "accepted", runStatus: "completed" });
+
+    await expect(lifecycle.outcome).resolves.toStrictEqual({
+      kind: "ended",
+      status: "completed",
+    });
+    await expect(
+      controlPlane.lifecycle.schedule(ACME, runId)
+    ).resolves.toMatchObject({ status: "completed" });
   });
 
   it("re-drives a contended delivery through the platform's step retry", async () => {
