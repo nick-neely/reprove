@@ -1208,16 +1208,6 @@ export {};
 ## dist/db/schema-values.d.ts
 
 ```ts
-/**
- * The closed value sets the schema's `text` columns hold, as types.
- *
- * `src/db/schema.ts` documents each of these in a comment beside its column and
- * cannot express them: a Postgres `ENUM` is a type whose values are altered by
- * migration rather than by a diff, and ADR 0008 keeps the state machines in the
- * application. This module is what stops the comment being the only statement -
- * it names no Drizzle type, so it is reachable from anywhere in the package and
- * from its published surface alike.
- */
 /** `owner.type`. */
 export type OwnerType = "user" | "organization";
 /**
@@ -1284,6 +1274,16 @@ export type IngressDisposition = (typeof INGRESS_DISPOSITIONS)[number];
  */
 export declare const INGRESS_RETRY_CLASSES: readonly ["transient", "operator_attention", "contended"];
 export type IngressRetryClass = (typeof INGRESS_RETRY_CLASSES)[number];
+/**
+ * `run.placement`, which is also `RunSpec.placement` on the wire.
+ *
+ * Spelled against the protocol's own type rather than beside it, so a placement
+ * this package can write is exactly a placement a Worker accepts - the same
+ * rule `Phase0RunProfile` follows, and for the same reason: there is no second
+ * vocabulary for the two to drift against.
+ */
+export declare const RUN_PLACEMENTS: readonly ["self_hosted", "hosted"];
+export type RunPlacement = (typeof RUN_PLACEMENTS)[number];
 /**
  * `run.status`. ADR 0007's machine: `queued` -> `claimed` -> `executing`,
  * terminating in one of the six below.
@@ -5202,11 +5202,14 @@ export declare const WORKER_CLAIM_STATUS: {
  * claim_window_closed      claimableUntil has passed and nothing has moved the
  *                          Run off `queued` yet
  * not_claimable            the Run is terminal, or otherwise past claiming
+ * placement_mismatch       the Run is claimable and belongs to the other
+ *                          placement, which is dispatched by another mechanism;
+ *                          taking it would be dispatching one Run twice
  * installation_unavailable the Run is claimable and its Repository records no
  *                          live grant, so no Workspace could be materialized
  * ```
  */
-export type ClaimRefusal = "unknown_run" | "already_claimed" | "claim_window_closed" | "not_claimable" | "installation_unavailable";
+export type ClaimRefusal = "unknown_run" | "already_claimed" | "claim_window_closed" | "not_claimable" | "placement_mismatch" | "installation_unavailable";
 /** What one attempt to claim decided. */
 export type ClaimOutcome =
 /** The Run is claimed, and this is the execution ownership it created. */
@@ -5384,6 +5387,13 @@ export interface PresentedWorkerCredential {
 }
 /**
  * The stored form of a secret.
+ *
+ * The digest is compared by ordinary SQL equality in the lookup that verifies
+ * it, and that is deliberate rather than a timing-safety oversight: what the
+ * comparison sees is a SHA-256 digest of a 256-bit CSPRNG secret, so leaking how
+ * many leading bytes of a *digest* matched tells an attacker nothing about the
+ * preimage they would have to present. A timing-safe compare defends a secret
+ * compared directly, which is the webhook signature's case and not this one.
  *
  * @param secret The secret half of a credential.
  * @returns `sha256:` followed by the hex digest of the secret alone.
