@@ -153,7 +153,7 @@ import type { GitHubFetch } from "./github/client.js";
 import type { DeliveryToProcess, ProcessedDelivery } from "./github/delivery.js";
 import type { Phase0RunProfile } from "./github/profile.js";
 import type { KickProcessing } from "./github/webhook.js";
-import type { RunLifecyclePort } from "./run/schedule.js";
+import type { ExecutionLoss, ExecutionLossOutcome, RunLifecyclePort } from "./run/schedule.js";
 import type { AcceptanceOutcome, SubmittedResult } from "./worker/acceptance-outcome.js";
 import type { ClaimOutcome, HostedClaimRequest } from "./worker/claim-outcome.js";
 /** The database connection, as configuration rather than as a client. */
@@ -288,6 +288,23 @@ export interface ControlPlane {
      * write is conditional on the writer being the recorded lifecycle.
      */
     readonly lifecycle: RunLifecyclePort;
+    /**
+     * ADR 0015's terminal transition, reached by the **in-process** detector: the
+     * `try`/`catch` around a hosted pass, which witnessed the throw and does not
+     * wait out a deadline for it.
+     *
+     * It is the same function `lifecycle.terminateLostExecution` is, for the
+     * reason `acceptResult` is one function reached two ways. The detectors
+     * differ because the evidence differs; the terminal write does not fork, and
+     * a second entry point that happened to write the same row today would be
+     * two liveness stories tomorrow.
+     *
+     * It absorbs no Result, so Acceptance remains the only path by which a Result
+     * enters a Run. It is **not** where a hosted Worker's *structured* Failure
+     * goes: that keeps its own specific reason, so `sandbox_teardown_incomplete`
+     * is never collapsed into `worker_lost`.
+     */
+    readonly reportExecutionLost: (loss: ExecutionLoss) => Promise<ExecutionLossOutcome>;
     /** Drains the connection pool. */
     readonly close: () => Promise<void>;
 }
@@ -1362,6 +1379,72 @@ export type ResultEligibleRunStatus = (typeof RESULT_ELIGIBLE_RUN_STATUSES)[numb
  */
 export declare const RUN_CANCELLATION_REASONS: readonly ["pull_request_closed", "pull_request_drafted"];
 export type RunCancellationReason = (typeof RUN_CANCELLATION_REASONS)[number];
+/**
+ * `run.failure_reason`, on `failed`.
+ *
+ * One member, and [ADR 0015](../../../../docs/adr/0015-execution-ownership-and-worker-liveness.md)
+ * argues for it at length: `worker_lost` serves **both Worker kinds and all
+ * three detectors**, because ADR 0001's single Worker concept is load-bearing
+ * and "my daemon or your infrastructure?" is answered by the detector, which is
+ * evidence rather than domain vocabulary.
+ *
+ * It is the fallback for an execution that ended without a more specific
+ * acceptable terminal report reaching the control plane. An uncaught throw
+ * qualifies even though Reprove witnessed it, because a crash is not an
+ * acceptable terminal report. A structured Failure from `worker-core` does
+ * **not**: that path keeps its own specific reason, so
+ * `sandbox_teardown_incomplete` is never collapsed into this.
+ */
+export declare const RUN_FAILURE_REASONS: readonly ["worker_lost"];
+export type RunFailureReason = (typeof RUN_FAILURE_REASONS)[number];
+/**
+ * `run.failure_detail.detector`: which of ADR 0015's three noticed.
+ *
+ * ```text
+ * hosted_prompt     hosted, in-process   an uncaught throw in the pass    milliseconds
+ * hosted_watchdog   hosted, lifecycle    no usable signal by deadline     bounded
+ * lease_expired     self-hosted, later   renewal stops                    bounded
+ * ```
+ *
+ * All three call the same transition on the same predicate. They differ because
+ * the **evidence** differs; the terminal write does not fork.
+ *
+ * `lease_expired` is declared before it is reachable, deliberately. It is ADR
+ * 0015's fixed vocabulary, and the property that makes self-hosted renewal "a
+ * column write rather than a second liveness system" is easier to keep true
+ * when the vocabulary it lands in already exists.
+ */
+export declare const EXECUTION_LOST_DETECTORS: readonly ["hosted_prompt", "hosted_watchdog", "lease_expired"];
+export type ExecutionLostDetector = (typeof EXECUTION_LOST_DETECTORS)[number];
+/**
+ * `run.failure_detail.observation`: what the detector actually saw.
+ *
+ * ```text
+ * uncaught_throw                    the pass threw and Reprove was on the stack
+ * workflow_failed                   the durable pass ended failed
+ * workflow_cancelled                the durable pass was cancelled
+ * workflow_terminal_without_result  it ended, and no Result was ever submitted
+ * workflow_state_unavailable        its state could not be read at all
+ * deadline_elapsed                  nothing usable arrived by executionExpiresAt
+ * ```
+ *
+ * Only `uncaught_throw` and `deadline_elapsed` are reachable in Phase 0. The
+ * other four describe a **pass's** durable run, which arrives with the hosted
+ * placement (#57); they are declared here because they are ADR 0015's fixed set
+ * and inventing code paths to reach them early would prove nothing.
+ */
+export declare const EXECUTION_LOST_OBSERVATIONS: readonly ["uncaught_throw", "workflow_failed", "workflow_cancelled", "workflow_terminal_without_result", "workflow_state_unavailable", "deadline_elapsed"];
+export type ExecutionLostObservation = (typeof EXECUTION_LOST_OBSERVATIONS)[number];
+/**
+ * `run.failure_detail.lostFrom`: which side of the eligibility window the Run
+ * was abandoned on.
+ *
+ * It is `ResultEligibleRunStatus` **reused rather than restated**, because it is
+ * the same fact: the terminal transition writes over exactly Acceptance's
+ * window, so a Run can only be lost from inside it. A second list here would be
+ * the divergence ADR 0015 forbids, in the one place it would be least visible.
+ */
+export type LostFrom = ResultEligibleRunStatus;
 ```
 
 ## dist/db/schema.d.ts
@@ -2558,6 +2641,40 @@ export declare const run: import("drizzle-orm/pg-core").PgTableWithColumns<{
             isAutoincrement: false;
             hasRuntimeDefault: false;
             enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        failureReason: import("drizzle-orm/pg-core").PgColumn<{
+            name: "failure_reason";
+            tableName: "run";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        failureDetail: import("drizzle-orm/pg-core").PgColumn<{
+            name: "failure_detail";
+            tableName: "run";
+            dataType: "json";
+            columnType: "PgJsonb";
+            data: unknown;
+            driverParam: unknown;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
             baseColumn: never;
             identity: undefined;
             generated: undefined;
@@ -5076,7 +5193,7 @@ export { migrate } from "./db/migrate.js";
 export type { CommittedMigration } from "./db/migrations.js";
 export { MIGRATIONS_FOLDER, readCommittedMigrations } from "./db/migrations.js";
 export type { CheckName, CheckOutcome } from "./db/refusal.js";
-export type { IngressDisposition, IngressRetryClass, IngressState, RunStatus, } from "./db/schema-values.js";
+export type { ExecutionLostDetector, ExecutionLostObservation, IngressDisposition, IngressRetryClass, IngressState, LostFrom, RunFailureReason, RunStatus, } from "./db/schema-values.js";
 export { BootRefusalError } from "./db/refusal.js";
 export { RUNTIME_ROLE } from "./db/roles.js";
 export type { DeliveryToProcess, EndedRun, IngressOutcome, ProcessedDelivery, } from "./github/delivery.js";
@@ -5087,7 +5204,7 @@ export { PHASE_0_RUN_PROFILE } from "./github/profile.js";
 export { APP_EVENTS, APP_PERMISSIONS, githubAppManifest, WEBHOOK_PATH, } from "./github/manifest.js";
 export type { KickProcessing } from "./github/webhook.js";
 export { WEBHOOK_STATUS } from "./github/webhook.js";
-export type { RunLifecyclePort, RunSchedule } from "./run/schedule.js";
+export type { ExecutionLoss, ExecutionLossEvidence, ExecutionLossOutcome, RunLifecyclePort, RunSchedule, } from "./run/schedule.js";
 export type { AcceptanceOutcome, AcceptedRunStatus, ResultRejection, SubmittedResult, } from "./worker/acceptance-outcome.js";
 export { WORKER_RESULT_STATUS } from "./worker/acceptance-outcome.js";
 export type { ClaimOutcome, ClaimRefusal, HostedClaimRequest, } from "./worker/claim-outcome.js";
@@ -5130,11 +5247,86 @@ export declare const DEFAULT_CODEX_REASONING_EFFORT: "medium";
 export declare const availableReasoningEfforts: (harness: Harness, model: string) => readonly CodexReasoningEffort[];
 ```
 
+## dist/run/eligibility.d.ts
+
+```ts
+/**
+ * [ADR 0015](../../../../docs/adr/0015-execution-ownership-and-worker-liveness.md)'s
+ * Result-eligibility window, defined here and nowhere else.
+ *
+ * ```text
+ * Result-eligible Run = status IN (claimed, executing)
+ *                     + acceptedAt IS NULL
+ *                     + executionToken matches
+ * ```
+ *
+ * The ADR requires it be "defined **once** and shared, never restated", because
+ * two conditional updates race over exactly it:
+ *
+ * ```text
+ * Acceptance             eligible + valid Result       -> completed / incomplete
+ * liveness termination   eligible + liveness expired   -> failed(worker_lost)
+ * ```
+ *
+ * Whichever wins closes the other path, and a detector scoped more narrowly than
+ * Acceptance would leave the guarantee holed - reachably rather than
+ * theoretically, since a Run abandoned at `claimed` with no pass ever recorded
+ * is one `claimableUntil` never touches.
+ *
+ * **The window and the token are two functions rather than one.** The last line
+ * of the ADR's box is the execution's *identity*, and only Acceptance holds one:
+ * a Worker submits the token it was granted, while the watchdog's entire
+ * evidence is that nobody is answering. So the token is a conjunct Acceptance
+ * adds, and the shared half is everything above it. Both spellings live in this
+ * module so that the split is structural: `eligibility.test.ts` renders the two
+ * through the pinned dialect and compares, which is what makes "never restated"
+ * a measured property rather than a convention.
+ *
+ * It lives under `run/` rather than beside Acceptance because the liveness
+ * transition is a lifecycle-side write, and a lifecycle module reaching into
+ * `worker/` for the window would invert the dependency the ADR describes: one
+ * window, two callers, owned by neither.
+ *
+ * `ownerId` is in the predicate as well as in the tenant context, which is ADR
+ * 0008 rule 1: application scoping **plus** RLS, "not either alone".
+ */
+import type { SQL } from "drizzle-orm";
+/**
+ * The window both racers share: this Owner's Run, still inside the statuses a
+ * Result may be accepted over, with no Result accepted yet.
+ *
+ * @param ownerId The Owner the Run belongs to.
+ * @param runId The Run, already checked with `isRunId` where it came from a
+ *   caller rather than from the database.
+ * @returns The window, as a predicate a conditional UPDATE may carry.
+ */
+export declare const resultEligibleWindow: (ownerId: number, runId: string) => SQL | undefined;
+/**
+ * Acceptance's whole predicate: the window above, plus the identity of the
+ * execution authorized to submit against this Run.
+ *
+ * @param ownerId The submitting Owner.
+ * @param runId The Run, already checked with `isRunId`.
+ * @param executionTokenHash The stored form of the presented token.
+ * @returns The window and the token, as a predicate an UPDATE may carry.
+ */
+export declare const resultEligible: (ownerId: number, runId: string, executionTokenHash: string) => SQL | undefined;
+/**
+ * The status half of the window, read back off a probed row.
+ *
+ * The re-probes that name a refusal read a row rather than carry a predicate,
+ * so they need the same membership test as a value rather than as SQL. Sharing
+ * it with the predicate above is the same guarantee at one remove: a status
+ * added to the window is a status the probes stop misnaming.
+ */
+export declare const statusIsEligible: (status: string) => boolean;
+```
+
 ## dist/run/lifecycle.d.ts
 
 ```ts
 import type { TenantTransaction } from "../db/runtime.js";
-import type { RunSchedule } from "./schedule.js";
+import type { ExecutionLoss, ExecutionLossOutcome, RunSchedule } from "./schedule.js";
 /**
  * Records which durable run schedules this Run, if none is recorded yet.
  *
@@ -5172,6 +5364,43 @@ export declare const readSchedule: (tx: TenantTransaction, runId: string) => Pro
  * @returns Whether the transition was written.
  */
 export declare const expireUnclaimed: (tx: TenantTransaction, runId: string, workflowRunId: string) => Promise<boolean>;
+/**
+ * Ends a Run whose execution stopped answering, or writes nothing.
+ *
+ * ```text
+ * update run
+ *    set status = 'failed', failure_reason = 'worker_lost',
+ *        failure_detail = { detector, observation, lostFrom: <the OLD status> }
+ *  where <Acceptance's eligibility window>
+ *    and <this detector's evidence>
+ * ```
+ *
+ * **The window is Acceptance's, exactly.** ADR 0015 makes this and Acceptance
+ * two conditional updates racing over one predicate, so whichever wins closes
+ * the other path: a Result arriving after this transition is rejected
+ * `not_eligible`, and this transition over a Run that just accepted one writes
+ * nothing. A detector scoped more narrowly - to `executing` alone, say - would
+ * leave a Run abandoned at `claimed` eligible forever, which is the hole ADR
+ * 0016 makes the mandatory Phase 0 case.
+ *
+ * **`lostFrom` is the row's own pre-update `status`.** Inside `SET`, a column
+ * reference is the old value, so the detail records `claimed` or `executing`
+ * without a second statement that could disagree with the first. That is what
+ * keeps this one conditional statement rather than a read and a write.
+ *
+ * **It decides; it does not reclaim.** The database write is the correctness
+ * boundary and `cancel()` of a still-running pass is best-effort clean-up that
+ * follows a transition that won - cancelling first would make a resource
+ * operation load-bearing for correctness. The caller gets `terminalized` for
+ * exactly that ordering. Where no pass was ever recorded there is nothing to
+ * cancel, and that is fine: a pass emerging afterwards cannot change a Run
+ * whose Acceptance has already closed.
+ *
+ * @param tx A tenant transaction already scoped to the Run's Owner.
+ * @param loss The Run, the detector's account of itself, and its evidence.
+ * @returns Whether the transition was written, and what it was lost from.
+ */
+export declare const terminateLostExecution: (tx: TenantTransaction, loss: ExecutionLoss) => Promise<ExecutionLossOutcome>;
 ```
 
 ## dist/run/schedule.d.ts
@@ -5189,7 +5418,7 @@ export declare const expireUnclaimed: (tx: TenantTransaction, runId: string, wor
  * its declaration graph into that check, so the types the published surface
  * names are declared here over the closed value sets and nothing else.
  */
-import type { RunStatus } from "../db/schema-values.js";
+import type { ExecutionLostDetector, ExecutionLostObservation, LostFrom, RunStatus } from "../db/schema-values.js";
 /**
  * The authoritative state a lifecycle re-reads on every wake, rather than
  * trusting the timestamp it slept toward ([ADR
@@ -5200,6 +5429,16 @@ export interface RunSchedule {
     /** When the unclaimed window closes. Immutable; written at creation. */
     readonly claimableUntil: Date;
     /**
+     * When the **executing** window closes: `claimedAt + livenessFor`, written at
+     * claim and carried by both placements (ADR 0015).
+     *
+     * `null` on a Run that was never claimed. A self-hosted Worker's Lease is
+     * what may advance it, which is why the lifecycle re-reads this on every wake
+     * rather than trusting the value it slept toward: renewal moves the column,
+     * and a stale wake sleeps again.
+     */
+    readonly executionExpiresAt: Date | null;
+    /**
      * The lifecycle the Run records, or `null` inside the window between
      * `start()` returning and the id being written. The database decides which
      * lifecycle owns a Run; a lifecycle reading a different id here is an orphan
@@ -5208,12 +5447,79 @@ export interface RunSchedule {
     readonly workflowRunId: string | null;
 }
 /**
+ * What ends an execution, as the evidence rather than as the conclusion.
+ *
+ * ADR 0015's three detectors reach **one** transition on **one** predicate, and
+ * differ only in what they can show for it. That difference is this type, and
+ * keeping it here rather than inside the statement is what stops the terminal
+ * write forking per detector:
+ *
+ * ```text
+ * deadline    nothing usable arrived by executionExpiresAt, and the writer is
+ *             the lifecycle the Run records
+ * execution   the execution authorized to submit crashed, and the caller can
+ *             present its token to prove which one it was
+ * ```
+ */
+export type ExecutionLossEvidence = {
+    /**
+     * The watchdog, and later a stopped Lease renewal. Both are "the deadline
+     * passed", which is why Lease expiry needs no third shape here.
+     */
+    readonly kind: "deadline";
+    /** The waking lifecycle. ADR 0014's ownership guard, on this window too. */
+    readonly workflowRunId: string;
+    /** When it woke. Compared against `executionExpiresAt` inside the statement. */
+    readonly now: Date;
+} | {
+    /**
+     * The in-process detector: Reprove's own code was on the stack when the
+     * pass threw, so it does not wait out a deadline for a crash it saw.
+     */
+    readonly kind: "execution";
+    /**
+     * The token that execution held. It is this detector's ownership guard,
+     * where the deadline case carries the recorded lifecycle: only the
+     * current execution can present it. Hashed before it reaches SQL.
+     */
+    readonly executionToken: string;
+};
+/** One attempt to end a Run whose execution stopped answering. */
+export interface ExecutionLoss {
+    readonly ownerId: number;
+    readonly runId: string;
+    /** Which detector noticed, recorded as evidence rather than as vocabulary. */
+    readonly detector: ExecutionLostDetector;
+    /** What it saw. */
+    readonly observation: ExecutionLostObservation;
+    /** What it can show, which is the only thing that differs between detectors. */
+    readonly evidence: ExecutionLossEvidence;
+}
+/** What one attempt at the terminal transition decided. */
+export interface ExecutionLossOutcome {
+    /**
+     * Whether this call wrote the transition. It is what gates reclamation: the
+     * database write is the correctness boundary and cancelling a still-running
+     * pass is best-effort clean-up that follows it (ADR 0015).
+     */
+    readonly terminalized: boolean;
+    /**
+     * Which side of the window the Run was lost from, or `null` where nothing was
+     * written. Read back out of the row rather than from the caller, because the
+     * statement is what decided.
+     */
+    readonly lostFrom: LostFrom | null;
+}
+/**
  * The lifecycle's whole reach into a Run, composed over a tenant transaction.
  *
- * Three operations and no fourth: recording which durable run schedules the
- * Run, reading the state that decides what to do next, and the one transition
- * `claimableUntil` owns. Every write is conditional on the lifecycle being the
- * recorded one, which is what makes ADR 0014's orphan inert.
+ * Four operations, one per thing the lifecycle is allowed to do: record which
+ * durable run schedules the Run, read the state that decides what to do next,
+ * and the one transition each of its **two** windows owns - `unscheduled` for
+ * the unclaimed window, and `failed(worker_lost)` for the executing one
+ * ([ADR 0015](../../../../docs/adr/0015-execution-ownership-and-worker-liveness.md)).
+ * Every write is conditional on the lifecycle being the recorded one, which is
+ * what makes ADR 0014's orphan inert.
  */
 export interface RunLifecyclePort {
     /**
@@ -5233,6 +5539,19 @@ export interface RunLifecyclePort {
      * @returns Whether the transition was written.
      */
     readonly expireUnclaimed: (ownerId: number, runId: string, workflowRunId: string) => Promise<boolean>;
+    /**
+     * The one transition the executing window owns: `failed(worker_lost)`, over
+     * exactly Acceptance's eligibility window, written only when the caller's
+     * evidence holds.
+     *
+     * It is on this port rather than beside Acceptance because it is a
+     * lifecycle-side write, and it is reachable by the in-process detector too -
+     * one transition reached two ways, which is what stops a second liveness
+     * story appearing beside this one.
+     *
+     * @returns Whether the transition was written, and what it was lost from.
+     */
+    readonly terminateLostExecution: (loss: ExecutionLoss) => Promise<ExecutionLossOutcome>;
 }
 ```
 
@@ -5377,7 +5696,6 @@ export type WorkerResultPort = (submission: SubmittedResult) => Promise<Acceptan
 
 ```ts
 import type { Finding } from "@reprove/protocol/v1";
-import type { SQL } from "drizzle-orm";
 import type { TenantTransaction } from "../db/runtime.js";
 import type { AcceptanceOutcome, SubmittedResult } from "./acceptance-outcome.js";
 /** The version of the bucketing algorithm the rows below are keyed under. */
@@ -5387,32 +5705,6 @@ export interface AcceptanceConfig {
     /** The clock `acceptedAt` is written from, read once per submission. */
     readonly now: () => Date;
 }
-/**
- * ADR 0015's Result-eligibility window, as one predicate, defined here and
- * nowhere else.
- *
- * ```text
- * Result-eligible Run = status IN (claimed, executing)
- *                     + acceptedAt IS NULL
- *                     + executionToken matches
- * ```
- *
- * The ADR requires it be "defined **once** and shared, never restated", because
- * two conditional updates race over exactly it: Acceptance below, and the
- * liveness termination to `failed(worker_lost)` (#56). Whichever wins closes the
- * other path, and a detector scoped more narrowly than Acceptance would leave
- * the guarantee holed. #56 composes this with its own deadline conjunct rather
- * than spelling the window again.
- *
- * `ownerId` is in the predicate as well as in the tenant context, which is ADR
- * 0008 rule 1: application scoping **plus** RLS, "not either alone".
- *
- * @param ownerId The submitting Owner.
- * @param runId The Run, already checked with `isRunId`.
- * @param executionTokenHash The stored form of the presented token.
- * @returns The window, as a predicate an UPDATE may carry.
- */
-export declare const resultEligible: (ownerId: number, runId: string, executionTokenHash: string) => SQL | undefined;
 /**
  * The candidate bucket a Finding belongs to, which is ADR 0007's
  * `path + normalized anchored-source hash` and deliberately nothing else.

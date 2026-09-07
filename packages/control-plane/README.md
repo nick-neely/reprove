@@ -374,14 +374,15 @@ normalizes whatever event it is sent rather than assuming an unsubscribed one ne
 ## The Run's lifecycle is a port, and the Run row arbitrates it
 
 `createControlPlane()` returns a `lifecycle` beside the webhook, and it is the whole reach the
-durable lifecycle in `@reprove/control-plane-workflow` has into a Run - three operations and no
-fourth, each composed over a `withOwner` transaction so the Owner is an argument rather than
-ambient state:
+durable lifecycle in `@reprove/control-plane-workflow` has into a Run - four operations, one per
+window it bounds plus the two it needs to know which Run is whose, each composed over a `withOwner`
+transaction so the Owner is an argument rather than ambient state:
 
 ```text
 record(owner, run, workflowRunId)   writes the id where none is written yet
-schedule(owner, run)                status, claimableUntil and the recorded lifecycle
+schedule(owner, run)                status, both deadlines, and the recorded lifecycle
 expireUnclaimed(owner, run, id)     queued -> unscheduled, and no other transition
+terminateLostExecution(loss)        claimed | executing -> failed(worker_lost)
 ```
 
 **Every write is conditional on the writer being the lifecycle the Run records**, which is
@@ -400,9 +401,59 @@ is the state a lifecycle re-reads on each wake rather than trusting the timestam
 never claimed. The status predicate is what keeps that honest: ADR 0007 defines `unscheduled` as
 "never dispatched" and `CONTEXT.md` reserves Failure for a Run that began executing, so writing
 either over a claimed or executing Run would state something false about it. **An executing Run
-whose deadline passes is deliberately left alone** - `claimableUntil` bounds the unclaimed window
-and nothing else, and the liveness of a Run that is actually executing is ADR 0015's subject rather
-than this deadline's.
+whose `claimableUntil` passes is deliberately left alone** - that deadline bounds the unclaimed
+window and nothing else. What bounds a Run that is actually executing is the second window below.
+
+### The executing window ends a Run whose Worker stopped answering
+
+`terminateLostExecution` is [ADR 0015](../../docs/adr/0015-execution-ownership-and-worker-liveness.md)'s
+one conditional transition, and it is written **over exactly Acceptance's eligibility window**:
+
+```text
+update run
+   set status = 'failed', failure_reason = 'worker_lost',
+       failure_detail = { detector, observation, lostFrom }
+ where <the Result-eligibility window>   -- run/eligibility.ts, shared with Acceptance
+   and <this detector's evidence>
+```
+
+Sharing the window is the whole point. Acceptance and this transition are two conditional updates
+racing over one predicate, so **whichever wins closes the other path**: a Result arriving after a
+`worker_lost` transition is rejected `not_eligible` rather than reviving the Run, and this
+transition over a Run that has just accepted a Result writes nothing. A detector scoped more
+narrowly - to `executing` alone, say - would leave the guarantee holed, and reachably so: the
+window's `claimed` half is where a Run sits when a claim succeeded and the process died before
+anything recorded a pass. Nothing else in the system touches that state.
+
+It is **the whole window rather than terminality alone**, and `lostFrom` records which half a Run
+was abandoned on. It is written from the row's own pre-update `status`, inside `SET`, where a column
+reference is still the old value - which is what keeps this one conditional statement rather than a
+read and a write that could disagree.
+
+**The evidence is the only thing that varies between detectors.** ADR 0015 gives the transition
+three, and they differ because what they can show differs, not because the terminal write forks:
+
+```text
+hosted_watchdog   executionExpiresAt has passed, and the writer is the recorded lifecycle
+hosted_prompt     the caller holds the token of the execution that threw
+lease_expired     the watchdog's shape again, once a Lease has a transport to stop renewing
+```
+
+The watchdog reaches it through the port; the in-process detector reaches it through
+`createControlPlane(config).reportExecutionLost`, which is **the same function** rather than a
+second one beside it. It absorbs no Result, so Acceptance remains the only path by which a Result
+enters a Run, and it is not where a hosted Worker's *structured* Failure goes - that keeps its own
+specific reason, so `sandbox_teardown_incomplete` is never collapsed into `worker_lost`.
+
+**It decides; it does not reclaim.** The database write is the correctness boundary and cancelling
+a still-running pass is best-effort clean-up that follows a transition that won; cancelling first
+would make a resource operation load-bearing for correctness. The outcome carries `terminalized` for
+exactly that ordering. Phase 0 records no pass id, so there is nothing to cancel - which is fine,
+because a pass emerging afterwards cannot change a Run whose Acceptance has already closed.
+
+The transition, the shared predicate and `executionExpiresAt` are all **placement-neutral**: a
+self-hosted Worker's Lease renewal, when it has a transport, advances a column and needs no second
+liveness system.
 
 `ProcessedDelivery.endedRuns` is the other half of the same seam. It carries the id and the terminal
 status - `superseded` or `cancelled` - of every live Run the delivery ended, in the transaction that
@@ -651,10 +702,17 @@ Result, which the already-accepted case covers. A Worker-supplied idempotency ke
 and then dropped at the endpoint, because ADR 0006 says in the same sentence that it is "a
 convenience for network retry" and "must not" be what enforces this.
 
-The window is exported once, as `resultEligible()`, because
+The window lives once, in [`src/run/eligibility.ts`](src/run/eligibility.ts), because
 [ADR 0015](../../docs/adr/0015-execution-ownership-and-worker-liveness.md) requires it be "defined
 **once** and shared, never restated": Acceptance and the liveness termination to `failed(worker_lost)`
-(#56) are two conditional updates racing over exactly it, and whichever wins closes the other path.
+are two conditional updates racing over exactly it, and whichever wins closes the other path.
+
+It is **two functions rather than one**, and the split is the ADR read literally. The last line of
+its box - the execution's identity - is something only Acceptance holds: a Worker submits the token
+it was granted, while the watchdog's entire evidence is that nobody is answering. So
+`resultEligibleWindow()` is the shared half and `resultEligible()` is that plus the token conjunct,
+both in one module, with a test that renders them through the pinned dialect and compares. That is
+what makes "never restated" measured rather than remembered.
 
 Zero rows is ambiguous by construction, so the re-probe that follows exists **only to name it**, and
 its order is load-bearing:

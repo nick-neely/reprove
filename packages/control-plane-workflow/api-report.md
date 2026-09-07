@@ -294,14 +294,25 @@ export type LifecycleOutcome =
 {
     readonly kind: "unscheduled";
 }
+/** This lifecycle closed the executing window: nobody came back for the Run. */
+ | {
+    readonly kind: "worker_lost";
+    /** Which side of Acceptance's window it was abandoned on. */
+    readonly lostFrom: string;
+}
 /** The Run was ended by the control plane: superseded, cancelled, or terminal. */
  | {
     readonly kind: "ended";
     readonly status: string;
 }
 /**
- * The Run left the unclaimed window. What bounds it now is execution
- * liveness, which this loop does not yet own.
+ * The Run is claimed or executing and carries no execution deadline, so
+ * there is no second window to watch.
+ *
+ * A claim writes all six execution-ownership columns in one statement, so
+ * this is a state the schema cannot reach. It is reported rather than thrown
+ * on because a lifecycle's job is to schedule, not to assert: a Run in a
+ * shape nothing can produce is something to look at, not something to end.
  */
  | {
     readonly kind: "claimed";
