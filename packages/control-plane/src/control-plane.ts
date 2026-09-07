@@ -205,6 +205,14 @@ export interface ControlPlane {
    * `try`/`catch` around a hosted pass, which witnessed the throw and does not
    * wait out a deadline for it.
    *
+   * **Nothing in this repository calls it yet.** The `try`/`catch` belongs to
+   * the hosted pass, and there is no hosted pass until
+   * [#57](https://github.com/nick-neely/reprove/issues/57) composes one - so
+   * this is the entry point built and tested here, wired there. The watchdog is
+   * the detector actually running in Phase 0. Saying so is the point: an
+   * exported function with no caller reads like a live path, and this one is
+   * not one yet.
+   *
    * It is the same function `lifecycle.terminateLostExecution` is, for the
    * reason `acceptResult` is one function reached two ways. The detectors
    * differ because the evidence differs; the terminal write does not fork, and

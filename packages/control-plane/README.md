@@ -434,16 +434,22 @@ read and a write that could disagree.
 three, and they differ because what they can show differs, not because the terminal write forks:
 
 ```text
-hosted_watchdog   executionExpiresAt has passed, and the writer is the recorded lifecycle
-hosted_prompt     the caller holds the token of the execution that threw
-lease_expired     the watchdog's shape again, once a Lease has a transport to stop renewing
+hosted_watchdog   executionExpiresAt has passed, and the writer is the recorded lifecycle    running
+hosted_prompt     the caller holds the token of the execution that threw                     #57
+lease_expired     the watchdog's shape again, once a Lease has a transport to stop renewing  later
 ```
 
-The watchdog reaches it through the port; the in-process detector reaches it through
-`createControlPlane(config).reportExecutionLost`, which is **the same function** rather than a
-second one beside it. It absorbs no Result, so Acceptance remains the only path by which a Result
-enters a Run, and it is not where a hosted Worker's *structured* Failure goes - that keeps its own
-specific reason, so `sandbox_teardown_incomplete` is never collapsed into `worker_lost`.
+**Only the watchdog has a caller in this repository.** It reaches the transition through the port,
+from the lifecycle's liveness branch. The in-process detector's entry point is built and tested
+here - `createControlPlane(config).reportExecutionLost`, which is **the same function** rather than
+a second one beside it - but the `try`/`catch` that calls it belongs to a hosted pass, and there is
+no hosted pass until [#57](https://github.com/nick-neely/reprove/issues/57) composes one. It is an
+entry point waiting for its caller, not a live path. `lease_expired` is further out still: Phase 0
+has no self-hosted Worker and no renewal transport.
+
+The transition absorbs no Result, so Acceptance remains the only path by which a Result enters a
+Run, and it is not where a hosted Worker's *structured* Failure goes - that keeps its own specific
+reason, so `sandbox_teardown_incomplete` is never collapsed into `worker_lost`.
 
 **It decides; it does not reclaim.** The database write is the correctness boundary and cancelling
 a still-running pass is best-effort clean-up that follows a transition that won; cancelling first

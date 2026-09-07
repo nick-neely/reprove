@@ -216,10 +216,14 @@ export type RunFailureReason = (typeof RUN_FAILURE_REASONS)[number];
  * All three call the same transition on the same predicate. They differ because
  * the **evidence** differs; the terminal write does not fork.
  *
- * `lease_expired` is declared before it is reachable, deliberately. It is ADR
- * 0015's fixed vocabulary, and the property that makes self-hosted renewal "a
- * column write rather than a second liveness system" is easier to keep true
- * when the vocabulary it lands in already exists.
+ * **Only `hosted_watchdog` has a caller today.** `hosted_prompt`'s entry point
+ * exists and is tested, but the `try`/`catch` that uses it belongs to a hosted
+ * pass, which #57 composes; `lease_expired` waits on a self-hosted Worker and a
+ * renewal transport, neither of which Phase 0 has. Both are declared ahead of
+ * their callers deliberately - this is ADR 0015's fixed vocabulary, and the
+ * property that makes renewal "a column write rather than a second liveness
+ * system" is easier to keep true when the vocabulary it lands in already
+ * exists.
  */
 export const EXECUTION_LOST_DETECTORS = [
   "hosted_prompt",
