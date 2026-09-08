@@ -408,11 +408,29 @@ export const run = pgTable(
      * matches nothing and ends.
      *
      * The pass - one hosted Worker's attempt at the Run - is a different
-     * durable run and gets a column of its own when the hosted placement is
-     * composed (#57). Conflating the two cancels the schedule and leaves the
-     * Worker running.
+     * durable run and has the column beside this one. Conflating the two
+     * cancels the schedule and leaves the Worker running.
      */
     workflowRunId: text("workflow_run_id"),
+    /**
+     * The durable run executing this Run - ADR 0014's **pass**, which is one
+     * hosted Worker's attempt at it. Vercel Workflow's `runId` is qualified at
+     * the seam (`CONTEXT.md` naming rule 4), and the placement qualifies it
+     * again: `workflow_run_id` beside it is the lifecycle, and the two are
+     * cancelled by opposite mechanisms.
+     *
+     * Nullable, and written by `markExecuting` at the moment the claimed Run
+     * becomes `executing` - which is **after** `start()` has returned, because
+     * `start()` takes no caller-supplied id. A crash inside that window leaves
+     * a genuinely running pass that nothing records, which is ADR 0016's
+     * mandatory abandoned case: the Run stays `claimed` with this column null,
+     * `claimableUntil` never touches it, and execution liveness is what ends
+     * it. Null therefore means "no pass is recorded", never "no pass exists".
+     *
+     * Null for a self-hosted Run always: that placement's Worker is a daemon
+     * rather than a durable run, and there is nothing here to cancel.
+     */
+    hostedWorkflowRunId: text("hosted_workflow_run_id"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

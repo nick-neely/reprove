@@ -57,8 +57,40 @@ Permitted dependencies, which are also the CI matrix:
 | `worker` | `worker-core`, `protocol` | `@ai-sdk/*` directly |
 | `worker-hosted` | `worker-core`, `protocol`, `workflow` | `@ai-sdk/*` directly |
 | `control-plane` | `protocol`, `drizzle-orm`, `octokit`, `better-auth`, `zod` | `worker-core`, `adapters`, `sandbox-container`, `@ai-sdk/*`, **`workflow`** |
-| `control-plane-workflow` | `protocol`, `control-plane`, `workflow` | `worker-core`, `adapters`, `sandbox-container`, `@ai-sdk/*` |
+| `control-plane-workflow` | `protocol`, `control-plane`, `workflow`, `worker-hosted` (optional peer) | `adapters`, `sandbox-container`, `@ai-sdk/*` |
 | `apps/control-plane` | `@reprove/control-plane`, `@reprove/control-plane-workflow`, `@reprove/worker-hosted`, `next`, `react` | `drizzle-orm`, Postgres drivers, `octokit`, `better-auth`, `@ai-sdk/*`, `@reprove/{adapters,worker-core,sandbox-container}` |
+
+> **Amended by [#57](https://github.com/nick-neely/reprove/issues/57).** One edge in this table is
+> **optional**, and the table could not previously say so. `control-plane-workflow` may depend on
+> `worker-hosted`, because the hosted placement is composed by the package that defines every
+> workflow and configures every step (ADR 0014) and cannot be composed by the driver itself. It
+> imports it lazily and answers "no hosted placement composed" when it is absent.
+>
+> The edge is declared as an **optional peer** - `peerDependencies` plus
+> `peerDependenciesMeta.optional` - and that spelling is the whole of what makes the deployment table
+> below true. `optionalDependencies` would not: pnpm installs those by default, and only an install
+> passing `--omit=optional` skips them, so the self-hosted deployment would get the harness stack
+> anyway. pnpm's `autoInstallPeers` (on by default) installs missing **non-optional** peers only, so
+> an optional peer arrives exactly when the composition root names it. `tools/verify-workspace.mjs`
+> carries the edge as its own class: permitted to import, required to be an optional peer, rejected
+> in `dependencies` and in `optionalDependencies` alike, and permitted in `devDependencies` - which
+> no consumer installs - so the package can still type-check and test against it.
+>
+> The consequence is that the **composition root decides**, which is why `apps/control-plane` keeps
+> `@reprove/worker-hosted` in its row: it is the hosted one, and a hosted deployment that named the
+> driver nowhere would install none. A self-hosted composition root declares neither the driver nor
+> anything that requires it, and installs no harness code at all.
+>
+> The verifier gains a `harness-reach` rule that reads the whole `@reprove/*` graph rather than one
+> manifest at a time: `control-plane` may not reach `worker-core` at all, the app must declare
+> `worker-hosted`, and the app may reach `worker-core` **only** through it. Deleting that node and
+> re-running the search is what a self-hosted install does, so it is the `pnpm why` this ADR
+> promises, asked at review time.
+>
+> The boundary is unchanged and is now measured from both ends. The other end is the workflow
+> bundle: `tools/verify-workflow-build.mjs` asserts it carries none of the harness stack's package
+> names, inlined or imported, because the builder compiles that bundle with no `external` list and a
+> workflow body that reached the placement would carry its code without naming an import at all.
 
 > **Amended by [#48](https://github.com/nick-neely/reprove/issues/48).** `zod` joins the
 > `control-plane` row. It is not a new boundary so much as a boundary that was already decided
@@ -218,6 +250,18 @@ published package later is a breaking change for every consumer.
 **Hosted capability is optional composition, not a default.** A hosted-capable deployment composes
 `control-plane` + `worker-hosted`; the self-hosted composition omits `worker-hosted` entirely. If
 every control-plane app composed both, the split would buy nothing.
+
+> **Amended by [#57](https://github.com/nick-neely/reprove/issues/57).** The box above says
+> `worker-hosted` holds "Vercel Workflow steps"; it does not, and ADR 0014 is why. That ADR gives
+> `control-plane-workflow` *every* workflow and step definition, because a step's module graph is
+> fixed at build time and the layer that defines steps is the only layer that can configure them -
+> and this package composes no control plane and reads no environment, so it could configure none.
+> What it holds is the hosted **behaviour**: the placement that drives Worker core and reports
+> through injected ports, the dispatch ordering, and the Phase 0 fixture core. The workflow that
+> runs one is a `'use workflow'` function in `control-plane-workflow` whose single step reaches
+> this package through the optional edge above. The reason for the package is unchanged and is the
+> whole of the row: it is the only place `worker-core` may be reached from a control-plane
+> deployment.
 
 `@reprove/worker` exposes the single globally meaningful command:
 

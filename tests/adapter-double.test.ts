@@ -26,6 +26,19 @@ const filesUnder = (directory: string): string[] =>
     .filter((entry) => entry.isFile())
     .map((entry) => path.join(entry.parentPath, entry.name));
 
+/**
+ * A file `tsconfig.build.json` keeps out of `dist`, spelled the way
+ * `tools/verify-workspace.mjs` spells it: a test, and the support module a test
+ * imports.
+ *
+ * `.d` is optional in the middle because the assertions below read `dist`, and
+ * every build here inherits `declaration: true`: a test source that reached the
+ * build output arrives as `example.test.js` *and* `example.test.d.ts`, and a
+ * pattern anchored on `.ts` alone would report the second one as shipped
+ * output like any other module.
+ */
+const UNSHIPPED = /\.test(?:-support)?(?:\.d)?\.[cm]?tsx?$/u;
+
 const sourcesOf = (workspace: string): string[] =>
   filesUnder(path.join(ROOT, workspace, "src"));
 
@@ -48,8 +61,15 @@ describe("the test-only Codex Adapter double", () => {
     // Neither `@reprove/worker` nor `@reprove/worker-hosted` may name it, and
     // neither could resolve it if it did: it is not in `dist`, and the package
     // exports one subpath.
+    //
+    // Scoped to what each lifecycle **ships**, which is the property: an
+    // unshipped file may name a test-support module, because that is what a
+    // test is for and `tsconfig.build.json` keeps both out of `dist`. The next
+    // case is what holds that half, over the artifact rather than over a name.
     for (const workspace of ["packages/worker", "packages/worker-hosted"]) {
-      const sources = sourcesOf(workspace);
+      const sources = sourcesOf(workspace).filter(
+        (file) => !UNSHIPPED.test(file)
+      );
 
       // A lifecycle whose sources vanished would otherwise assert nothing.
       expect(sources.length).toBeGreaterThan(0);
@@ -58,6 +78,21 @@ describe("the test-only Codex Adapter double", () => {
 
         expect(source).not.toContain("test-support");
         expect(source).not.toContain("Double");
+      }
+    }
+  });
+
+  it("cannot arrive in either lifecycle's build output", () => {
+    // The other half of the case above, and the one that survives a test file
+    // being renamed: whatever a lifecycle's sources say, its `dist` carries no
+    // test and no test-support module at all.
+    for (const workspace of ["packages/worker", "packages/worker-hosted"]) {
+      const shipped = filesUnder(path.join(ROOT, workspace, "dist"));
+
+      expect(shipped.length).toBeGreaterThan(0);
+      expect(shipped.filter((file) => UNSHIPPED.test(file))).toStrictEqual([]);
+      for (const file of shipped) {
+        expect(readFileSync(file, "utf-8")).not.toContain("test-support");
       }
     }
   });
@@ -81,5 +116,37 @@ describe("the test-only Codex Adapter double", () => {
         file.endsWith("boundary.test-support.ts")
       )
     ).toHaveLength(1);
+  });
+
+  it("names an unshipped file in every spelling a build emits it as", () => {
+    // The `dist` assertions above are only as strong as this pattern, and one
+    // spelling is easy to miss: the builds set `declaration: true`, so a test
+    // source that reached the output arrives twice - once as JavaScript and
+    // once as `.d.ts` - and a pattern that matched only the first would let the
+    // declaration through as ordinary shipped output.
+    //
+    // The JavaScript half needs no spelling of its own: the two are emitted
+    // together, so matching the declaration is enough for the assertion to
+    // fail on a test that reached `dist`.
+    for (const unshipped of [
+      "packages/worker-core/src/boundary.test.ts",
+      "packages/worker-core/src/boundary.test-support.ts",
+      "packages/worker-core/dist/boundary.test.d.ts",
+      "packages/worker-core/dist/boundary.test-support.d.ts",
+    ]) {
+      expect(UNSHIPPED.test(unshipped)).toBeTruthy();
+    }
+
+    // And nothing else: `.test` has to be the whole segment before the
+    // extension, or a module whose name merely ends in it would be read as a
+    // test and excused from every assertion above.
+    for (const shipped of [
+      "packages/worker-core/src/boundary.ts",
+      "packages/worker-core/dist/boundary.d.ts",
+      "packages/worker-core/dist/latest.d.ts",
+      "packages/worker-core/dist/test.d.ts",
+    ]) {
+      expect(UNSHIPPED.test(shipped)).toBeFalsy();
+    }
   });
 });

@@ -70,6 +70,7 @@ export type {
   ExecutionLoss,
   ExecutionLossEvidence,
   ExecutionLossOutcome,
+  HostedExecution,
   RunLifecyclePort,
   RunSchedule,
 } from "./run/schedule.js";

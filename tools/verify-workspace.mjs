@@ -222,8 +222,38 @@ const WORKSPACES = {
   "packages/control-plane-workflow": {
     name: "@reprove/control-plane-workflow",
     published: true,
-    exports: DEFAULT_EXPORT,
+    // Two subpaths, because the optional peer below is a *type* edge as well as
+    // a module one. The hosted half declares its types over `worker-hosted`, so
+    // its declarations name a specifier a self-hosted install does not have -
+    // and a consumer type-checking the package it did install would fail on it
+    // before `hostedPlacement()` could answer `null`. The default subpath is
+    // what ADR 0010's self-hosted row installs and resolves with
+    // `control-plane` and `workflow` alone; `./hosted` is what the deployment
+    // that also installs the driver reaches for.
+    exports: {
+      ...DEFAULT_EXPORT,
+      "./hosted": { types: "./dist/hosted.d.ts", default: "./dist/hosted.js" },
+    },
     internal: ["@reprove/protocol", "@reprove/control-plane"],
+    // ADR 0010's deployment table as an edge. A hosted deployment composes
+    // `worker-hosted` and a self-hosted one omits it, so the package this one
+    // reaches it through must run either way: the import is lazy and its
+    // absence composes no hosted dispatch.
+    //
+    // An **optional peer** is the only field that says that in a manifest a
+    // consumer installs from. pnpm installs `optionalDependencies` by default -
+    // only `--omit=optional` skips them - so declaring it there would install
+    // the harness stack into every deployment. `autoInstallPeers` (on by
+    // default) installs missing *non-optional* peers only, so a peer marked
+    // optional in `peerDependenciesMeta` arrives exactly when the deployment
+    // that composes this package names it, and never otherwise. That is the
+    // property ADR 0010 exists to keep - "a control plane that dispatches only
+    // to self-hosted Workers installs no harness code at all".
+    //
+    // The same edge is a devDependency here as well, which a consumer never
+    // installs: this package type-checks against the driver and its own tests
+    // import it.
+    optionalInternal: ["@reprove/worker-hosted"],
     external: ["workflow"],
     // `@workflow/vitest` is the builder the package's own tests run its
     // workflows under. It is named here rather than in `external` because that
@@ -243,6 +273,13 @@ const WORKSPACES = {
   "apps/control-plane": {
     name: "@reprove/control-plane-app",
     published: false,
+    // This app is the **hosted** composition root, so it names the hosted
+    // driver: `control-plane-workflow` carries that edge as an optional peer,
+    // which pnpm does not auto-install, so a deployment that wants hosted
+    // dispatch is the thing that has to declare it. A self-hosted composition
+    // root declares neither the driver nor anything that requires it, and
+    // installs no harness code at all. `harness-reach` below holds both ends of
+    // that to more than a convention.
     internal: [
       "@reprove/control-plane",
       "@reprove/control-plane-workflow",
@@ -576,6 +613,170 @@ const productDependencyPatterns = () => [
   ),
 ];
 
+/**
+ * The `@reprove/*` edges a workspace may name at all: the required ones and the
+ * optional ones together.
+ *
+ * @param {object} spec The workspace's row in the matrix.
+ * @returns {string[]} Every permitted internal dependency.
+ */
+const permittedInternal = (spec) => [
+  ...spec.internal,
+  ...(spec.optionalInternal ?? []),
+];
+
+/**
+ * ADR 0010's load-bearing claim about the graph, as a reachability check:
+ * *"a control plane that dispatches only to self-hosted Workers installs no
+ * harness code at all"*, and *"'the control plane never touches harness
+ * credentials' becomes something an operator can verify with `pnpm why`"*.
+ *
+ * The row-by-row matrix above cannot state it, because it reads one manifest at
+ * a time: `control-plane` naming no harness package says nothing about what
+ * `control-plane-workflow` might name on its behalf. This reads the whole
+ * `@reprove/*` graph instead and asserts two things about it:
+ *
+ * ```text
+ * @reprove/control-plane        cannot reach worker-core at all
+ * apps/control-plane            declares worker-hosted, and reaches worker-core
+ *                               only through it
+ * ```
+ *
+ * The second is the one that makes the optional edge worth anything, and it has
+ * two halves. Deleting `worker-hosted` from the graph is exactly what a
+ * self-hosted deployment does to the install, so removing the node and
+ * re-running the search is the same question `pnpm why` answers, asked at
+ * review time. And the hosted composition root has to *name* the driver, or the
+ * optional peer above is nothing but an unmet expectation: pnpm auto-installs
+ * only non-optional peers, so a hosted deployment whose app declares nothing
+ * installs no driver and composes no hosted dispatch - a pruned install
+ * answering `not_composed` where the operator asked for hosted execution.
+ *
+ * **What it does not prove.** It is a statement about the *package graph*, not
+ * about the route bundles of the app in this repository - which is the hosted
+ * topology, and does reach the harness stack, because that is what a hosted
+ * deployment is for. The workflow bundle is held to the stronger property
+ * separately, by `tools/verify-workflow-build.mjs`.
+ */
+const HARNESS_REACH = {
+  harness: "@reprove/worker-core",
+  only: "@reprove/worker-hosted",
+  from: "apps/control-plane",
+  sealed: "packages/control-plane",
+};
+
+/**
+ * Every `@reprove/*` edge each workspace declares, by package name.
+ *
+ * @param {string} rootDir The repository root.
+ * @param {readonly string[]} workspaces The settled workspaces to read.
+ * @returns {Map<string, Set<string>>} The graph, keyed by package name.
+ */
+const internalGraph = (rootDir, workspaces) => {
+  const graph = new Map();
+  for (const workspace of workspaces) {
+    const spec = WORKSPACES[workspace];
+    let manifest;
+    try {
+      manifest = readJson(path.join(rootDir, workspace, "package.json"));
+    } catch {
+      // Unreadable manifests are reported by `checkWorkspaceSet`; this rule
+      // reports reachability and has nothing to add about a missing file.
+      continue;
+    }
+    graph.set(
+      spec.name,
+      new Set(
+        DEPENDENCY_FIELDS.flatMap((field) =>
+          Object.keys(manifest[field] ?? {})
+        ).filter((dependency) => dependency.startsWith("@reprove/"))
+      )
+    );
+  }
+  return graph;
+};
+
+/**
+ * Whether `to` is reachable from `from`, with `without` deleted from the graph.
+ *
+ * @param {Map<string, Set<string>>} graph The dependency graph.
+ * @param {string} from The package to search from.
+ * @param {string} to The package to search for.
+ * @param {string | null} without A package to remove first, or `null`.
+ * @returns {string[] | null} One path, or `null` where there is none.
+ */
+const pathBetween = (graph, from, to, without) => {
+  /** @type {[string, string[]][]} */
+  const frontier = [[from, [from]]];
+  const seen = new Set(without === null ? [] : [without]);
+  while (frontier.length > 0) {
+    const step = frontier.shift();
+    if (!step) {
+      break;
+    }
+    const [at, trail] = step;
+    if (at === to) {
+      return trail;
+    }
+    for (const next of graph.get(at) ?? []) {
+      if (!seen.has(next)) {
+        seen.add(next);
+        frontier.push([next, [...trail, next]]);
+      }
+    }
+  }
+  return null;
+};
+
+const checkHarnessReach = (rootDir, workspaces, violations) => {
+  const graph = internalGraph(rootDir, workspaces);
+  const add = (workspace, message) =>
+    violations.push({ workspace, rule: "harness-reach", message });
+
+  const sealed = WORKSPACES[HARNESS_REACH.sealed]?.name;
+  const app = WORKSPACES[HARNESS_REACH.from]?.name;
+  if (!(sealed && app)) {
+    add(
+      "<root>",
+      "the harness-reach rule names a workspace that is not settled."
+    );
+    return;
+  }
+
+  const fromControlPlane = pathBetween(
+    graph,
+    sealed,
+    HARNESS_REACH.harness,
+    null
+  );
+  if (fromControlPlane) {
+    add(
+      HARNESS_REACH.sealed,
+      `"${sealed}" reaches ${HARNESS_REACH.harness} through ${fromControlPlane.join(" -> ")}. ADR 0010: a control plane that dispatches only to self-hosted Workers installs no harness code at all.`
+    );
+  }
+
+  if (!graph.get(app)?.has(HARNESS_REACH.only)) {
+    add(
+      HARNESS_REACH.from,
+      `"${app}" declares no edge to ${HARNESS_REACH.only}, and it is the hosted composition root. "${WORKSPACES["packages/control-plane-workflow"].name}" carries that edge as an *optional* peer, which pnpm does not auto-install, so the deployment that wants hosted dispatch is what names the driver. Undeclared, this app installs none and every dispatch answers not_composed.`
+    );
+  }
+
+  const detour = pathBetween(
+    graph,
+    app,
+    HARNESS_REACH.harness,
+    HARNESS_REACH.only
+  );
+  if (detour) {
+    add(
+      HARNESS_REACH.from,
+      `"${app}" reaches ${HARNESS_REACH.harness} through ${detour.join(" -> ")}, which does not pass through ${HARNESS_REACH.only}. The hosted driver is the only edge the harness stack may arrive on, or the self-hosted deployment cannot omit it.`
+    );
+  }
+};
+
 // --- rules -------------------------------------------------------------------
 
 const checkGlobs = (globs, violations) => {
@@ -863,8 +1064,53 @@ const checkManifest = (workspace, spec, manifest, violations) => {
   checkTaskScripts(spec, manifest, add);
 };
 
+/**
+ * The fields an optional internal edge may be declared in.
+ *
+ * `peerDependencies` is where it is *stated*, and `checkOptionalInternal` below
+ * requires it there. `devDependencies` is permitted alongside because a
+ * consumer installs none of them, and the declaring package still has to
+ * resolve the edge to type-check and test against it.
+ */
+const OPTIONAL_EDGE_FIELDS = new Set(["peerDependencies", "devDependencies"]);
+
+/**
+ * That every optional internal edge is declared the one way that delivers it:
+ * a peer, marked optional.
+ *
+ * `checkDeclaredDependencies` reads the manifest field by field, so it can only
+ * reject an optional edge found in the wrong place. This asks the other
+ * question - whether the edge is declared as an optional peer at all - because
+ * an edge that appears nowhere but `devDependencies` is an edge no consumer can
+ * ever satisfy, and a peer without `peerDependenciesMeta.optional` is one pnpm
+ * auto-installs into every deployment.
+ *
+ * @param {object} spec The workspace's row in the matrix.
+ * @param {object} manifest The workspace's manifest.
+ * @param {(rule: string, message: string) => void} add Records a violation.
+ */
+const checkOptionalInternal = (spec, manifest, add) => {
+  for (const dependency of spec.optionalInternal ?? []) {
+    if (manifest.peerDependencies?.[dependency] === undefined) {
+      add(
+        "dependency-optionality",
+        `"${spec.name}" carries "${dependency}" as an optional edge in the ADR 0010 matrix, and declares it in no peerDependencies. That is the only field that both states the edge to a consumer and leaves the install to it.`
+      );
+      continue;
+    }
+    if (manifest.peerDependenciesMeta?.[dependency]?.optional !== true) {
+      add(
+        "dependency-optionality",
+        `peerDependencies declares "${dependency}" and peerDependenciesMeta does not mark it optional. pnpm's autoInstallPeers installs every missing non-optional peer, so without the mark the edge is installed into the deployment ADR 0010 says omits it.`
+      );
+    }
+  }
+};
+
 const checkDeclaredDependencies = (workspace, spec, manifest, violations) => {
   const add = (rule, message) => violations.push({ workspace, rule, message });
+
+  checkOptionalInternal(spec, manifest, add);
 
   for (const field of DEPENDENCY_FIELDS) {
     for (const [dependency, range] of Object.entries(manifest[field] ?? {})) {
@@ -878,11 +1124,34 @@ const checkDeclaredDependencies = (workspace, spec, manifest, violations) => {
         );
       }
       if (dependency.startsWith("@reprove/")) {
-        if (spec.internal.includes(dependency)) {
+        const optional = (spec.optionalInternal ?? []).includes(dependency);
+        if (spec.internal.includes(dependency) || optional) {
           if (!range.startsWith("workspace:")) {
             add(
               "dependency-protocol",
               `${field} declares "${dependency}": "${range}"; an internal edge must use the workspace protocol.`
+            );
+          }
+          // An optional edge that lands in any field a consumer installs from
+          // is installed by every consumer, which is the whole of what the
+          // matrix means by optional: ADR 0010's self-hosted deployment omits
+          // the package. `optionalDependencies` is not the escape - pnpm
+          // installs those by default and only `--omit=optional` skips them -
+          // so the field is `peerDependencies` marked optional in
+          // `peerDependenciesMeta`, which `autoInstallPeers` leaves alone.
+          // `devDependencies` is permitted beside it, because a consumer
+          // installs none of those and the package still has to type-check and
+          // test against the edge.
+          if (optional && !OPTIONAL_EDGE_FIELDS.has(field)) {
+            add(
+              "dependency-optionality",
+              `${field} declares "${dependency}", which the ADR 0010 matrix carries as an optional edge for "${spec.name}". It belongs in peerDependencies, marked optional in peerDependenciesMeta: every other field is installed by every consumer of this package - pnpm installs optionalDependencies unless the install passes --omit=optional - which puts it into the deployment the matrix says omits it.`
+            );
+          }
+          if (!optional && field === "optionalDependencies") {
+            add(
+              "dependency-optionality",
+              `optionalDependencies declares "${dependency}", which the ADR 0010 matrix carries as a required edge for "${spec.name}". An edge the package cannot run without must not be installable away.`
             );
           }
         } else {
@@ -920,7 +1189,12 @@ const checkInternalImport = (context, specifier, target, subpath) => {
     );
     return;
   }
-  if (!spec.internal.includes(target)) {
+  // An optional edge is importable exactly like a required one. What differs
+  // is the manifest field it is declared in, which `checkDeclaredDependencies`
+  // holds it to, and that the importer must survive its absence - a property of
+  // the code rather than of the specifier, so it is the importing package's
+  // tests that state it.
+  if (!permittedInternal(spec).includes(target)) {
     add(
       `${relative} imports "${specifier}", and the ADR 0010 matrix ${describeDenial(spec, target)}.`
     );
@@ -1090,7 +1364,10 @@ export const verifyWorkspace = ({ rootDir }) => {
   checkRootManifest(rootDir, violations);
   checkSupplyChainExceptions(rootDir, violations);
 
-  for (const workspace of checkWorkspaceSet(rootDir, violations)) {
+  const settled = checkWorkspaceSet(rootDir, violations);
+  checkHarnessReach(rootDir, settled, violations);
+
+  for (const workspace of settled) {
     const spec = WORKSPACES[workspace];
     let manifest;
     try {

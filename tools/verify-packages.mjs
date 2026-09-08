@@ -11,8 +11,9 @@
  * installed somewhere else.
  *
  * The fixture it installs into holds one consumer per package, each depending
- * on its own tarball alone; `consumerFixture` explains why that shape is what
- * the isolation claim rests on.
+ * on its own tarball alone, plus a second consumer for each package with an
+ * optional peer, installed without it; `consumerFixture` explains why that
+ * shape is what the isolation claim rests on.
  *
  * It owns no allowlist. Publishable workspaces are discovered from their own
  * manifests through tools/workspaces.mjs; ADR 0010's table stays in
@@ -275,6 +276,38 @@ export const consumerIdentifier = (specifier) =>
 export const consumerDirectory = (name) => name.replace(SCOPE_PREFIX, "");
 
 /**
+ * The directory the *self-hosted* consumer of a package occupies: the same
+ * package, installed with none of its optional peers beside it.
+ *
+ * @param {string} name A package name.
+ * @returns {string} A directory name unique across the publishable set.
+ */
+export const selfHostedDirectory = (name) =>
+  `${consumerDirectory(name)}-self-hosted`;
+
+/**
+ * What a consumer that omits a package's optional peers may import: the bare
+ * name, and nothing else.
+ *
+ * The rule is the deployment table (ADR 0010), read off the export map. An
+ * optional peer is a *type* edge as well as a module one - the declarations of
+ * the half that is written over the peer import its specifier, and a consumer
+ * type-checking with `skipLibCheck: false` follows every declaration its entry
+ * point reaches - so the surface that has to hold up without the peer installed
+ * is the one every deployment gets, which is the default subpath. A subpath is
+ * where a package puts what only the deployment with the peer reaches for.
+ *
+ * A package with an optional peer and no `"."` export offers that deployment no
+ * entry point at all; `checkConsumerFixture` refuses rather than silently
+ * generating a consumer that imports nothing and proves nothing.
+ *
+ * @param {{ name: string, exports?: Record<string, unknown> }} manifest A packed manifest.
+ * @returns {string[]} The bare name, or nothing where the package has no `"."`.
+ */
+export const selfHostedSubpaths = (manifest) =>
+  exportSubpaths(manifest).filter((specifier) => specifier === manifest.name);
+
+/**
  * The tsconfig every consumer type-checks under. The repository base config
  * skips lib checking for build speed; here the opposite is the point, that the
  * shipped declarations themselves compile for a consumer rather than merely the
@@ -298,11 +331,98 @@ const CONSUMER_TSCONFIG = {
 };
 
 /**
+ * The optional peers a consumer of this package installs, of the ones this
+ * repository publishes.
+ *
+ * An optional peer is *declared*, and a consumer that composes the deployment
+ * it exists for installs it - `apps/control-plane` declares
+ * `@reprove/worker-hosted` for exactly that reason (ADR 0010). That is the
+ * consumer modelled by the fixture package that imports every subpath: the
+ * subpath whose declarations name the peer is the one the deployment with the
+ * peer reaches for, and checking it without the peer would fail on an edge the
+ * package does declare.
+ *
+ * The *other* deployment is modelled too, and separately, by
+ * `selfHostedSubpaths` above: a package with an optional peer also gets a
+ * consumer that installs it alone. Both are needed, because the two halves of
+ * an optional peer are one claim each - the deployment that has it can use the
+ * whole surface, and the deployment that does not can still install, type-check
+ * and import the package.
+ *
+ * External optional peers stay out. `drizzle-orm` declaring an optional peer on
+ * `next` does not put Next.js in a consumer's graph, and installing it would
+ * describe an install nobody performs.
+ *
+ * @param {Record<string, unknown>} manifest The packed manifest.
+ * @param {Map<string, string>} packed Every packed package, name to tarball.
+ * @returns {string[]} The peers to install beside the package.
+ */
+const packedOptionalPeers = (manifest, packed) => {
+  const meta = manifest.peerDependenciesMeta ?? {};
+  return Object.keys(manifest.peerDependencies ?? {})
+    .filter((peer) => meta[peer]?.optional === true && packed.has(peer))
+    .toSorted(byText);
+};
+
+/**
+ * Every consumer package the fixture holds, which is one per package plus one
+ * per package that declares an optional peer this repository publishes.
+ *
+ * The second is the deployment the peer is optional *for*: the same tarball,
+ * installed with nothing beside it, importing the surface every deployment
+ * gets. It is a separate package rather than a second file in the first,
+ * because what it proves is what its own `node_modules` does *not* contain.
+ *
+ * @param {{ tarball: string, manifest: Record<string, unknown> }[]} packages The
+ *   packed packages, in the order the fixture lays them out.
+ * @returns {{
+ *   name: string, tarball: string, directory: string,
+ *   peers: string[], subpaths: string[], selfHosted: boolean,
+ * }[]} Each consumer, the package it installs, and what it imports.
+ */
+export const fixtureConsumers = (packages) => {
+  const packed = new Map(
+    packages.map((entry) => [entry.manifest.name, entry.tarball])
+  );
+
+  return packages.flatMap((entry) => {
+    const { manifest, tarball } = entry;
+    const { name } = manifest;
+    const peers = packedOptionalPeers(manifest, packed);
+    const composed = {
+      directory: consumerDirectory(name),
+      name,
+      peers,
+      selfHosted: false,
+      subpaths: exportSubpaths(manifest),
+      tarball,
+    };
+    if (peers.length === 0) {
+      return [composed];
+    }
+    return [
+      composed,
+      {
+        directory: selfHostedDirectory(name),
+        name,
+        peers: [],
+        selfHosted: true,
+        subpaths: selfHostedSubpaths(manifest),
+        tarball,
+      },
+    ];
+  });
+};
+
+/**
  * The whole consumer fixture as text, generated from the packed manifests so no
  * list of packages, subpaths or dependencies is maintained by hand.
  *
  * **One consumer package per published package**, each depending on its own
- * tarball and nothing else. A single consumer depending on all eight would not
+ * tarball and nothing else, and one more for each package that declares an
+ * optional peer, installed with the peer left out - which is the deployment the
+ * peer is optional *for*, and the one whose declaration graph has to resolve
+ * without it (`fixtureConsumers`). A single consumer depending on all eight would not
  * prove isolation, however the store is laid out: Node and TypeScript resolve
  * by walking *up* from the importing file, so a package installed beside the
  * others reaches them through the fixture root's own `node_modules` and an
@@ -356,16 +476,23 @@ export const consumerFixture = ({
     ),
   };
 
-  const consumers = ordered.flatMap((entry) => {
-    const { name } = entry.manifest;
-    const dir = `consumers/${consumerDirectory(name)}`;
-    const subpaths = exportSubpaths(entry.manifest);
+  const packed = new Map(
+    ordered.map((entry) => [entry.manifest.name, entry.tarball])
+  );
+
+  const consumer = ({ directory, name, tarball, peers, subpaths }) => {
+    const dir = `consumers/${directory}`;
     const manifest = {
-      name: `consumer-${consumerDirectory(name)}`,
+      name: `consumer-${directory}`,
       version: "0.0.0",
       private: true,
       type: "module",
-      dependencies: { [name]: `file:${entry.tarball}` },
+      dependencies: {
+        [name]: `file:${tarball}`,
+        ...Object.fromEntries(
+          peers.map((peer) => [peer, `file:${packed.get(peer)}`])
+        ),
+      },
       devDependencies: { "@types/node": nodeTypes },
     };
 
@@ -410,7 +537,9 @@ export const consumerFixture = ({
         ].join("\n"),
       ],
     ];
-  });
+  };
+
+  const consumers = fixtureConsumers(ordered).flatMap(consumer);
 
   const root = {
     name: "reprove-consumer-fixture",
@@ -814,6 +943,21 @@ const checkConsumerFixture = (rootDir, packages, fixtureDir, violations) => {
     return;
   }
 
+  // A consumer with nothing to import proves nothing, and this is the one shape
+  // that can produce one: a package whose optional peer says a deployment may
+  // omit it, and whose export map then gives that deployment no entry point.
+  const unreachable = fixtureConsumers(packages).filter(
+    (consumer) => consumer.selfHosted && consumer.subpaths.length === 0
+  );
+  for (const consumer of unreachable) {
+    add(
+      `"${consumer.name}" declares an optional peer but exports no ".", so the deployment that omits the peer has no entry point and this step cannot model it. Export the surface that resolves without the peer as ".", and put what needs the peer on a subpath.`
+    );
+  }
+  if (unreachable.length > 0) {
+    return;
+  }
+
   for (const [file, contents] of Object.entries(
     consumerFixture({
       packages,
@@ -848,19 +992,25 @@ const checkConsumerFixture = (rootDir, packages, fixtureDir, violations) => {
     return;
   }
 
-  for (const packed of packages) {
-    const { name } = packed.manifest;
-    const consumerDir = path.join(
-      fixtureDir,
-      "consumers",
-      consumerDirectory(name)
-    );
+  const workspaceOf = new Map(
+    packages.map((packed) => [packed.manifest.name, packed.source.workspace])
+  );
+
+  for (const consumer of fixtureConsumers(packages)) {
+    const { name, directory, selfHosted } = consumer;
+    const consumerDir = path.join(fixtureDir, "consumers", directory);
     const blame = (message) =>
       violations.push({
-        workspace: packed.source.workspace,
+        workspace: workspaceOf.get(name),
         rule: "consumer-fixture",
         message,
       });
+    // Which install failed is the whole of what the two consumers say apart,
+    // so the message names it rather than leaving a reader to infer it from a
+    // directory in tsc's output.
+    const install = selfHosted
+      ? "a consumer that installed it without its optional peers"
+      : "a consumer that installed only it";
 
     const checked = run(localBin(rootDir, "tsc"), [
       "--noEmit",
@@ -871,13 +1021,13 @@ const checkConsumerFixture = (rootDir, packages, fixtureDir, violations) => {
       blame(
         checked === ABSENT
           ? notInstalled("tsc")
-          : `"${name}" did not type-check in a consumer that installed only it; tsc's own output is above. An unresolved import here is a dependency the package uses but does not declare.`
+          : `"${name}" did not type-check in ${install}; tsc's own output is above. An unresolved import here is a dependency the package uses but does not declare${selfHosted ? ", or a declaration on the default entry point that names an optional peer - which a deployment that omits the peer cannot resolve" : ""}.`
       );
     }
 
     if (run(process.execPath, ["smoke.mjs"], { cwd: consumerDir }) !== RAN) {
       blame(
-        `"${name}" did not import at runtime in a consumer that installed only it; node's own output is above. An unresolved specifier here is a dependency the package uses but does not declare.`
+        `"${name}" did not import at runtime in ${install}; node's own output is above. An unresolved specifier here is a dependency the package uses but does not declare${selfHosted ? ", or a static import of an optional peer where the lazy one the package documents was intended" : ""}.`
       );
     }
   }

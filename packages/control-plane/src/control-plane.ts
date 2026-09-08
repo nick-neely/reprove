@@ -35,6 +35,7 @@ import type { KickProcessing } from "./github/webhook.js";
 import { createGitHubWebhookHandler } from "./github/webhook.js";
 import {
   expireUnclaimed,
+  markExecuting,
   readSchedule,
   recordLifecycle,
   terminateLostExecution,
@@ -42,6 +43,7 @@ import {
 import type {
   ExecutionLoss,
   ExecutionLossOutcome,
+  HostedExecution,
   RunLifecyclePort,
 } from "./run/schedule.js";
 import type {
@@ -152,6 +154,29 @@ export interface ControlPlane {
    */
   readonly claimRun: (request: HostedClaimRequest) => Promise<ClaimOutcome>;
   /**
+   * The other half of hosted dispatch: the claimed Run becomes `executing` and
+   * records the **pass** running it.
+   *
+   * It is here beside `claimRun` rather than on `RunLifecyclePort`, which stays
+   * at four operations. The port is what a lifecycle may do to a Run, and every
+   * write on it is conditional on the caller being the recorded lifecycle; this
+   * is the execution's own write, guarded by the token the claim handed it, and
+   * putting it there would make the lifecycle's ownership rule untrue of one of
+   * its members.
+   *
+   * The pass id is recorded **after** `start()` returns, because `start()`
+   * accepts no caller-supplied run id (ADR 0014). A crash in that window leaves
+   * a running pass no column names, which is
+   * [ADR 0016](../../../docs/adr/0016-phase-0-acceptance-scenario.md)'s
+   * mandatory abandoned case and is closed by execution liveness rather than
+   * here.
+   *
+   * @returns Whether the transition was written. `false` means the Run moved -
+   *   it ended, or the token is no longer its current one - and the caller's
+   *   pass is running against a Run that has closed.
+   */
+  readonly markExecuting: (execution: HostedExecution) => Promise<boolean>;
+  /**
    * `POST /api/worker/runs/:runId/result`, which is the stale-result boundary
    * ([ADR 0006](../../../docs/adr/0006-worker-protocol.md)).
    *
@@ -205,13 +230,12 @@ export interface ControlPlane {
    * `try`/`catch` around a hosted pass, which witnessed the throw and does not
    * wait out a deadline for it.
    *
-   * **Nothing in this repository calls it yet.** The `try`/`catch` belongs to
-   * the hosted pass, and there is no hosted pass until
-   * [#57](https://github.com/nick-neely/reprove/issues/57) composes one - so
-   * this is the entry point built and tested here, wired there. The watchdog is
-   * the detector actually running in Phase 0. Saying so is the point: an
-   * exported function with no caller reads like a live path, and this one is
-   * not one yet.
+   * **Its caller is the hosted pass**, which `@reprove/worker-hosted` composes
+   * and `@reprove/control-plane-workflow` drives (#57): the placement wraps
+   * Worker core, and a Pass that throws past it reaches this with the token
+   * that execution held. Both of ADR 0015's Phase 0 detectors therefore have
+   * callers; `lease_expired` is the one still waiting for a self-hosted Worker
+   * and a renewal transport.
    *
    * It is the same function `lifecycle.terminateLostExecution` is, for the
    * reason `acceptResult` is one function reached two ways. The detectors
@@ -393,6 +417,10 @@ export const createControlPlane = async (
         })
       ),
     handleWorkerResult,
+    markExecuting: (execution) =>
+      runtime.withOwner(execution.ownerId, (tx) =>
+        markExecuting(tx, execution)
+      ),
     acceptResult: accept,
     processDelivery,
     lifecycle,

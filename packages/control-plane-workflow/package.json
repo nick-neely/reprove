@@ -12,6 +12,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./hosted": {
+      "types": "./dist/hosted.d.ts",
+      "default": "./dist/hosted.js"
     }
   },
   "publishConfig": {
@@ -28,10 +32,19 @@
     "workflow": "catalog:workflow"
   },
   "devDependencies": {
+    "@reprove/worker-hosted": "workspace:*",
     "@types/node": "catalog:",
     "@workflow/vitest": "catalog:workflow",
     "typescript": "catalog:",
     "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "@reprove/worker-hosted": "workspace:*"
+  },
+  "peerDependenciesMeta": {
+    "@reprove/worker-hosted": {
+      "optional": true
+    }
   },
   "engines": {
     "node": ">=22"

@@ -17,11 +17,14 @@ import {
   consumerFixture,
   consumerIdentifier,
   exportSubpaths,
+  fixtureConsumers,
   forbiddenUpstreamTypes,
   installedResolutions,
   patternExportKeys,
   pinExternals,
   resolvableDependencies,
+  selfHostedDirectory,
+  selfHostedSubpaths,
 } from "./verify-packages.mjs";
 import { publishableWorkspaces } from "./workspaces.mjs";
 
@@ -462,6 +465,82 @@ describe(consumerFixture, () => {
     expect(protocol.devDependencies).toStrictEqual({ "@types/node": "26.4.0" });
   });
 
+  it("installs a declared optional peer this repository publishes", () => {
+    // An optional peer is declared, and the shipped declarations name its
+    // types, so the consumer modelled here is the deployment that composes it -
+    // `apps/control-plane` declaring `@reprove/worker-hosted` is that
+    // deployment. Leaving it out would fail on an edge the package does
+    // declare.
+    const fixtureWithPeer = consumerFixture({
+      packages: [
+        ...packages,
+        {
+          tarball: "/tmp/pack/reprove-driver-0.0.0.tgz",
+          manifest: {
+            name: "@reprove/driver",
+            exports: { ".": { types: "./dist/index.d.ts" } },
+          },
+        },
+        {
+          tarball: "/tmp/pack/reprove-orchestration-0.0.0.tgz",
+          manifest: {
+            name: "@reprove/orchestration",
+            exports: { ".": { types: "./dist/index.d.ts" } },
+            peerDependencies: { "@reprove/driver": "0.0.0", next: "^16" },
+            peerDependenciesMeta: {
+              "@reprove/driver": { optional: true },
+              next: { optional: true },
+            },
+          },
+        },
+      ],
+      externals: { zod: "4.5.4" },
+      resolutions: [],
+      nodeTypes: "26.4.0",
+    });
+    // SAFETY: the string under test is one this function just generated.
+    const orchestration = JSON.parse(
+      fixtureWithPeer["consumers/orchestration/package.json"] ?? ""
+    ) as Manifest;
+
+    // The packed peer is installed; the external one is not, because a consumer
+    // of this package does not install Next.js on its behalf.
+    expect(orchestration.dependencies).toStrictEqual({
+      "@reprove/driver": "file:/tmp/pack/reprove-driver-0.0.0.tgz",
+      "@reprove/orchestration":
+        "file:/tmp/pack/reprove-orchestration-0.0.0.tgz",
+    });
+
+    // And the other deployment the same peer describes: the package installed
+    // alone, importing the surface every deployment gets. This is the consumer
+    // that fails when a declaration on the default entry point names the peer,
+    // which resolves nowhere here.
+    // SAFETY: the string under test is one this function just generated.
+    const selfHosted = JSON.parse(
+      fixtureWithPeer["consumers/orchestration-self-hosted/package.json"] ?? ""
+    ) as Manifest;
+
+    expect(selfHosted.dependencies).toStrictEqual({
+      "@reprove/orchestration":
+        "file:/tmp/pack/reprove-orchestration-0.0.0.tgz",
+    });
+    expect(
+      fixtureWithPeer["consumers/orchestration-self-hosted/consumer.ts"]
+    ).toContain('import * as orchestration from "@reprove/orchestration";');
+    expect(
+      fixtureWithPeer["consumers/orchestration-self-hosted/tsconfig.json"]
+    ).toContain('"skipLibCheck": false');
+  });
+
+  it("gives a package with no optional peer no second consumer", () => {
+    // The self-hosted consumer models an optional peer's other half. A package
+    // that declares none has no other half, and a fixture directory that proves
+    // the same thing twice is a slower fixture and nothing else.
+    expect(
+      fixture["consumers/worker-core-self-hosted/package.json"]
+    ).toBeUndefined();
+  });
+
   it("leaves the fixture root with no dependencies of its own", () => {
     // SAFETY: the string under test is one this function just generated.
     const root = JSON.parse(fixture["package.json"] ?? "") as Manifest;
@@ -553,6 +632,93 @@ describe(consumerDirectory, () => {
     expect(consumerDirectory("@reprove/control-plane-workflow")).toBe(
       "control-plane-workflow"
     );
+  });
+});
+
+describe(selfHostedDirectory, () => {
+  it("sits beside the composed consumer rather than replacing it", () => {
+    expect(selfHostedDirectory("@reprove/control-plane-workflow")).toBe(
+      "control-plane-workflow-self-hosted"
+    );
+  });
+});
+
+describe(selfHostedSubpaths, () => {
+  it("is the bare name, which is what every deployment installs", () => {
+    // ADR 0010's deployment table, read off the export map: the surface that
+    // has to resolve without the optional peer is the default subpath, and a
+    // subpath is where a package puts what only the deployment with the peer
+    // reaches for.
+    expect(
+      selfHostedSubpaths({
+        name: "@reprove/control-plane-workflow",
+        exports: {
+          ".": { types: "./dist/index.d.ts" },
+          "./hosted": { types: "./dist/hosted.d.ts" },
+        },
+      })
+    ).toStrictEqual(["@reprove/control-plane-workflow"]);
+  });
+
+  it("is empty where the package offers no bare name at all", () => {
+    // Reported rather than generated: a consumer with nothing to import would
+    // type-check and smoke-import clean while proving nothing.
+    expect(
+      selfHostedSubpaths({
+        name: "@reprove/protocol",
+        exports: { "./v1": { types: "./dist/v1/index.d.ts" } },
+      })
+    ).toStrictEqual([]);
+  });
+});
+
+describe(fixtureConsumers, () => {
+  it("models both halves of an optional peer and one half of nothing else", () => {
+    const consumers = fixtureConsumers([
+      {
+        tarball: "/tmp/pack/reprove-driver-0.0.0.tgz",
+        manifest: {
+          name: "@reprove/driver",
+          exports: { ".": { types: "./dist/index.d.ts" } },
+        },
+      },
+      {
+        tarball: "/tmp/pack/reprove-orchestration-0.0.0.tgz",
+        manifest: {
+          name: "@reprove/orchestration",
+          exports: {
+            ".": { types: "./dist/index.d.ts" },
+            "./hosted": { types: "./dist/hosted.d.ts" },
+          },
+          peerDependencies: { "@reprove/driver": "0.0.0" },
+          peerDependenciesMeta: { "@reprove/driver": { optional: true } },
+        },
+      },
+    ]);
+
+    expect(
+      consumers.map(({ directory, peers, subpaths }) => ({
+        directory,
+        peers,
+        subpaths,
+      }))
+    ).toStrictEqual([
+      {
+        directory: "driver",
+        peers: [],
+        subpaths: ["@reprove/driver"],
+      },
+      {
+        directory: "orchestration",
+        peers: ["@reprove/driver"],
+        subpaths: ["@reprove/orchestration", "@reprove/orchestration/hosted"],
+      },
+      {
+        directory: "orchestration-self-hosted",
+        peers: [],
+        subpaths: ["@reprove/orchestration"],
+      },
+    ]);
   });
 });
 

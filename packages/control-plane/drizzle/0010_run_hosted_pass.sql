@@ -1,0 +1,1 @@
+ALTER TABLE "run" ADD COLUMN "hosted_workflow_run_id" text;

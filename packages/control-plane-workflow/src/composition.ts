@@ -23,6 +23,10 @@
  * twice in one process and composes twice. That costs a second pool and a
  * second pass over the boot checks, and nothing else: neither composition
  * holds state the other needs.
+ *
+ * The **hosted** composition is `placement.ts`'s, and is a module of its own so
+ * that nothing a self-hosted deployment reaches names the optional peer: this
+ * module is on the default entry point, and every route reaches it.
  */
 import type { ControlPlane, DeliveryToProcess } from "@reprove/control-plane";
 import {

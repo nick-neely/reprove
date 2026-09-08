@@ -435,27 +435,78 @@ three, and they differ because what they can show differs, not because the termi
 
 ```text
 hosted_watchdog   executionExpiresAt has passed, and the writer is the recorded lifecycle    running
-hosted_prompt     the caller holds the token of the execution that threw                     #57
+hosted_prompt     the caller holds the token of the execution that threw                     running
 lease_expired     the watchdog's shape again, once a Lease has a transport to stop renewing  later
 ```
 
-**Only the watchdog has a caller in this repository.** It reaches the transition through the port,
-from the lifecycle's liveness branch. The in-process detector's entry point is built and tested
-here - `createControlPlane(config).reportExecutionLost`, which is **the same function** rather than
-a second one beside it - but the `try`/`catch` that calls it belongs to a hosted pass, and there is
-no hosted pass until [#57](https://github.com/nick-neely/reprove/issues/57) composes one. It is an
-entry point waiting for its caller, not a live path. `lease_expired` is further out still: Phase 0
+**Both Phase 0 detectors have callers.** The watchdog reaches the transition through the port, from
+the lifecycle's liveness branch. The in-process detector reaches
+`createControlPlane(config).reportExecutionLost`, which is **the same function** rather than a
+second one beside it, from the `try`/`catch` `@reprove/worker-hosted` wraps a hosted pass in
+([#57](https://github.com/nick-neely/reprove/issues/57)): a Pass that throws past Worker core ends
+the Run in milliseconds, with the token that execution held as its evidence, rather than waiting out
+a ten-minute deadline for a crash Reprove witnessed. `lease_expired` is further out still: Phase 0
 has no self-hosted Worker and no renewal transport.
 
+**The observation is what the detector saw**, and the watchdog's is no longer always
+`deadline_elapsed`. Once the deadline has passed *and* the Run records a pass, the lifecycle reads
+that durable run's state and names what it found - `workflow_failed`, `workflow_cancelled`,
+`workflow_terminal_without_result`, or `workflow_state_unavailable` where nothing could be read at
+all. With no pass recorded, or one still running past the deadline, `deadline_elapsed` is the
+honest answer and stays.
+
 The transition absorbs no Result, so Acceptance remains the only path by which a Result enters a
-Run, and it is not where a hosted Worker's *structured* Failure goes - that keeps its own specific
-reason, so `sandbox_teardown_incomplete` is never collapsed into `worker_lost`.
+Run, and it is not where a hosted Worker's *structured* Failure is meant to go - ADR 0015 has that
+keep its own specific reason, so `sandbox_teardown_incomplete` is never collapsed into
+`worker_lost`.
+
+**That is the intent, and not yet the behaviour.** The transition ADR 0015 names for it,
+`reportHostedFailure`, does not exist, and `RUN_FAILURE_REASONS` has no member it could write. So a
+hosted pass that ends in a structured Failure or a Refusal writes nothing: it returns the reason to
+its caller, its durable run ends `completed`, and the watchdog closes the Run `failed(worker_lost)`
+with `workflow_terminal_without_result` at the execution deadline, discarding the reason, phase and
+detail. It is unreachable in the shipped Phase 0 composition, whose Worker core produces a fixture
+Result or throws, and it becomes reachable with the first real core. Closing it means a transition
+plus the reason codes it writes, which is a change of its own rather than a line in the watchdog, and
+is tracked as [#83](https://github.com/nick-neely/reprove/issues/83).
 
 **It decides; it does not reclaim.** The database write is the correctness boundary and cancelling
 a still-running pass is best-effort clean-up that follows a transition that won; cancelling first
 would make a resource operation load-bearing for correctness. The outcome carries `terminalized` for
-exactly that ordering. Phase 0 records no pass id, so there is nothing to cancel - which is fine,
-because a pass emerging afterwards cannot change a Run whose Acceptance has already closed.
+exactly that ordering, and `@reprove/control-plane-workflow`'s lifecycle is what acts on it: it
+cancels the pass the Run records, after its own transition and only because that transition won.
+Where no pass id was recorded there is nothing to cancel - which is fine, because a pass emerging
+afterwards cannot change a Run whose Acceptance has already closed.
+
+### `markExecuting` takes a claimed Run into executing, and records its pass
+
+```text
+update run
+   set status = 'executing', hosted_workflow_run_id = <the pass>
+ where <the Result-eligibility window>   -- shared with Acceptance, again
+   and status = 'claimed'
+   and execution_token_hash = sha256(<the presented token>)
+```
+
+`createControlPlane(config).markExecuting` sits beside `claimRun` rather than on the lifecycle port,
+which stays at four operations: every write on that port is conditional on the caller being the
+lifecycle the Run records, and this one is the **execution's** own write, guarded by the token the
+claim handed it. That is the same guard the in-process detector carries, for the same reason - the
+caller is the execution, not the schedule watching it.
+
+The window is Acceptance's again, so a Run that ended while dispatch was starting a pass is left
+alone rather than revived; `status = 'claimed'` is the transition's own half, which keeps a second
+write from replacing the pass id the lifecycle would cancel from. `hosted_workflow_run_id` is the
+Run's second durable-run column and is never the lifecycle's: [ADR
+0014](../../docs/adr/0014-workflow-orchestration-seam.md) keeps the two apart because they are
+cancelled by opposite mechanisms, and conflating them cancels the schedule and leaves the Worker
+running.
+
+**It cannot be atomic with `start()`**, which accepts no caller-supplied run id. A crash between the
+two leaves a pass that is genuinely running and a Run that records none - `claimed`, with a live
+token and a null pass id - which is [ADR 0016](../../docs/adr/0016-phase-0-acceptance-scenario.md)'s
+mandatory abandoned case and is exactly why the terminal transition above covers the whole
+eligibility window.
 
 The transition, the shared predicate and `executionExpiresAt` are all **placement-neutral**: a
 self-hosted Worker's Lease renewal, when it has a transport, advances a column and needs no second

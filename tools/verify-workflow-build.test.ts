@@ -2,15 +2,17 @@ import { describe, expect, it } from "vitest";
 
 import {
   foreignSpecifiers,
+  harnessNames,
   missingFromTrace,
 } from "./verify-workflow-build.mjs";
 
 /**
- * The two decisions the real-builder gate makes about text it did not produce:
- * which specifiers a workflow bundle is allowed to reach for, and what an
- * output trace has to carry. Both are pure, and both are the part of the gate
- * that can be wrong while the expensive build around them still passes - a
- * pattern that matched nothing would report every bundle clean.
+ * The three decisions the real-builder gate makes about text it did not
+ * produce: which specifiers a workflow bundle is allowed to reach for, whether
+ * it carries the harness stack, and what an output trace has to carry. All
+ * three are pure, and all three are the part of the gate that can be wrong
+ * while the expensive build around them still passes - a pattern that matched
+ * nothing would report every bundle clean.
  */
 describe(foreignSpecifiers, () => {
   it("accepts a bundle that reaches only the workflow runtime", () => {
@@ -60,6 +62,35 @@ describe(foreignSpecifiers, () => {
     expect(foreignSpecifiers(bundle)).toStrictEqual([
       "@reprove/control-plane",
       "pg",
+    ]);
+  });
+});
+
+describe(harnessNames, () => {
+  it("accepts a bundle that carries none of it", () => {
+    const bundle = [
+      'import { defineWorkflow } from "workflow";',
+      'const plane = await import("@reprove/control-plane");',
+    ].join("\n");
+
+    expect(harnessNames(bundle)).toStrictEqual([]);
+  });
+
+  it("finds the harness stack inlined, with no import to give it away", () => {
+    // The builder compiles the workflow bundle with no `external` list, so a
+    // workflow body that reached the hosted placement carries its code rather
+    // than an import of it. What survives inlining is each package naming
+    // itself, which is what this reads.
+    const bundle = [
+      'var packageName = "@reprove/worker-core";',
+      'var composedFrom = { adapters: "@reprove/adapters" };',
+      'var harness = createHarness2({ id: "@ai-sdk/harness-codex" });',
+    ].join("\n");
+
+    expect(harnessNames(bundle)).toStrictEqual([
+      "@reprove/worker-core",
+      "@reprove/adapters",
+      "@ai-sdk/",
     ]);
   });
 });
