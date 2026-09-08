@@ -212,7 +212,7 @@ export type RunCancellationReason = (typeof RUN_CANCELLATION_REASONS)[number];
  * Phase 0 composition, whose Worker core is `@reprove/worker-hosted`'s fixture
  * and produces a Result or throws; the first real core makes it reachable, and
  * closing it means a transition and the reason codes it writes, which is a
- * change of its own.
+ * change of its own ([#83](https://github.com/nick-neely/reprove/issues/83)).
  */
 export const RUN_FAILURE_REASONS = ["worker_lost"] as const;
 export type RunFailureReason = (typeof RUN_FAILURE_REASONS)[number];

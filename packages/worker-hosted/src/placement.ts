@@ -58,7 +58,8 @@
  * transition that would carry them and no such transition exists yet:
  * `RUN_FAILURE_REASONS` has the single member `worker_lost`, so there is no
  * reason code for a Worker-reported Failure to land in, and giving it one is
- * its own change rather than this composition's. **It is unreachable in the
+ * its own change rather than this composition's - [#83](https://github.com/nick-neely/reprove/issues/83) is where
+ * that change is received. **It is unreachable in the
  * shipped Phase 0 composition** - `createPhase0WorkerCore` composes the fixture
  * Result or throws, and can produce neither outcome - and it becomes reachable
  * with the first real Worker core. `spine.test.ts` in

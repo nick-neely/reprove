@@ -614,9 +614,10 @@ export type LifecycleOutcome =
  * none of the reason, phase or detail the pass returned. Reading the return
  * value would not fix it - there would still be no failure reason to write
  * (`RUN_FAILURE_REASONS` has one member) - so it is recorded here as a gap
- * rather than patched at the watchdog. It is unreachable in the shipped Phase 0
- * composition, whose Worker core is a fixture that produces a Result or throws,
- * and `spine.test.ts` pins it.
+ * rather than patched at the watchdog, and [#83](https://github.com/nick-neely/reprove/issues/83) is where it is
+ * received. It is unreachable in the shipped Phase 0 composition, whose Worker
+ * core is a fixture that produces a Result or throws, and `spine.test.ts` pins
+ * it.
  *
  * An unrecognized status maps to `workflow_state_unavailable` rather than
  * throwing: the World's status vocabulary belongs to a dependency, and a

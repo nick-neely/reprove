@@ -467,7 +467,8 @@ its caller, its durable run ends `completed`, and the watchdog closes the Run `f
 with `workflow_terminal_without_result` at the execution deadline, discarding the reason, phase and
 detail. It is unreachable in the shipped Phase 0 composition, whose Worker core produces a fixture
 Result or throws, and it becomes reachable with the first real core. Closing it means a transition
-plus the reason codes it writes, which is a change of its own rather than a line in the watchdog.
+plus the reason codes it writes, which is a change of its own rather than a line in the watchdog, and
+is tracked as [#83](https://github.com/nick-neely/reprove/issues/83).
 
 **It decides; it does not reclaim.** The database write is the correctness boundary and cancelling
 a still-running pass is best-effort clean-up that follows a transition that won; cancelling first
