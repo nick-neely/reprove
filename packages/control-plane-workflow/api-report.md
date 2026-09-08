@@ -43,22 +43,32 @@ import type { HostedPlacement } from "@reprove/worker-hosted";
  * the workspace it is running in.
  *
  * @param load The import to attempt.
+ * @param specifier What `load` imports, which is what its failure has to name
+ *   for the package to count as absent. Defaults to the hosted driver; a test
+ *   passing a loader of its own is the only caller that names another.
  * @returns The hosted composition, or `null` where the package is not installed.
- * @throws {Error} Whatever the module threw, when it is installed and broken. A
+ * @throws {Error} Whatever the module threw, when it is installed and broken -
+ *   including a resolution failure that names anything but `specifier`. A
  *   package that is present and fails to load is a deployment defect, and
  *   answering `null` would report it as a self-hosted deployment.
  */
 export declare const composeHostedPlacement: (load: () => Promise<{
     readonly hostedPlacement: HostedPlacement;
-}>) => Promise<HostedPlacement | null>;
+}>, specifier?: string) => Promise<HostedPlacement | null>;
 /**
  * The hosted composition this process holds, resolved on first use.
  *
  * Memoized like the control plane above, and for the weaker of the two reasons:
  * the module registry already caches the import, so this saves the repeated
- * `try` rather than repeated work.
+ * `try` rather than repeated work. A composition that **throws** - the driver
+ * installed and broken - is cleared for the same reason `controlPlane()` clears
+ * its own, and with the same care about which attempt is cleared: a deployment
+ * being repaired must not need a redeploy to clear a poisoned module, and
+ * clearing unconditionally would let a caller awaiting the failed promise
+ * discard a later caller's healthy one.
  *
  * @returns The hosted composition, or `null` in a self-hosted deployment.
+ * @throws {Error} Whatever the driver threw, when it is installed and broken.
  */
 export declare const hostedPlacement: () => Promise<HostedPlacement | null>;
 /**
@@ -196,17 +206,54 @@ export declare const configFromEnvironment: (env: Environment, options: Composit
  * ([#58](https://github.com/nick-neely/reprove/issues/58)) and the tests call;
  * saying so is the point, because an exported function with no caller reads
  * like a live path.
+ *
+ * **What this deliberately does not claim.** `not_composed` is a statement
+ * about *this deployment* and not about the Run: nothing was claimed, nothing
+ * was started, and the Run is left exactly as claimable as it was, for whatever
+ * placement it belongs to. It is not a failure and is not retried - a
+ * self-hosted control plane declining to execute a hosted pass is ADR 0010's
+ * deployment table working - so a caller that treated it as one would put an
+ * alert behind a correct configuration. And it decides nothing about the
+ * dispatch it does perform: the order, the window between `start()` and the
+ * write, and every outcome name below are `@reprove/worker-hosted`'s.
  */
-import type { HostedDispatchOptions, HostedDispatchOutcome } from "@reprove/worker-hosted";
+import type { ControlPlane } from "@reprove/control-plane";
+import type { HostedDispatchOptions, HostedDispatchOutcome, HostedPlacement } from "@reprove/worker-hosted";
 import type { HostedNotComposed } from "./pass.js";
 /** How one hosted dispatch ended, or that this deployment composes none. */
 export type DispatchOutcome = HostedDispatchOutcome | HostedNotComposed;
 /**
- * Claims a Run for the hosted placement and starts its pass.
+ * The two compositions one dispatch reaches, as an argument.
  *
- * The ordering is `@reprove/worker-hosted`'s, deliberately: it is the fact ADR
- * 0016 reasons about, and it belongs beside the placement it orders rather than
- * being restated by each composition that drives one.
+ * The control plane is narrowed to the two statements dispatch uses, so what
+ * this depends on is legible and a double is the same shape the deployment
+ * passes rather than a weaker one.
+ */
+interface HostedComposition {
+    readonly controlPlane: () => Promise<Pick<ControlPlane, "claimRun" | "markExecuting">>;
+    readonly hostedPlacement: () => Promise<HostedPlacement | null>;
+}
+/**
+ * Claims a Run through a given composition and starts its pass, in the order
+ * the module header above sets out and for the reasons it gives.
+ *
+ * Exported for this module's own test, which drives it over doubles rather than
+ * over the composed deployment, for the same reason `composeHostedPlacement`
+ * takes its loader: the branch worth testing is the one where **no** hosted
+ * placement is composed, and no test can uninstall a package from the workspace
+ * it is running in. What the composed path does is `spine.test.ts`'s subject,
+ * against the real World and the real control plane.
+ *
+ * @param composition The control plane and the hosted placement to dispatch
+ *   through.
+ * @param ownerId The Owner the Run belongs to.
+ * @param runId The Run to dispatch.
+ * @param options ADR 0016's test-only injection point, forwarded unchanged.
+ * @returns What the dispatch concluded, or that no hosted placement is composed.
+ */
+export declare const dispatchThrough: (composition: HostedComposition, ownerId: number, runId: string, options: HostedDispatchOptions) => Promise<DispatchOutcome>;
+/**
+ * Claims a Run for this deployment's hosted placement and starts its pass.
  *
  * @param ownerId The Owner the Run belongs to.
  * @param runId The Run to dispatch. Hosted dispatch always names its Run,
@@ -217,6 +264,7 @@ export type DispatchOutcome = HostedDispatchOutcome | HostedNotComposed;
  * @returns What the dispatch concluded, or that no hosted placement is composed.
  */
 export declare const dispatchHostedPass: (ownerId: number, runId: string, options?: HostedDispatchOptions) => Promise<DispatchOutcome>;
+export {};
 ```
 
 ## dist/index.d.ts
@@ -458,6 +506,10 @@ export interface LifecycleSignal {
  * status and is why this is not simply a string: a World that answered nothing
  * has told the watchdog nothing about the pass, and the observation set has a
  * member for exactly that.
+ *
+ * Unexported, like the step that produces it: it crosses no package boundary,
+ * and `observationFor` below - the only other thing that names it - is not on
+ * the entry point either.
  */
 interface PassDisposition {
     readonly status: string | null;
@@ -543,6 +595,13 @@ export type LifecycleOutcome =
  * throwing: the World's status vocabulary belongs to a dependency, and a
  * lifecycle's job is to schedule rather than to assert. Saying "its state could
  * not be read" about a status this loop does not understand is true.
+ *
+ * **Exported for `lifecycle.test.ts` beside it, and for nothing else.** The
+ * package's entry point does not re-export it: it takes a type this module
+ * keeps to itself, and the mapping is the loop's own business rather than
+ * something a consumer composes with. The module-level export is what lets the
+ * one part of the liveness branch that can be enumerated exhaustively be
+ * enumerated without a World and a database.
  *
  * @param pass What the pass's durable run said, or `null` where the Run records
  *   no pass at all.
