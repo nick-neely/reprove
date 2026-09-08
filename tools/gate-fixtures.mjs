@@ -76,6 +76,19 @@ export const INSTALLATION_ID = 42;
 export const OWNER_ID = 1001;
 export const REPOSITORY_ID = 3001;
 export const REPOSITORY_FULL_NAME = "acme/reprove";
+/**
+ * The spine's pull request. Every other walkthrough takes one of its own,
+ * because `run_one_live_per_pull_request` is a partial unique index over
+ * `queued`, `claimed` and `executing`: two live Runs for one pull request is
+ * exactly what it refuses, so a scenario that needs several live Runs at once
+ * needs several pull requests.
+ *
+ * The head sha is shared across them on purpose. `run_one_automatic_per_head`
+ * is scoped by pull request number as well as by head, so two pull requests at
+ * one head are two Runs - and a second delivery at the **same** pull request
+ * and the same head is the `duplicate_head` no-op, which is a walkthrough of
+ * its own.
+ */
 export const PULL_REQUEST = 7;
 export const HEAD_SHA = "b".repeat(40);
 export const BASE_SHA = "a".repeat(40);
@@ -303,6 +316,9 @@ export const buildFromClean = () => {
  *   The headers, lower-cased by Node's own parser.
  */
 
+/** `GET /repos/{owner}/{repo}/pulls/{number}`, as the client spells it. */
+const PULLS_PATH = /\/pulls\/(?<number>\d+)$/u;
+
 /**
  * GitHub, on loopback. The App JWT, the installation-token exchange, the
  * request line and the response parsing all execute for real inside the built
@@ -331,9 +347,15 @@ export const startCannedGitHub = async () => {
         });
         return;
       }
-      if (method === "GET" && url.endsWith(`/pulls/${PULL_REQUEST}`)) {
+      // Any pull request number, because each walkthrough takes one of its
+      // own. The number is echoed from the request line rather than fixed, so
+      // canonical state answers for the pull request that was actually asked
+      // about - a server that answered `7` to every request would let a Run be
+      // created against a head nobody fetched.
+      const pull = PULLS_PATH.exec(url);
+      if (method === "GET" && pull?.groups?.number) {
         answer(200, {
-          number: PULL_REQUEST,
+          number: Number(pull.groups.number),
           state: "open",
           draft: false,
           head: { sha: HEAD_SHA, repo: { id: REPOSITORY_ID } },
@@ -510,24 +532,45 @@ export const bearerToken = (request) => {
 };
 
 /**
+ * The `x-hub-signature-256` GitHub would send over exactly these bytes.
+ *
+ * Exported so a walkthrough can sign bytes of its own - a body that is not a
+ * pull request payload, or one whose signature is valid over different bytes
+ * than the ones on the wire.
+ *
+ * @param {Buffer} body The exact bytes that go on the wire.
+ * @returns {string} The header value.
+ */
+export const signatureOver = (body) =>
+  `sha256=${createHmac("sha256", WEBHOOK_SECRET).update(body).digest("hex")}`;
+
+/**
  * One `pull_request` delivery, signed the way GitHub signs one: an HMAC over
  * the exact bytes that go on the wire.
  *
+ * Every field a walkthrough varies is a parameter, because the scenario needs
+ * several Runs at once and each needs a pull request of its own - and because
+ * the `duplicate_head` no-op is the same pull request at the same head under a
+ * **different** delivery GUID, which is a distinction only a caller can make.
+ *
+ * @param {{pullRequestNumber?: number, deliveryGuid?: string, action?: string}}
+ *   [delivery] What this delivery says. Defaults to the spine's.
  * @returns {{body: Buffer, headers: Record<string, string>}} The bytes and the
  *   headers that carry them.
  */
-export const signedDelivery = () => {
+export const signedDelivery = (delivery = {}) => {
+  const pullRequestNumber = delivery.pullRequestNumber ?? PULL_REQUEST;
   const body = Buffer.from(
     JSON.stringify({
-      action: "opened",
-      number: PULL_REQUEST,
+      action: delivery.action ?? "opened",
+      number: pullRequestNumber,
       installation: { id: INSTALLATION_ID },
       repository: {
         id: REPOSITORY_ID,
         full_name: REPOSITORY_FULL_NAME,
         owner: { id: OWNER_ID, login: "acme", type: "Organization" },
       },
-      pull_request: { number: PULL_REQUEST, head: { sha: HEAD_SHA } },
+      pull_request: { number: pullRequestNumber, head: { sha: HEAD_SHA } },
     })
   );
   return {
@@ -535,8 +578,8 @@ export const signedDelivery = () => {
     headers: {
       "content-type": "application/json",
       "x-github-event": "pull_request",
-      "x-github-delivery": "real-builder-gate",
-      "x-hub-signature-256": `sha256=${createHmac("sha256", WEBHOOK_SECRET).update(body).digest("hex")}`,
+      "x-github-delivery": delivery.deliveryGuid ?? "real-builder-gate",
+      "x-hub-signature-256": signatureOver(body),
     },
   };
 };
@@ -547,10 +590,13 @@ export const signedDelivery = () => {
  *
  * @param {string} githubUrl Where the canned GitHub listens.
  * @param {string} key The App's private key, PEM-encoded.
+ * @param {Readonly<Record<string, string>>} [extra] Further variables the
+ *   deployment sets. The acceptance scenario names the two Run-window
+ *   durations here, which is the only reason this parameter exists.
  * @returns {{origin: string, log: () => string, stop: () => Promise<void>}} Where
  *   it serves, what it has said, and how to stop it and everything it forked.
  */
-export const startBuiltApp = (githubUrl, key) => {
+export const startBuiltApp = (githubUrl, key, extra = {}) => {
   const origin = `http://127.0.0.1:${PORT}`;
   const server = spawn(nextBin(), ["start", "-p", String(PORT)], {
     cwd: APP,
@@ -566,6 +612,7 @@ export const startBuiltApp = (githubUrl, key) => {
       WORKFLOW_TARGET_WORLD: "@workflow/world-postgres",
       WORKFLOW_POSTGRES_URL: adminUrl(DATABASE),
       WORKFLOW_LOCAL_BASE_URL: origin,
+      ...extra,
     },
     stdio: ["ignore", "pipe", "pipe"],
     // Its own process group, so the signals below reach the render workers
@@ -631,6 +678,37 @@ export const startBuiltApp = (githubUrl, key) => {
  * forgot. There is nothing to run in parallel with a deadline.
  */
 /* oxlint-disable no-await-in-loop */
+
+/**
+ * Polls until a probe has an answer, or the deadline passes.
+ *
+ * One implementation, because every wait in the gate is the same shape and the
+ * alternative is the one this exists to forbid: sleeping for a guessed interval
+ * and then asserting. A `sleep(n)` that is long enough on a developer's machine
+ * is a flake on a loaded runner and a slow gate everywhere, and it reports a
+ * wrong answer rather than a late one.
+ *
+ * @template T
+ * @param {() => T | null | Promise<T | null>} probe What to read. `null` means
+ *   "not yet"; anything else is the answer.
+ * @param {{timeoutMs: number, describe: string, intervalMs?: number}} options
+ *   The deadline, and what to say if it passes.
+ * @returns {Promise<T>} The first answer.
+ * @throws {Error} Naming what never happened, and the deadline it had.
+ */
+export const until = async (probe, options) => {
+  const deadline = Date.now() + options.timeoutMs;
+  for (;;) {
+    const answer = await probe();
+    if (answer !== null) {
+      return answer;
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(`${options.describe} within ${options.timeoutMs}ms`);
+    }
+    await sleep(options.intervalMs ?? POLL_INTERVAL_MS);
+  }
+};
 
 /**
  * Waits for the built application to answer at all.
