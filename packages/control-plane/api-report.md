@@ -316,13 +316,12 @@ export interface ControlPlane {
      * `try`/`catch` around a hosted pass, which witnessed the throw and does not
      * wait out a deadline for it.
      *
-     * **Nothing in this repository calls it yet.** The `try`/`catch` belongs to
-     * the hosted pass, and there is no hosted pass until
-     * [#57](https://github.com/nick-neely/reprove/issues/57) composes one - so
-     * this is the entry point built and tested here, wired there. The watchdog is
-     * the detector actually running in Phase 0. Saying so is the point: an
-     * exported function with no caller reads like a live path, and this one is
-     * not one yet.
+     * **Its caller is the hosted pass**, which `@reprove/worker-hosted` composes
+     * and `@reprove/control-plane-workflow` drives (#57): the placement wraps
+     * Worker core, and a Pass that throws past it reaches this with the token
+     * that execution held. Both of ADR 0015's Phase 0 detectors therefore have
+     * callers; `lease_expired` is the one still waiting for a self-hosted Worker
+     * and a renewal transport.
      *
      * It is the same function `lifecycle.terminateLostExecution` is, for the
      * reason `acceptResult` is one function reached two ways. The detectors
@@ -1440,14 +1439,14 @@ export type RunFailureReason = (typeof RUN_FAILURE_REASONS)[number];
  * All three call the same transition on the same predicate. They differ because
  * the **evidence** differs; the terminal write does not fork.
  *
- * **Only `hosted_watchdog` has a caller today.** `hosted_prompt`'s entry point
- * exists and is tested, but the `try`/`catch` that uses it belongs to a hosted
- * pass, which #57 composes; `lease_expired` waits on a self-hosted Worker and a
- * renewal transport, neither of which Phase 0 has. Both are declared ahead of
- * their callers deliberately - this is ADR 0015's fixed vocabulary, and the
- * property that makes renewal "a column write rather than a second liveness
- * system" is easier to keep true when the vocabulary it lands in already
- * exists.
+ * **Two of the three have callers.** `hosted_watchdog` is the lifecycle's
+ * liveness branch, and `hosted_prompt` is the `try`/`catch` around the hosted
+ * pass, which `@reprove/worker-hosted` composes (#57). `lease_expired` waits on
+ * a self-hosted Worker and a renewal transport, neither of which Phase 0 has;
+ * it is declared ahead of its caller deliberately, because this is ADR 0015's
+ * fixed vocabulary and the property that makes renewal "a column write rather
+ * than a second liveness system" is easier to keep true when the vocabulary it
+ * lands in already exists.
  */
 export declare const EXECUTION_LOST_DETECTORS: readonly ["hosted_prompt", "hosted_watchdog", "lease_expired"];
 export type ExecutionLostDetector = (typeof EXECUTION_LOST_DETECTORS)[number];
@@ -1463,10 +1462,17 @@ export type ExecutionLostDetector = (typeof EXECUTION_LOST_DETECTORS)[number];
  * deadline_elapsed                  nothing usable arrived by executionExpiresAt
  * ```
  *
- * Only `uncaught_throw` and `deadline_elapsed` are reachable in Phase 0. The
- * other four describe a **pass's** durable run, which arrives with the hosted
- * placement (#57); they are declared here because they are ADR 0015's fixed set
- * and inventing code paths to reach them early would prove nothing.
+ * All six are reachable. `uncaught_throw` is the in-process detector's, and the
+ * other five are the watchdog's: with no pass recorded, or one still running
+ * past the Run's deadline, it can say only `deadline_elapsed`, and where a pass
+ * id is recorded it reads that durable run's state and names what it found. The
+ * four `workflow_*` members arrived with their reader in the hosted placement
+ * (#57); they were declared ahead of it because they are ADR 0015's fixed set.
+ *
+ * **`workflow_state_unavailable` is one answer for every way reading can
+ * fail** - a World that is down, a run id it has never heard of, a status this
+ * codebase does not recognize. Each of those tells the watchdog nothing about
+ * what the pass did, which is exactly what the name says.
  */
 export declare const EXECUTION_LOST_OBSERVATIONS: readonly ["uncaught_throw", "workflow_failed", "workflow_cancelled", "workflow_terminal_without_result", "workflow_state_unavailable", "deadline_elapsed"];
 export type ExecutionLostObservation = (typeof EXECUTION_LOST_OBSERVATIONS)[number];

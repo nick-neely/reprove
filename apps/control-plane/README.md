@@ -4,6 +4,8 @@ The thin Next.js composition shell for the control plane. It is **a deployable a
 
 It owns route wiring and deployment configuration, and nothing else. Even the environment is read elsewhere: [ADR 0014](../../docs/adr/0014-workflow-orchestration-seam.md) gives all step configuration to `@reprove/control-plane-workflow`, because a step compiles into a bundle whose module graph is fixed at build time and so cannot be configured by the route that composed the deployment. Control-plane substance lives in `@reprove/control-plane`, and every workflow and step definition in `@reprove/control-plane-workflow`. The dependency matrix in `tools/verify-workspace.mjs` enforces that: this app cannot import a Postgres driver, Octokit or Better Auth, so it cannot accumulate control-plane logic.
 
+**It names two packages, not three.** `@reprove/worker-hosted` is an optional edge of `@reprove/control-plane-workflow`, imported lazily by the composition that drives a hosted pass ([#57](https://github.com/nick-neely/reprove/issues/57)), and this app declares it nowhere: naming it here would install the harness stack into every deployment, including the self-hosted one ADR 0010 says omits it. `tools/verify-workspace.mjs` asserts the consequence over the whole package graph - the only path from this app to `@reprove/worker-core` runs through that driver, so removing it removes the harness stack.
+
 ## Routes
 
 | Route | What it is |
