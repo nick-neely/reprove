@@ -5,14 +5,14 @@
  *
  * Neither needs a database or a durable runtime. What the pass *does* is
  * `spine.test.ts`'s subject, against the real World and the real control plane,
- * and how `dispatchHostedPass` wires one is `hosted.test.ts`'s.
+ * and how `dispatchHostedPass` wires one is `dispatch.test.ts`'s.
  */
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { composeHostedPlacement } from "./composition.js";
+import { composeHostedPlacement } from "./placement.js";
 
 const DRIVER = "@reprove/worker-hosted";
 
@@ -88,7 +88,7 @@ describe("the hosted composition seam", () => {
 
   it("sets ADR 0016's injection point in no shipped module of this package", () => {
     // The impurity ADR 0016 accepted is one *option*, and this is what holds it
-    // to that: `hosted.ts` declares the parameter and forwards it unchanged,
+    // to that: `dispatch.ts` declares the parameter and forwards it unchanged,
     // because the scenario has to reach the window through the shipped
     // ordering, and nothing this package ships ever assigns it. A test and the
     // gate that drives the scenario are the only callers that may.
@@ -105,6 +105,6 @@ describe("the hosted composition seam", () => {
     expect(assigning).toStrictEqual([]);
     // And the scan is looking at the right thing: the module that takes the
     // option and hands it on is one of the files it read.
-    expect(shipped).toContain("hosted.ts");
+    expect(shipped).toContain("dispatch.ts");
   });
 });

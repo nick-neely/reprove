@@ -31,46 +31,12 @@
  * twice in one process and composes twice. That costs a second pool and a
  * second pass over the boot checks, and nothing else: neither composition
  * holds state the other needs.
+ *
+ * The **hosted** composition is `placement.ts`'s, and is a module of its own so
+ * that nothing a self-hosted deployment reaches names the optional peer: this
+ * module is on the default entry point, and every route reaches it.
  */
 import type { ControlPlane } from "@reprove/control-plane";
-import type { HostedPlacement } from "@reprove/worker-hosted";
-/**
- * Loads the hosted composition, or concludes that this deployment has none.
- *
- * Exported for the composition seam's own test, which drives it over a loader
- * rather than over the real module: the property under test is that an absent
- * package composes no hosted dispatch, and no test can uninstall a package from
- * the workspace it is running in.
- *
- * @param load The import to attempt.
- * @param specifier What `load` imports, which is what its failure has to name
- *   for the package to count as absent. Defaults to the hosted driver; a test
- *   passing a loader of its own is the only caller that names another.
- * @returns The hosted composition, or `null` where the package is not installed.
- * @throws {Error} Whatever the module threw, when it is installed and broken -
- *   including a resolution failure that names anything but `specifier`. A
- *   package that is present and fails to load is a deployment defect, and
- *   answering `null` would report it as a self-hosted deployment.
- */
-export declare const composeHostedPlacement: (load: () => Promise<{
-    readonly hostedPlacement: HostedPlacement;
-}>, specifier?: string) => Promise<HostedPlacement | null>;
-/**
- * The hosted composition this process holds, resolved on first use.
- *
- * Memoized like the control plane above, and for the weaker of the two reasons:
- * the module registry already caches the import, so this saves the repeated
- * `try` rather than repeated work. A composition that **throws** - the driver
- * installed and broken - is cleared for the same reason `controlPlane()` clears
- * its own, and with the same care about which attempt is cleared: a deployment
- * being repaired must not need a redeploy to clear a poisoned module, and
- * clearing unconditionally would let a caller awaiting the failed promise
- * discard a later caller's healthy one.
- *
- * @returns The hosted composition, or `null` in a self-hosted deployment.
- * @throws {Error} Whatever the driver threw, when it is installed and broken.
- */
-export declare const hostedPlacement: () => Promise<HostedPlacement | null>;
 /**
  * The composed control plane, built on first use from the environment.
  *
@@ -82,93 +48,7 @@ export declare const hostedPlacement: () => Promise<HostedPlacement | null>;
 export declare const controlPlane: () => Promise<ControlPlane>;
 ```
 
-## dist/environment.d.ts
-
-```ts
-/**
- * The deployment's configuration, read from the environment - here and nowhere
- * else in Reprove's library code.
- *
- * [ADR 0014](../../../docs/adr/0014-workflow-orchestration-seam.md) puts every
- * step definition and **all step configuration** in this package, for a reason
- * that is a fact about the build rather than a preference: a `'use step'`
- * function compiles into a bundle whose module graph is fixed at build time, and
- * whether that bundle shares a module instance with the route that composed the
- * deployment is builder-dependent - the same under Turbopack, different under
- * `@workflow/vitest`. A step can therefore neither rely on being configured by
- * its caller nor assume it must not read the environment. It resolves its own
- * configuration, and this is where it resolves it from.
- *
- * That is also what lets `@reprove/control-plane` read no environment variable
- * at all, literally rather than nearly (ADR 0010 as amended): every value below
- * is parsed here and passed to `createControlPlane()` explicitly.
- *
- * The parse is a pure function of an environment object so a test can hand it
- * one. Absent values pass through as empty strings rather than being refused
- * here: `createControlPlane()` already names the missing field in the error it
- * throws, and a second refusal in front of it would be a second spelling of the
- * same rule.
- */
-import type { ControlPlaneConfig, KickProcessing, Phase0RunProfile } from "@reprove/control-plane";
-/**
- * The variables a deployment sets. Named once, so the app's README, the build
- * gate and this parser cannot drift on a spelling.
- */
-export declare const ENVIRONMENT: {
-    /** The **pooled** endpoint, as the restricted runtime role. */
-    readonly databaseUrl: "REPROVE_DATABASE_URL";
-    /** The webhook secret the App was registered with. */
-    readonly webhookSecret: "REPROVE_GITHUB_WEBHOOK_SECRET";
-    /** GitHub's numeric App id, which is the App JWT's issuer. */
-    readonly appId: "REPROVE_GITHUB_APP_ID";
-    /**
-     * The App's PEM private key. A PEM carries newlines, which a `.env` file and
-     * most secret stores do not, so the escaped form `\n` is accepted too; a real
-     * PEM passes through unchanged, because it contains no backslash.
-     */
-    readonly privateKey: "REPROVE_GITHUB_PRIVATE_KEY";
-    /**
-     * Optional. GitHub's REST root, for a GitHub Enterprise Server deployment or
-     * a build gate standing a canned GitHub up on loopback. Unset means
-     * `https://api.github.com`.
-     *
-     * It must be `https:`, or `http:` on loopback (`127.0.0.1`, `localhost`,
-     * `::1`): every request under it carries an App credential, so
-     * `createControlPlane()` refuses a cleartext root off the machine rather than
-     * sending a token to it.
-     */
-    readonly githubApiUrl: "REPROVE_GITHUB_API_URL";
-};
-/** An environment, as `process.env` is shaped. */
-export type Environment = Readonly<Record<string, string | undefined>>;
-/** What the deployment passes by name rather than through the environment. */
-export interface CompositionOptions {
-    /**
-     * ADR 0013's injected profile. Passed by name on purpose: a harness or a
-     * model read from an environment variable would be a Phase 0 fixture quietly
-     * becoming product selection policy.
-     */
-    readonly runProfile: Phase0RunProfile;
-    /** What the webhook hands a committed delivery to. */
-    readonly kick?: KickProcessing;
-    /**
-     * Where an idle connection failure is reported. Defaults to the process's
-     * standard error, which is the only log sink a server process has; a test
-     * passes something quieter.
-     */
-    readonly onConnectionError?: (error: Error) => void;
-}
-/**
- * Parses the deployment's configuration.
- *
- * @param env The environment to read, usually `process.env`.
- * @param options What the deployment passes by name.
- * @returns What `createControlPlane()` is composed over.
- */
-export declare const configFromEnvironment: (env: Environment, options: CompositionOptions) => ControlPlaneConfig;
-```
-
-## dist/hosted.d.ts
+## dist/dispatch.d.ts
 
 ```ts
 /**
@@ -267,6 +147,137 @@ export declare const dispatchHostedPass: (ownerId: number, runId: string, option
 export {};
 ```
 
+## dist/environment.d.ts
+
+```ts
+/**
+ * The deployment's configuration, read from the environment - here and nowhere
+ * else in Reprove's library code.
+ *
+ * [ADR 0014](../../../docs/adr/0014-workflow-orchestration-seam.md) puts every
+ * step definition and **all step configuration** in this package, for a reason
+ * that is a fact about the build rather than a preference: a `'use step'`
+ * function compiles into a bundle whose module graph is fixed at build time, and
+ * whether that bundle shares a module instance with the route that composed the
+ * deployment is builder-dependent - the same under Turbopack, different under
+ * `@workflow/vitest`. A step can therefore neither rely on being configured by
+ * its caller nor assume it must not read the environment. It resolves its own
+ * configuration, and this is where it resolves it from.
+ *
+ * That is also what lets `@reprove/control-plane` read no environment variable
+ * at all, literally rather than nearly (ADR 0010 as amended): every value below
+ * is parsed here and passed to `createControlPlane()` explicitly.
+ *
+ * The parse is a pure function of an environment object so a test can hand it
+ * one. Absent values pass through as empty strings rather than being refused
+ * here: `createControlPlane()` already names the missing field in the error it
+ * throws, and a second refusal in front of it would be a second spelling of the
+ * same rule.
+ */
+import type { ControlPlaneConfig, KickProcessing, Phase0RunProfile } from "@reprove/control-plane";
+/**
+ * The variables a deployment sets. Named once, so the app's README, the build
+ * gate and this parser cannot drift on a spelling.
+ */
+export declare const ENVIRONMENT: {
+    /** The **pooled** endpoint, as the restricted runtime role. */
+    readonly databaseUrl: "REPROVE_DATABASE_URL";
+    /** The webhook secret the App was registered with. */
+    readonly webhookSecret: "REPROVE_GITHUB_WEBHOOK_SECRET";
+    /** GitHub's numeric App id, which is the App JWT's issuer. */
+    readonly appId: "REPROVE_GITHUB_APP_ID";
+    /**
+     * The App's PEM private key. A PEM carries newlines, which a `.env` file and
+     * most secret stores do not, so the escaped form `\n` is accepted too; a real
+     * PEM passes through unchanged, because it contains no backslash.
+     */
+    readonly privateKey: "REPROVE_GITHUB_PRIVATE_KEY";
+    /**
+     * Optional. GitHub's REST root, for a GitHub Enterprise Server deployment or
+     * a build gate standing a canned GitHub up on loopback. Unset means
+     * `https://api.github.com`.
+     *
+     * It must be `https:`, or `http:` on loopback (`127.0.0.1`, `localhost`,
+     * `::1`): every request under it carries an App credential, so
+     * `createControlPlane()` refuses a cleartext root off the machine rather than
+     * sending a token to it.
+     */
+    readonly githubApiUrl: "REPROVE_GITHUB_API_URL";
+};
+/** An environment, as `process.env` is shaped. */
+export type Environment = Readonly<Record<string, string | undefined>>;
+/** What the deployment passes by name rather than through the environment. */
+export interface CompositionOptions {
+    /**
+     * ADR 0013's injected profile. Passed by name on purpose: a harness or a
+     * model read from an environment variable would be a Phase 0 fixture quietly
+     * becoming product selection policy.
+     */
+    readonly runProfile: Phase0RunProfile;
+    /** What the webhook hands a committed delivery to. */
+    readonly kick?: KickProcessing;
+    /**
+     * Where an idle connection failure is reported. Defaults to the process's
+     * standard error, which is the only log sink a server process has; a test
+     * passes something quieter.
+     */
+    readonly onConnectionError?: (error: Error) => void;
+}
+/**
+ * Parses the deployment's configuration.
+ *
+ * @param env The environment to read, usually `process.env`.
+ * @param options What the deployment passes by name.
+ * @returns What `createControlPlane()` is composed over.
+ */
+export declare const configFromEnvironment: (env: Environment, options: CompositionOptions) => ControlPlaneConfig;
+```
+
+## dist/hosted.d.ts
+
+```ts
+/**
+ * The hosted half of this package, behind an entry point of its own:
+ * `@reprove/control-plane-workflow/hosted`.
+ *
+ * ```text
+ * placement.ts   hostedPlacement(), the optional composition and its absence
+ * pass.ts        hostedPass, one hosted Worker's attempt at a Run
+ * dispatch.ts    dispatchHostedPass(), which claims a Run and starts one
+ * ```
+ *
+ * **Why a subpath rather than three more exports on the default entry point.**
+ * `@reprove/worker-hosted` is an *optional* peer (ADR 0010): a self-hosted
+ * deployment installs this package without it and composes no hosted dispatch.
+ * The three modules above declare their types over that peer, so their emitted
+ * declarations import its specifier - and a consumer type-checking with
+ * `skipLibCheck: false` follows every declaration its entry point reaches. Left
+ * on the default entry point they made the package's own bare specifier
+ * unresolvable in exactly the deployment the optional peer exists for, before
+ * `hostedPlacement()` could answer `null` for it.
+ *
+ * The split says the same thing the manifest says, in the export map: the
+ * default subpath is what every deployment installs, and this one is what the
+ * deployment that also installs the driver reaches for. Nothing here is
+ * conditional at run time - `hostedPlacement()` still answers `null` where the
+ * driver is absent - because a bundler resolves the specifier at build time and
+ * a subpath a hosted app imports must work whichever way the driver went
+ * missing.
+ *
+ * **This is also where the hosted workflow enters an application's module
+ * graph.** A `'use workflow'` function is discovered and registered by the
+ * Workflow build from what the application imports (ADR 0014), so the hosted
+ * composition root reaches `hostedPass` through this subpath;
+ * `apps/control-plane` names it for that reason. A self-hosted composition root
+ * imports neither this subpath nor the driver, and registers no hosted pass.
+ */
+export { composeHostedPlacement, hostedPlacement } from "./placement.js";
+export type { DispatchOutcome } from "./dispatch.js";
+export { dispatchHostedPass } from "./dispatch.js";
+export type { HostedNotComposed, PassOutcome } from "./pass.js";
+export { HOSTED_WORKER_BUILD_VERSION, hostedPass } from "./pass.js";
+```
+
 ## dist/index.d.ts
 
 ```ts
@@ -298,18 +309,22 @@ export {};
  * hosted placement *does* is that package's, reached through ports and through
  * an optional import, so a self-hosted deployment omits it and this one runs
  * unchanged.
+ *
+ * **It is not on this entry point, though: it is on `./hosted`.** That half of
+ * the package declares its types over the optional peer, so its declarations
+ * name a specifier a self-hosted install does not have - and a consumer
+ * type-checking the package it did install would fail on it. Everything here
+ * resolves with `@reprove/control-plane` and `workflow` alone, which is what
+ * ADR 0010's self-hosted row installs; `hosted.ts` explains the split and
+ * `tools/verify-packages.mjs` proves it against the packed artifact.
  */
 export type { CompositionOptions, Environment } from "./environment.js";
 export { configFromEnvironment, ENVIRONMENT } from "./environment.js";
-export { composeHostedPlacement, controlPlane, hostedPlacement, } from "./composition.js";
+export { controlPlane } from "./composition.js";
 export type { DispatchedLifecycle, IngressConclusion } from "./ingress.js";
 export { ingressDelivery, RE_DRIVE, startDelivery } from "./ingress.js";
 export type { LifecycleOutcome, LifecycleSignal } from "./lifecycle.js";
 export { lifecycleToken, runLifecycle } from "./lifecycle.js";
-export type { DispatchOutcome } from "./hosted.js";
-export { dispatchHostedPass } from "./hosted.js";
-export type { HostedNotComposed, PassOutcome } from "./pass.js";
-export { HOSTED_WORKER_BUILD_VERSION, hostedPass } from "./pass.js";
 export type { Notified } from "./notify.js";
 export { notifyLifecycle } from "./notify.js";
 export declare const packageName: "@reprove/control-plane-workflow";
@@ -750,4 +765,100 @@ export declare const HOSTED_WORKER_BUILD_VERSION = "0.0.0";
  * @returns How the pass ended.
  */
 export declare function hostedPass(grant: ClaimGrant, ownerId: number): Promise<PassOutcome>;
+```
+
+## dist/placement.d.ts
+
+```ts
+/**
+ * The hosted composition, as this package reaches it: an optional peer, loaded
+ * lazily, whose absence is an answer rather than a crash.
+ *
+ * `@reprove/worker-hosted` is an **optional peer** - `peerDependencies` plus
+ * `peerDependenciesMeta.optional` - which is ADR 0010's deployment table
+ * expressed as an edge rather than as prose:
+ *
+ * ```text
+ * hosted          control-plane + control-plane-workflow + worker-hosted
+ * self-hosted     control-plane + control-plane-workflow
+ * ```
+ *
+ * *"A control plane that dispatches only to self-hosted Workers installs no
+ * harness code at all"* is only true if this package can run without it, so the
+ * import is lazy and its absence is an answer rather than a crash: `null`
+ * composes no hosted dispatch, and everything else - the webhook, the claim
+ * endpoint, Acceptance, the lifecycle - is untouched.
+ *
+ * The peer spelling is what delivers that and `optionalDependencies` would not:
+ * pnpm installs those by default and skips them only for an install passing
+ * `--omit=optional`, while `autoInstallPeers` installs missing *non-optional*
+ * peers only. So the driver arrives exactly when the deployment's composition
+ * root names it - `apps/control-plane` is the hosted one and declares it - and
+ * never otherwise.
+ *
+ * It is the same shape `composition.ts`'s `kick` uses, and for a related
+ * reason: an import that may legitimately not resolve cannot be at the top of a
+ * module every route reaches.
+ *
+ * **What "absent" means depends on who resolves the specifier.** Under Node it
+ * is a resolution failure at the moment of the import, which is what this
+ * classifies. Under a bundler the import is resolved at build time, so a
+ * deployment that omits the package omits it from the build - and what an
+ * operator verifies is the package graph, with `pnpm why`, exactly as ADR 0010
+ * says.
+ *
+ * **It is a module of its own so that the self-hosted declaration graph never
+ * names the peer.** `@reprove/worker-hosted` is an optional peer, so a
+ * self-hosted consumer installs this package without it - and a consumer that
+ * type-checks with `skipLibCheck: false` reads every declaration this package
+ * ships that its entry point reaches. A `HostedPlacement` named in
+ * `composition.d.ts`, which `index.d.ts` reaches for `controlPlane()`, is
+ * therefore an unresolvable specifier in exactly the deployment ADR 0010 says
+ * needs no harness code at all - failing the consumer's own build before
+ * `hostedPlacement()` could return `null` for it.
+ *
+ * So the peer is named here, in `dispatch.ts` and in `pass.ts`, and those three
+ * are reached only from `hosted.ts`, which is the module behind the `./hosted`
+ * subpath. The default entry point reaches none of them, and
+ * `tools/verify-packages.mjs` proves that by type-checking a consumer that
+ * installs this package with no peer beside it.
+ */
+import type { HostedPlacement } from "@reprove/worker-hosted";
+/**
+ * Loads the hosted composition, or concludes that this deployment has none.
+ *
+ * Exported for the composition seam's own test, which drives it over a loader
+ * rather than over the real module: the property under test is that an absent
+ * package composes no hosted dispatch, and no test can uninstall a package from
+ * the workspace it is running in.
+ *
+ * @param load The import to attempt.
+ * @param specifier What `load` imports, which is what its failure has to name
+ *   for the package to count as absent. Defaults to the hosted driver; a test
+ *   passing a loader of its own is the only caller that names another.
+ * @returns The hosted composition, or `null` where the package is not installed.
+ * @throws {Error} Whatever the module threw, when it is installed and broken -
+ *   including a resolution failure that names anything but `specifier`. A
+ *   package that is present and fails to load is a deployment defect, and
+ *   answering `null` would report it as a self-hosted deployment.
+ */
+export declare const composeHostedPlacement: (load: () => Promise<{
+    readonly hostedPlacement: HostedPlacement;
+}>, specifier?: string) => Promise<HostedPlacement | null>;
+/**
+ * The hosted composition this process holds, resolved on first use.
+ *
+ * Memoized like `composition.ts`'s control plane, and for the weaker of the two
+ * reasons: the module registry already caches the import, so this saves the
+ * repeated `try` rather than repeated work. A composition that **throws** - the driver
+ * installed and broken - is cleared for the same reason `controlPlane()` clears
+ * its own, and with the same care about which attempt is cleared: a deployment
+ * being repaired must not need a redeploy to clear a poisoned module, and
+ * clearing unconditionally would let a caller awaiting the failed promise
+ * discard a later caller's healthy one.
+ *
+ * @returns The hosted composition, or `null` in a self-hosted deployment.
+ * @throws {Error} Whatever the driver threw, when it is installed and broken.
+ */
+export declare const hostedPlacement: () => Promise<HostedPlacement | null>;
 ```

@@ -1,5 +1,6 @@
 import { packageName as controlPlane } from "@reprove/control-plane";
 import { packageName as controlPlaneWorkflow } from "@reprove/control-plane-workflow";
+import { HOSTED_WORKER_BUILD_VERSION } from "@reprove/control-plane-workflow/hosted";
 import { packageName as workerHosted } from "@reprove/worker-hosted";
 
 // The shell composes the three packages ADR 0010 permits it to depend on, so
@@ -13,6 +14,11 @@ import { packageName as workerHosted } from "@reprove/worker-hosted";
 // that deployment installs no harness code at all.
 const composedFrom = [controlPlane, controlPlaneWorkflow, workerHosted];
 
+// The same decision, on the orchestration package's own export map: `./hosted`
+// is the half whose declarations name the driver, so importing it is this app
+// saying it is the hosted composition - and it is what puts `hostedPass` in the
+// module graph the Workflow build discovers workflows from (ADR 0014). A
+// self-hosted composition root imports the default subpath alone.
 const Page = () => (
   <main>
     <h1>Reprove control plane</h1>
@@ -21,6 +27,7 @@ const Page = () => (
         <li key={name}>{name}</li>
       ))}
     </ul>
+    <p>Hosted Worker build {HOSTED_WORKER_BUILD_VERSION}</p>
   </main>
 );
 

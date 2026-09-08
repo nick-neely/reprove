@@ -4,7 +4,8 @@
  * to.
  *
  * The wiring is the only thing here that has no other home. The ordering it
- * drives is `@reprove/worker-hosted`'s and `dispatch.test.ts` fixes that; the
+ * drives is `@reprove/worker-hosted`'s and that package's own `dispatch.test.ts`
+ * fixes it; the
  * whole path against a real World and a real database is `spine.test.ts`'s, and
  * it reaches the shipped entry point for the happy case. What neither can reach
  * is the self-hosted branch - no test can uninstall a package from the
@@ -23,7 +24,7 @@ import type {
 import { hostedPlacement } from "@reprove/worker-hosted";
 import { describe, expect, it } from "vitest";
 
-import { dispatchThrough } from "./hosted.js";
+import { dispatchThrough } from "./dispatch.js";
 
 const ACME = 1001;
 const RUN_ID = "run_hosted";
@@ -43,7 +44,7 @@ interface Dispatched {
 /**
  * The real hosted placement with its ordering replaced by a recorder, so no
  * case here starts a durable run: what the ordering does with these arguments
- * is `dispatch.test.ts`'s subject, and doing it for real is `spine.test.ts`'s.
+ * is the driver's own subject, and doing it for real is `spine.test.ts`'s.
  */
 const recordingPlacement = (calls: Dispatched[]): HostedPlacement => ({
   ...hostedPlacement,

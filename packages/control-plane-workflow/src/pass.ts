@@ -52,7 +52,8 @@
 import type { ClaimGrant } from "@reprove/protocol/v1";
 import type { HostedPassOutcome } from "@reprove/worker-hosted";
 
-import { controlPlane, hostedPlacement } from "./composition.js";
+import { controlPlane } from "./composition.js";
+import { hostedPlacement } from "./placement.js";
 
 /*
  * `'use step'` and `'use workflow'` are directives the Workflow SDK's compiler

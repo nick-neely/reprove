@@ -9,15 +9,21 @@ The name is qualified deliberately: `Adapter` is already a `CONTEXT.md` noun, an
 ## What the package holds
 
 ```text
-composition.ts   controlPlane(), composed once per process from process.env, and
-                 hostedPlacement(), the optional hosted composition
+composition.ts   controlPlane(), composed once per process from process.env
 environment.ts   configFromEnvironment(), the only place Reprove's library code reads the environment
 ingress.ts       ingressDelivery, the workflow a committed delivery is handed to, and startDelivery()
 lifecycle.ts     runLifecycle, the Run's durable schedule, and lifecycleToken()
-pass.ts          hostedPass, one hosted Worker's attempt at a Run
-hosted.ts        dispatchHostedPass(), which claims a Run and starts one
 notify.ts        notifyLifecycle(), waking a lifecycle after the control plane has already decided
+
+hosted.ts        the `./hosted` entry point, and nothing else
+placement.ts     hostedPlacement(), the optional hosted composition
+pass.ts          hostedPass, one hosted Worker's attempt at a Run
+dispatch.ts      dispatchHostedPass(), which claims a Run and starts one
 ```
+
+The four below the gap are the hosted half, and they are reached through a
+subpath of their own - `@reprove/control-plane-workflow/hosted` - rather than
+through the bare name. [The export map is the deployment table](#the-hosted-half-is-a-subpath).
 
 `apps/control-plane` composes all of it: its `next.config.ts` wraps the build with `withWorkflow`, and its webhook route calls `controlPlane()` and hands the request on. The workflow functions are exported for the **builder** rather than for callers - a `'use workflow'` function has to be reachable from the application's module graph for the Workflow build to discover and register it, and the builder follows a bare import only into a package that declares `workflow`. Nothing else in Reprove calls `start()`.
 
@@ -107,7 +113,18 @@ hostedPass                            'use workflow'
 
 The peer spelling is what delivers that, and `optionalDependencies` would not have: pnpm installs those by default, and skips them only for an install passing `--omit=optional`. `autoInstallPeers` (on by default) installs missing **non-optional** peers only, so an optional peer arrives exactly when the deployment's composition root names it - `apps/control-plane` is the hosted root and declares it; a self-hosted root declares nothing that requires it. `tools/verify-workspace.mjs` carries the edge as an explicit optional-peer class and asserts, over the whole `@reprove/*` graph, that the hosted app declares the driver, that it reaches `@reprove/worker-core` only through it, and that `@reprove/control-plane` cannot reach it at all.
 
-**`dispatchHostedPass` lives in `hosted.ts` rather than beside the workflow, and that is a build decision.** It calls `controlPlane()` and `hostedPlacement()` at module scope, and everything a module holding a `'use workflow'` function reaches is inlined into the workflow bundle - which runs in a VM with no `require`. Beside `hostedPass` it dragged the control plane, the Postgres driver and the whole harness stack into that bundle and the builder refused the build naming a Node built-in in an innocent file, which is exactly the failure the real-builder gate exists for.
+### The hosted half is a subpath
+
+An optional peer is a **type** edge as well as a module one, and that is what puts the hosted half behind `@reprove/control-plane-workflow/hosted`. `placement.ts`, `pass.ts` and `dispatch.ts` declare their types over the driver, so their emitted declarations import its specifier - and a consumer type-checking with `skipLibCheck: false` follows every declaration its entry point reaches. Left on the default entry point they made the package's own bare specifier unresolvable in exactly the deployment the optional peer exists for, failing a self-hosted consumer's build before `hostedPlacement()` could answer `null` for it.
+
+```text
+@reprove/control-plane-workflow           control-plane + workflow          every deployment
+@reprove/control-plane-workflow/hosted    ... + worker-hosted               the hosted one
+```
+
+Nothing about the split is conditional at run time - `hostedPlacement()` still answers `null` where the driver is absent, and the hosted app imports the subpath whichever way the driver went missing. It is also where the hosted workflow enters an application's module graph: a `'use workflow'` function is discovered from what the application imports, so `apps/control-plane` names the subpath and a self-hosted composition root imports neither it nor the driver. `tools/verify-packages.mjs` proves both halves against the packed artifact - one consumer installs the package with the driver and imports every subpath, and a second installs it alone and type-checks the bare name with lib checking on.
+
+**`dispatchHostedPass` lives in `dispatch.ts` rather than beside the workflow, and that is a build decision.** It calls `controlPlane()` and `hostedPlacement()` at module scope, and everything a module holding a `'use workflow'` function reaches is inlined into the workflow bundle - which runs in a VM with no `require`. Beside `hostedPass` it dragged the control plane, the Postgres driver and the whole harness stack into that bundle and the builder refused the build naming a Node built-in in an innocent file, which is exactly the failure the real-builder gate exists for.
 
 **The grant travels in the pass's arguments, and that includes the execution token.** It has to: the control plane stores only `sha256(token)`, so the plaintext cannot be re-read, and a pass that could not present it could neither submit a Result nor report itself lost. The consequence is stated rather than hidden - the token is at rest in the World's storage for the life of the durable run, and the control plane's row still holds a digest only.
 
@@ -135,7 +152,7 @@ The tests run this package's workflows under a real Workflow builder: `@workflow
 
 The watchdog cases start a **stand-in** durable run rather than a hosted pass, and `pass.test-support.ts` says why: the shipped pass composes the Phase 0 fixture Worker core, so it submits a Result within milliseconds and terminalizes the Run, leaving nothing for a watchdog to close. A pass that has not answered yet is the ordinary shape in production and the impossible one for a fixture, and the watchdog reads exactly one thing about a pass - the status its durable run carries. The claim, the `markExecuting` write, the dispatch ordering and the injection point are all the real ones in those cases; only what `start()` starts is the test's. The steps compose their own control plane from `process.env` in a module registry the test file does not share, which is the builder-dependence this package exists for, exercised rather than assumed.
 
-Three files beside it need neither a World nor a database, and say so by not asking for one: `pass.test.ts` drives the composition seam over loaders of its own - an absent driver, a broken one, and one whose *own* dependency is missing, which is the failure a bare error-code check would misreport as self-hosted - and scans this package's shipped source for ADR 0016's injection point. `hosted.test.ts` measures the wiring `dispatchHostedPass` is: `not_composed` where nothing is composed, and the injection point forwarded unchanged. `lifecycle.test.ts` enumerates the watchdog's observation mapping, which is the one part of the liveness branch that can be enumerated exhaustively.
+Three files beside it need neither a World nor a database, and say so by not asking for one: `pass.test.ts` drives the composition seam over loaders of its own - an absent driver, a broken one, and one whose *own* dependency is missing, which is the failure a bare error-code check would misreport as self-hosted - and scans this package's shipped source for ADR 0016's injection point. `dispatch.test.ts` measures the wiring `dispatchHostedPass` is: `not_composed` where nothing is composed, and the injection point forwarded unchanged. `lifecycle.test.ts` enumerates the watchdog's observation mapping, which is the one part of the liveness branch that can be enumerated exhaustively.
 
 **They run from the package directory**, not from the root:
 

@@ -46,7 +46,7 @@ import type {
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { getRun, start } from "workflow/api";
 
-import { composeHostedPlacement } from "./composition.js";
+import { dispatchHostedPass } from "./dispatch.js";
 import { ENVIRONMENT } from "./environment.js";
 import type { CannedGitHub } from "./github.test-support.js";
 import {
@@ -56,7 +56,6 @@ import {
   startCannedGitHub,
   WEBHOOK_SECRET,
 } from "./github.test-support.js";
-import { dispatchHostedPass } from "./hosted.js";
 import type { IngressConclusion } from "./ingress.js";
 import { ingressDelivery } from "./ingress.js";
 import type { LifecycleOutcome } from "./lifecycle.js";
@@ -69,6 +68,7 @@ import {
   throwingPass,
   unfinishedPass,
 } from "./pass.test-support.js";
+import { composeHostedPlacement } from "./placement.js";
 
 /**
  * The local stack, as `tools/db/compose.yaml` publishes it. Spelled here rather

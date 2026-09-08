@@ -222,7 +222,18 @@ const WORKSPACES = {
   "packages/control-plane-workflow": {
     name: "@reprove/control-plane-workflow",
     published: true,
-    exports: DEFAULT_EXPORT,
+    // Two subpaths, because the optional peer below is a *type* edge as well as
+    // a module one. The hosted half declares its types over `worker-hosted`, so
+    // its declarations name a specifier a self-hosted install does not have -
+    // and a consumer type-checking the package it did install would fail on it
+    // before `hostedPlacement()` could answer `null`. The default subpath is
+    // what ADR 0010's self-hosted row installs and resolves with
+    // `control-plane` and `workflow` alone; `./hosted` is what the deployment
+    // that also installs the driver reaches for.
+    exports: {
+      ...DEFAULT_EXPORT,
+      "./hosted": { types: "./dist/hosted.d.ts", default: "./dist/hosted.js" },
+    },
     internal: ["@reprove/protocol", "@reprove/control-plane"],
     // ADR 0010's deployment table as an edge. A hosted deployment composes
     // `worker-hosted` and a self-hosted one omits it, so the package this one

@@ -26,22 +26,22 @@
  * hosted placement *does* is that package's, reached through ports and through
  * an optional import, so a self-hosted deployment omits it and this one runs
  * unchanged.
+ *
+ * **It is not on this entry point, though: it is on `./hosted`.** That half of
+ * the package declares its types over the optional peer, so its declarations
+ * name a specifier a self-hosted install does not have - and a consumer
+ * type-checking the package it did install would fail on it. Everything here
+ * resolves with `@reprove/control-plane` and `workflow` alone, which is what
+ * ADR 0010's self-hosted row installs; `hosted.ts` explains the split and
+ * `tools/verify-packages.mjs` proves it against the packed artifact.
  */
 export type { CompositionOptions, Environment } from "./environment.js";
 export { configFromEnvironment, ENVIRONMENT } from "./environment.js";
-export {
-  composeHostedPlacement,
-  controlPlane,
-  hostedPlacement,
-} from "./composition.js";
+export { controlPlane } from "./composition.js";
 export type { DispatchedLifecycle, IngressConclusion } from "./ingress.js";
 export { ingressDelivery, RE_DRIVE, startDelivery } from "./ingress.js";
 export type { LifecycleOutcome, LifecycleSignal } from "./lifecycle.js";
 export { lifecycleToken, runLifecycle } from "./lifecycle.js";
-export type { DispatchOutcome } from "./hosted.js";
-export { dispatchHostedPass } from "./hosted.js";
-export type { HostedNotComposed, PassOutcome } from "./pass.js";
-export { HOSTED_WORKER_BUILD_VERSION, hostedPass } from "./pass.js";
 export type { Notified } from "./notify.js";
 export { notifyLifecycle } from "./notify.js";
 
