@@ -153,7 +153,7 @@ import type { GitHubFetch } from "./github/client.js";
 import type { DeliveryToProcess, ProcessedDelivery } from "./github/delivery.js";
 import type { Phase0RunProfile } from "./github/profile.js";
 import type { KickProcessing } from "./github/webhook.js";
-import type { ExecutionLoss, ExecutionLossOutcome, RunLifecyclePort } from "./run/schedule.js";
+import type { ExecutionLoss, ExecutionLossOutcome, HostedExecution, RunLifecyclePort } from "./run/schedule.js";
 import type { AcceptanceOutcome, SubmittedResult } from "./worker/acceptance-outcome.js";
 import type { ClaimOutcome, HostedClaimRequest } from "./worker/claim-outcome.js";
 /** The database connection, as configuration rather than as a client. */
@@ -246,6 +246,29 @@ export interface ControlPlane {
      * scheduling half of the protocol, so it names its Run and never polls.
      */
     readonly claimRun: (request: HostedClaimRequest) => Promise<ClaimOutcome>;
+    /**
+     * The other half of hosted dispatch: the claimed Run becomes `executing` and
+     * records the **pass** running it.
+     *
+     * It is here beside `claimRun` rather than on `RunLifecyclePort`, which stays
+     * at four operations. The port is what a lifecycle may do to a Run, and every
+     * write on it is conditional on the caller being the recorded lifecycle; this
+     * is the execution's own write, guarded by the token the claim handed it, and
+     * putting it there would make the lifecycle's ownership rule untrue of one of
+     * its members.
+     *
+     * The pass id is recorded **after** `start()` returns, because `start()`
+     * accepts no caller-supplied run id (ADR 0014). A crash in that window leaves
+     * a running pass no column names, which is
+     * [ADR 0016](../../../docs/adr/0016-phase-0-acceptance-scenario.md)'s
+     * mandatory abandoned case and is closed by execution liveness rather than
+     * here.
+     *
+     * @returns Whether the transition was written. `false` means the Run moved -
+     *   it ended, or the token is no longer its current one - and the caller's
+     *   pass is running against a Run that has closed.
+     */
+    readonly markExecuting: (execution: HostedExecution) => Promise<boolean>;
     /**
      * `POST /api/worker/runs/:runId/result`, which is the stale-result boundary
      * ([ADR 0006](../../../docs/adr/0006-worker-protocol.md)).
@@ -2710,6 +2733,23 @@ export declare const run: import("drizzle-orm/pg-core").PgTableWithColumns<{
         }, {}, {}>;
         workflowRunId: import("drizzle-orm/pg-core").PgColumn<{
             name: "workflow_run_id";
+            tableName: "run";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        hostedWorkflowRunId: import("drizzle-orm/pg-core").PgColumn<{
+            name: "hosted_workflow_run_id";
             tableName: "run";
             dataType: "string";
             columnType: "PgText";
@@ -5216,7 +5256,7 @@ export { PHASE_0_RUN_PROFILE } from "./github/profile.js";
 export { APP_EVENTS, APP_PERMISSIONS, githubAppManifest, WEBHOOK_PATH, } from "./github/manifest.js";
 export type { KickProcessing } from "./github/webhook.js";
 export { WEBHOOK_STATUS } from "./github/webhook.js";
-export type { ExecutionLoss, ExecutionLossEvidence, ExecutionLossOutcome, RunLifecyclePort, RunSchedule, } from "./run/schedule.js";
+export type { ExecutionLoss, ExecutionLossEvidence, ExecutionLossOutcome, HostedExecution, RunLifecyclePort, RunSchedule, } from "./run/schedule.js";
 export type { AcceptanceOutcome, AcceptedRunStatus, ResultRejection, SubmittedResult, } from "./worker/acceptance-outcome.js";
 export { WORKER_RESULT_STATUS } from "./worker/acceptance-outcome.js";
 export type { ClaimOutcome, ClaimRefusal, HostedClaimRequest, } from "./worker/claim-outcome.js";
@@ -5338,7 +5378,7 @@ export declare const statusIsEligible: (status: string) => boolean;
 
 ```ts
 import type { TenantTransaction } from "../db/runtime.js";
-import type { ExecutionLoss, ExecutionLossOutcome, RunSchedule } from "./schedule.js";
+import type { ExecutionLoss, ExecutionLossOutcome, HostedExecution, RunSchedule } from "./schedule.js";
 /**
  * Records which durable run schedules this Run, if none is recorded yet.
  *
@@ -5361,6 +5401,44 @@ export declare const recordLifecycle: (tx: TenantTransaction, runId: string, wor
  *   has no such Run.
  */
 export declare const readSchedule: (tx: TenantTransaction, runId: string) => Promise<RunSchedule | null>;
+/**
+ * `claimed` to `executing`, recording the pass that is running the Run.
+ *
+ * ```text
+ * update run
+ *    set status = 'executing', hosted_workflow_run_id = <the pass>
+ *  where <Acceptance's eligibility window>
+ *    and status = 'claimed'
+ *    and execution_token_hash = sha256(<the presented token>)
+ * ```
+ *
+ * **The window is Acceptance's**, for the reason `terminateLostExecution` below
+ * carries it: this write races the same two conditional updates over the same
+ * row. A Run that accepted a Result or was terminalized while dispatch was
+ * between `start()` and here has closed, and moving it to `executing` would
+ * revive a Run whose Acceptance is over.
+ *
+ * **`status = 'claimed'` is the transition's own half**, added to the shared
+ * window rather than replacing it. A Run already `executing` records a pass,
+ * and overwriting that id would leave the lifecycle cancelling the wrong
+ * durable run - or nothing at all - while the recorded one kept running.
+ *
+ * **The token is the ownership guard**, where the lifecycle's writes carry
+ * `workflow_run_id`. The caller here is the execution rather than the schedule
+ * watching it, so the only thing that says which execution it is is the token
+ * the claim handed it. Hashed here; the plaintext never reaches SQL.
+ *
+ * **It cannot be made atomic with `start()`.** ADR 0014: `start()` accepts no
+ * caller-supplied run id, so a crash between the two leaves a pass that is
+ * genuinely running and a Run that records none. That is not a defect this
+ * statement can close, and ADR 0015 is what closes it instead - execution
+ * liveness covers the `claimed` half of the window precisely because of this.
+ *
+ * @param tx A tenant transaction already scoped to the Run's Owner.
+ * @param execution The Run, the token that execution holds, and its pass.
+ * @returns Whether the transition was written.
+ */
+export declare const markExecuting: (tx: TenantTransaction, execution: HostedExecution) => Promise<boolean>;
 /**
  * `queued` to `unscheduled`, and no other transition.
  *
@@ -5457,6 +5535,34 @@ export interface RunSchedule {
      * and ends.
      */
     readonly workflowRunId: string | null;
+    /**
+     * The **pass** the Run records - one hosted Worker's attempt at it - or
+     * `null` where none is recorded.
+     *
+     * A different durable run from `workflowRunId` and read here for one reason:
+     * the lifecycle cancels it, and only after its own terminal transition has
+     * won (ADR 0015). `null` means no pass is recorded rather than that none is
+     * running: the window between `start()` and `markExecuting` cannot be closed,
+     * so a crash inside it leaves exactly this shape (ADR 0016).
+     */
+    readonly hostedWorkflowRunId: string | null;
+}
+/**
+ * One hosted dispatch's claim that its pass is now running, as the write that
+ * records it is told about it.
+ *
+ * The token rather than the lifecycle is the ownership guard here, for the same
+ * reason it is the in-process detector's: the caller is the execution itself,
+ * not the schedule watching it, and the token is the only thing that says which
+ * execution it is. Hashed before it reaches SQL.
+ */
+export interface HostedExecution {
+    readonly ownerId: number;
+    readonly runId: string;
+    /** The token the claim handed this execution, exactly once. */
+    readonly executionToken: string;
+    /** The durable run that dispatch started for it, as `start()` named it. */
+    readonly hostedWorkflowRunId: string;
 }
 /**
  * What ends an execution, as the evidence rather than as the conclusion.

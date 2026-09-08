@@ -212,6 +212,45 @@ export const foreignSpecifiers = (source) => {
 };
 
 /**
+ * The harness stack, as names that must not appear anywhere in the workflow
+ * bundle.
+ *
+ * `foreignSpecifiers` above is the check for a module the VM would have to
+ * *load*; this is the check for one it has already **inlined**. The builder
+ * compiles the workflow bundle with no `external` list, so a workflow body that
+ * reached the hosted placement would not name a specifier at all - it would
+ * carry `@reprove/worker-core`'s code, and `@reprove/adapters`' beneath it,
+ * with no import for the pattern above to find. Each package names itself in
+ * its own source (`packageName`, the composition constants), so the names are
+ * what survives inlining and minification alike.
+ *
+ * This is ADR 0010's "no harness stack in the control-plane deployment" at the
+ * one place the build can prove it. **What it does not prove**: the route
+ * bundles of the application in this repository, which *is* the hosted topology
+ * and does reach the harness stack through `@reprove/worker-hosted` - that is
+ * what a hosted deployment is for. The self-hosted claim is a claim about the
+ * package graph, and `tools/verify-workspace.mjs`'s `harness-reach` rule is
+ * what holds it: the app reaches `worker-core` only through `worker-hosted`,
+ * and the control plane cannot reach it at all.
+ */
+const HARNESS_NAMES = [
+  "@reprove/worker-core",
+  "@reprove/worker-hosted",
+  "@reprove/adapters",
+  "@reprove/sandbox-container",
+  "@ai-sdk/",
+];
+
+/**
+ * Which harness names a bundle carries.
+ *
+ * @param {string} source The bundle's text.
+ * @returns {string[]} Every harness name present, in the order declared.
+ */
+export const harnessNames = (source) =>
+  HARNESS_NAMES.filter((name) => source.includes(name));
+
+/**
  * Which of the required paths a trace's file list lacks.
  *
  * @param {readonly string[]} files The `files` of an `.nft.json`.
@@ -609,12 +648,22 @@ const checkBundle = () => {
     );
     return;
   }
-  const foreign = foreignSpecifiers(readFileSync(FLOW_ROUTE, "utf-8"));
+  const bundle = readFileSync(FLOW_ROUTE, "utf-8");
+  const foreign = foreignSpecifiers(bundle);
   if (foreign.length === 0) {
     ok("the workflow bundle names no module but the workflow runtime");
   } else {
     bad(
       `the workflow bundle reaches modules the workflow VM cannot load: ${foreign.join(", ")}. A workflow body reached code only a step may reach.`
+    );
+  }
+
+  const harness = harnessNames(bundle);
+  if (harness.length === 0) {
+    ok("the workflow bundle carries no harness code, inlined or imported");
+  } else {
+    bad(
+      `the workflow bundle carries the harness stack: ${harness.join(", ")}. A workflow body reached the hosted placement, which only a step may reach (ADR 0010).`
     );
   }
 };

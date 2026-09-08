@@ -26,6 +26,13 @@ const filesUnder = (directory: string): string[] =>
     .filter((entry) => entry.isFile())
     .map((entry) => path.join(entry.parentPath, entry.name));
 
+/**
+ * A file `tsconfig.build.json` keeps out of `dist`, spelled the way
+ * `tools/verify-workspace.mjs` spells it: a test, and the support module a test
+ * imports.
+ */
+const UNSHIPPED = /\.test(?:-support)?\.[cm]?tsx?$/u;
+
 const sourcesOf = (workspace: string): string[] =>
   filesUnder(path.join(ROOT, workspace, "src"));
 
@@ -48,8 +55,15 @@ describe("the test-only Codex Adapter double", () => {
     // Neither `@reprove/worker` nor `@reprove/worker-hosted` may name it, and
     // neither could resolve it if it did: it is not in `dist`, and the package
     // exports one subpath.
+    //
+    // Scoped to what each lifecycle **ships**, which is the property: an
+    // unshipped file may name a test-support module, because that is what a
+    // test is for and `tsconfig.build.json` keeps both out of `dist`. The next
+    // case is what holds that half, over the artifact rather than over a name.
     for (const workspace of ["packages/worker", "packages/worker-hosted"]) {
-      const sources = sourcesOf(workspace);
+      const sources = sourcesOf(workspace).filter(
+        (file) => !UNSHIPPED.test(file)
+      );
 
       // A lifecycle whose sources vanished would otherwise assert nothing.
       expect(sources.length).toBeGreaterThan(0);
@@ -58,6 +72,21 @@ describe("the test-only Codex Adapter double", () => {
 
         expect(source).not.toContain("test-support");
         expect(source).not.toContain("Double");
+      }
+    }
+  });
+
+  it("cannot arrive in either lifecycle's build output", () => {
+    // The other half of the case above, and the one that survives a test file
+    // being renamed: whatever a lifecycle's sources say, its `dist` carries no
+    // test and no test-support module at all.
+    for (const workspace of ["packages/worker", "packages/worker-hosted"]) {
+      const shipped = filesUnder(path.join(ROOT, workspace, "dist"));
+
+      expect(shipped.length).toBeGreaterThan(0);
+      expect(shipped.filter((file) => UNSHIPPED.test(file))).toStrictEqual([]);
+      for (const file of shipped) {
+        expect(readFileSync(file, "utf-8")).not.toContain("test-support");
       }
     }
   });

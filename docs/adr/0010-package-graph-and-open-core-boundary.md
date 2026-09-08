@@ -57,8 +57,29 @@ Permitted dependencies, which are also the CI matrix:
 | `worker` | `worker-core`, `protocol` | `@ai-sdk/*` directly |
 | `worker-hosted` | `worker-core`, `protocol`, `workflow` | `@ai-sdk/*` directly |
 | `control-plane` | `protocol`, `drizzle-orm`, `octokit`, `better-auth`, `zod` | `worker-core`, `adapters`, `sandbox-container`, `@ai-sdk/*`, **`workflow`** |
-| `control-plane-workflow` | `protocol`, `control-plane`, `workflow` | `worker-core`, `adapters`, `sandbox-container`, `@ai-sdk/*` |
-| `apps/control-plane` | `@reprove/control-plane`, `@reprove/control-plane-workflow`, `@reprove/worker-hosted`, `next`, `react` | `drizzle-orm`, Postgres drivers, `octokit`, `better-auth`, `@ai-sdk/*`, `@reprove/{adapters,worker-core,sandbox-container}` |
+| `control-plane-workflow` | `protocol`, `control-plane`, `workflow`, `worker-hosted` (optional) | `adapters`, `sandbox-container`, `@ai-sdk/*` |
+| `apps/control-plane` | `@reprove/control-plane`, `@reprove/control-plane-workflow`, `next`, `react` | `drizzle-orm`, Postgres drivers, `octokit`, `better-auth`, `@ai-sdk/*`, `@reprove/{adapters,worker-core,sandbox-container}` |
+
+> **Amended by [#57](https://github.com/nick-neely/reprove/issues/57).** One edge in this table is
+> **optional**, and the table could not previously say so. `control-plane-workflow` may depend on
+> `worker-hosted`, declared in `optionalDependencies` and imported lazily, because the hosted
+> placement is composed by the package that defines every workflow and configures every step (ADR
+> 0014) and cannot be composed by the driver itself. Declared as a requirement it would install the
+> harness stack into every deployment, including the self-hosted one the deployment table below says
+> omits it, so `tools/verify-workspace.mjs` carries it as its own class: permitted to import,
+> required to be optional, rejected in `dependencies`.
+>
+> `apps/control-plane` loses `@reprove/worker-hosted` from its row for the same reason - the app
+> naming it would put the edge back - and the verifier gains a `harness-reach` rule that reads the
+> whole `@reprove/*` graph rather than one manifest at a time: `control-plane` may not reach
+> `worker-core` at all, and the app may reach it **only** through `worker-hosted`. Deleting that node
+> and re-running the search is what a self-hosted install does, so it is the `pnpm why` this ADR
+> promises, asked at review time.
+>
+> The boundary is unchanged and is now measured from both ends. The other end is the workflow
+> bundle: `tools/verify-workflow-build.mjs` asserts it carries none of the harness stack's package
+> names, inlined or imported, because the builder compiles that bundle with no `external` list and a
+> workflow body that reached the placement would carry its code without naming an import at all.
 
 > **Amended by [#48](https://github.com/nick-neely/reprove/issues/48).** `zod` joins the
 > `control-plane` row. It is not a new boundary so much as a boundary that was already decided
@@ -218,6 +239,18 @@ published package later is a breaking change for every consumer.
 **Hosted capability is optional composition, not a default.** A hosted-capable deployment composes
 `control-plane` + `worker-hosted`; the self-hosted composition omits `worker-hosted` entirely. If
 every control-plane app composed both, the split would buy nothing.
+
+> **Amended by [#57](https://github.com/nick-neely/reprove/issues/57).** The box above says
+> `worker-hosted` holds "Vercel Workflow steps"; it does not, and ADR 0014 is why. That ADR gives
+> `control-plane-workflow` *every* workflow and step definition, because a step's module graph is
+> fixed at build time and the layer that defines steps is the only layer that can configure them -
+> and this package composes no control plane and reads no environment, so it could configure none.
+> What it holds is the hosted **behaviour**: the placement that drives Worker core and reports
+> through injected ports, the dispatch ordering, and the Phase 0 fixture core. The workflow that
+> runs one is a `'use workflow'` function in `control-plane-workflow` whose single step reaches
+> this package through the optional edge above. The reason for the package is unchanged and is the
+> whole of the row: it is the only place `worker-core` may be reached from a control-plane
+> deployment.
 
 `@reprove/worker` exposes the single globally meaningful command:
 

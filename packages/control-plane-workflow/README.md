@@ -9,10 +9,13 @@ The name is qualified deliberately: `Adapter` is already a `CONTEXT.md` noun, an
 ## What the package holds
 
 ```text
-composition.ts   controlPlane(), composed once per process from process.env
+composition.ts   controlPlane(), composed once per process from process.env, and
+                 hostedPlacement(), the optional hosted composition
 environment.ts   configFromEnvironment(), the only place Reprove's library code reads the environment
 ingress.ts       ingressDelivery, the workflow a committed delivery is handed to, and startDelivery()
 lifecycle.ts     runLifecycle, the Run's durable schedule, and lifecycleToken()
+pass.ts          hostedPass, one hosted Worker's attempt at a Run
+hosted.ts        dispatchHostedPass(), which claims a Run and starts one
 notify.ts        notifyLifecycle(), waking a lifecycle after the control plane has already decided
 ```
 
@@ -75,9 +78,40 @@ Every lifecycle-side mutation is conditional on the writer being the lifecycle t
 
 **A deadline that passes while nothing is recorded is waited out, briefly, rather than treated as orphanhood.** `dispatchLifecycle` starts before it records, so a Run whose lifecycle has not yet been written has two possible causes and they want opposite answers: the dispatching step crashed in that window, in which case this run is an orphan and must end, or the write is simply still in flight. Ending immediately is wrong for the second - the record then commits against a lifecycle that has already returned, and nothing is left to close the unclaimed window, so the Run would stay `queued` past its deadline forever. The loop waits two seconds per wake for five wakes and then gives up, because a genuine orphan must not linger either; ten seconds is many times one database round trip and a small fraction of the five-minute deadline it has to cover. `claimableUntil` bounds the unclaimed window and nothing else: it writes exactly one transition, `unscheduled`, over a Run that was never claimed.
 
-**The liveness branch is what ends a Run whose Worker stopped answering.** [ADR 0015](../../docs/adr/0015-execution-ownership-and-worker-liveness.md) gives execution liveness to this same loop, with `executionExpiresAt` - written at claim for both placements - as its second window. The branch re-reads that column on every wake rather than remembering it, which is what will make a self-hosted Lease renewal a column write rather than a second liveness system: a wake that finds a later deadline simply sleeps again. The transition itself is the control plane's, over exactly Acceptance's eligibility window, so the watchdog and Acceptance cannot disagree about whether a Run was still live. **This branch is the only detector with a caller in Phase 0.** ADR 0015 gives the transition two more - an in-process `try`/`catch` around a hosted pass, and a stopped Lease renewal - and the control plane exports the entry point the first of them will use, but the pass that would call it arrives with [#57](https://github.com/nick-neely/reprove/issues/57).
+**The liveness branch is what ends a Run whose Worker stopped answering.** [ADR 0015](../../docs/adr/0015-execution-ownership-and-worker-liveness.md) gives execution liveness to this same loop, with `executionExpiresAt` - written at claim for both placements - as its second window. The branch re-reads that column on every wake rather than remembering it, which is what will make a self-hosted Lease renewal a column write rather than a second liveness system: a wake that finds a later deadline simply sleeps again. The transition itself is the control plane's, over exactly Acceptance's eligibility window, so the watchdog and Acceptance cannot disagree about whether a Run was still live. **This branch is one of the two detectors with a caller in Phase 0**; the other is the in-process `try`/`catch` `@reprove/worker-hosted` wraps a hosted pass in ([#57](https://github.com/nick-neely/reprove/issues/57)). A stopped Lease renewal is the third, and waits on a self-hosted Worker.
 
-**The terminal write is the correctness boundary; cancelling is reclamation.** The branch terminalizes first and would cancel the still-running pass second, best-effort, and only because its transition won - cancelling first would make a resource operation load-bearing for correctness. Phase 0 records no pass id, so there is nothing to cancel, and that is fine: a pass that emerges afterwards cannot change a Run whose Acceptance has already closed. The hosted placement ([#57](https://github.com/nick-neely/reprove/issues/57)) is what puts a pass id there.
+**What the watchdog can say for itself depends on whether a pass is recorded.** Once the deadline has passed and the Run records one, the branch reads that durable run's state and maps it onto ADR 0015's observations - `workflow_failed`, `workflow_cancelled`, `workflow_terminal_without_result`, and `workflow_state_unavailable` where nothing could be read at all. It is read **only then**: a pass running inside its Run's window is the ordinary case, and asking the World about it on every wake would be a round trip per sleep that could not change what the loop does. With no pass id, or one still running, `deadline_elapsed` is the whole of what the watchdog saw, and it says only that. A `completed` pass is not a completed Run - the transition writes only over a Run still inside Acceptance's window, so a pass that returned normally and left it there submitted no Result.
+
+**The terminal write is the correctness boundary; cancelling is reclamation.** The branch terminalizes first and cancels the still-running pass second, best-effort, and only because its transition won - cancelling first would make a resource operation load-bearing for correctness. The cancel swallows every failure, because the Run is already `failed(worker_lost)` and a pass that outlives its cancellation is inert: Acceptance has closed, so it can submit nothing. Where the Run records no pass there is nothing to cancel, and that is fine for the same reason.
+
+## `hostedPass` and `dispatchHostedPass`: the hosted placement
+
+```text
+dispatchHostedPass                    a plain function; nothing durable yet
+  plane.claimRun                      execution ownership, the same conditional UPDATE
+                                      the Worker endpoint reaches
+  start(hostedPass, [grant, owner])   the pass is now genuinely running
+  -- the window ADR 0016 pays to reach --
+  plane.markExecuting                 claimed -> executing, pass id recorded
+
+hostedPass                            'use workflow'
+  step executeHostedPass              worker-hosted drives worker-core and reports
+                                      through the control plane
+```
+
+**The workflow is here and the behaviour is in [`@reprove/worker-hosted`](../worker-hosted/README.md).** [ADR 0014](../../docs/adr/0014-workflow-orchestration-seam.md) gives this package every workflow and step definition for the reason above - a step resolves its own configuration, and that package reads no environment and composes no control plane. So the placement, the dispatch ordering and the Phase 0 Worker core are its, reached here through ports; the durable shape, the step boundaries and the composition are this package's.
+
+**`@reprove/worker-hosted` is an optional dependency**, declared in `optionalDependencies` and imported lazily by `hostedPlacement()`. That is [ADR 0010](../../docs/adr/0010-package-graph-and-open-core-boundary.md)'s deployment table as an edge: a hosted deployment composes it, a self-hosted one omits it, and *"a control plane that dispatches only to self-hosted Workers installs no harness code at all"* is only true if this package runs without it. So its absence is an answer rather than a crash - `null` composes no hosted dispatch, every step above answers `not_composed`, and the webhook, the claim endpoint, Acceptance and the lifecycle are untouched. A package that is present and *broken* is rethrown instead, because answering `null` there would report a defective deployment as a self-hosted one. `tools/verify-workspace.mjs` carries the edge as an explicit optional class and asserts, over the whole `@reprove/*` graph, that the app reaches `@reprove/worker-core` only through this driver and that `@reprove/control-plane` cannot reach it at all.
+
+**`dispatchHostedPass` lives in `hosted.ts` rather than beside the workflow, and that is a build decision.** It calls `controlPlane()` and `hostedPlacement()` at module scope, and everything a module holding a `'use workflow'` function reaches is inlined into the workflow bundle - which runs in a VM with no `require`. Beside `hostedPass` it dragged the control plane, the Postgres driver and the whole harness stack into that bundle and the builder refused the build naming a Node built-in in an innocent file, which is exactly the failure the real-builder gate exists for.
+
+**The grant travels in the pass's arguments, and that includes the execution token.** It has to: the control plane stores only `sha256(token)`, so the plaintext cannot be re-read, and a pass that could not present it could neither submit a Result nor report itself lost. The consequence is stated rather than hidden - the token is at rest in the World's storage for the life of the durable run, and the control plane's row still holds a digest only.
+
+**Nothing in this repository dispatches automatically yet.** ADR 0016's Phase 0 scenario drives the claim endpoint itself and needs the Run left claimable, so wiring dispatch into the ingress spine would dispatch every Run before that scenario could reach one. `dispatchHostedPass` is the entry point that scenario ([#58](https://github.com/nick-neely/reprove/issues/58)) and the tests call.
+
+### The injection point ADR 0016 pays for
+
+`dispatchHostedPass` forwards `HostedDispatchOptions` unchanged, and that type carries the one test-only branch in shipped orchestration: `interruptBeforeRecordingPass`, called between `start()` and `markExecuting`. [ADR 0016](../../docs/adr/0016-phase-0-acceptance-scenario.md) records it as a known impurity accepted for one case, because the window it reaches - a pass genuinely running against a Run that records none - is the reason execution liveness covers the whole of Acceptance's eligibility window rather than `executing` alone. It is undefined by default, may only throw, and is set by no shipped module here; `pass.test.ts` asserts that by reading this package's own source.
 
 ### `lifecycleToken(runId, workflowRunId)`
 
@@ -93,7 +127,9 @@ A `LifecycleSignal` carries a reason and nothing else. The lifecycle re-reads th
 
 ## Tests
 
-The tests run this package's workflows under a real Workflow builder: `@workflow/vitest` compiles every `'use workflow'` and `'use step'` function it discovers into bundles and executes them in-process against the local World. `spine.test.ts` is therefore measuring what [ADR 0014](../../docs/adr/0014-workflow-orchestration-seam.md) could only decide on paper - that a created Run reaches a claimable state through the real workflow runtime rather than a stub, that the `run` row arbitrates between two lifecycles, that the unclaimed window closes as `unscheduled` and nothing else, that a claimed Run nobody came back for ends `failed(worker_lost)` from the same durable run, and that the re-drive of a contended delivery is the platform's own step retry - with GitHub substituted at the transport and nowhere else. The steps compose their own control plane from `process.env` in a module registry the test file does not share, which is the builder-dependence this package exists for, exercised rather than assumed.
+The tests run this package's workflows under a real Workflow builder: `@workflow/vitest` compiles every `'use workflow'` and `'use step'` function it discovers into bundles and executes them in-process against the local World. `spine.test.ts` is therefore measuring what [ADR 0014](../../docs/adr/0014-workflow-orchestration-seam.md) could only decide on paper - that a created Run reaches a claimable state through the real workflow runtime rather than a stub, that the `run` row arbitrates between two lifecycles, that the unclaimed window closes as `unscheduled` and nothing else, that a claimed Run nobody came back for ends `failed(worker_lost)` from the same durable run, that a hosted Run reaches Worker core and its Result reaches Acceptance, that the watchdog terminalizes before it cancels the pass and names what that pass did, and that the re-drive of a contended delivery is the platform's own step retry - with GitHub substituted at the transport and nowhere else.
+
+The watchdog cases start a **stand-in** durable run rather than a hosted pass, and `pass.test-support.ts` says why: the shipped pass composes the Phase 0 fixture Worker core, so it submits a Result within milliseconds and terminalizes the Run, leaving nothing for a watchdog to close. A pass that has not answered yet is the ordinary shape in production and the impossible one for a fixture, and the watchdog reads exactly one thing about a pass - the status its durable run carries. The claim, the `markExecuting` write, the dispatch ordering and the injection point are all the real ones in those cases; only what `start()` starts is the test's. The steps compose their own control plane from `process.env` in a module registry the test file does not share, which is the builder-dependence this package exists for, exercised rather than assumed.
 
 **They run from the package directory**, not from the root:
 

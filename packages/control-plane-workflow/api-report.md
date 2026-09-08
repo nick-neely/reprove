@@ -33,6 +33,34 @@
  * holds state the other needs.
  */
 import type { ControlPlane } from "@reprove/control-plane";
+import type { HostedPlacement } from "@reprove/worker-hosted";
+/**
+ * Loads the hosted composition, or concludes that this deployment has none.
+ *
+ * Exported for the composition seam's own test, which drives it over a loader
+ * rather than over the real module: the property under test is that an absent
+ * package composes no hosted dispatch, and no test can uninstall a package from
+ * the workspace it is running in.
+ *
+ * @param load The import to attempt.
+ * @returns The hosted composition, or `null` where the package is not installed.
+ * @throws {Error} Whatever the module threw, when it is installed and broken. A
+ *   package that is present and fails to load is a deployment defect, and
+ *   answering `null` would report it as a self-hosted deployment.
+ */
+export declare const composeHostedPlacement: (load: () => Promise<{
+    readonly hostedPlacement: HostedPlacement;
+}>) => Promise<HostedPlacement | null>;
+/**
+ * The hosted composition this process holds, resolved on first use.
+ *
+ * Memoized like the control plane above, and for the weaker of the two reasons:
+ * the module registry already caches the import, so this saves the repeated
+ * `try` rather than repeated work.
+ *
+ * @returns The hosted composition, or `null` in a self-hosted deployment.
+ */
+export declare const hostedPlacement: () => Promise<HostedPlacement | null>;
 /**
  * The composed control plane, built on first use from the environment.
  *
@@ -130,6 +158,67 @@ export interface CompositionOptions {
 export declare const configFromEnvironment: (env: Environment, options: CompositionOptions) => ControlPlaneConfig;
 ```
 
+## dist/hosted.d.ts
+
+```ts
+/**
+ * Hosted dispatch: the entry point that claims a Run and starts its pass.
+ *
+ * It is a module of its own, and that is a **build** decision rather than a
+ * taxonomy: this function calls `controlPlane()` and `hostedPlacement()` at
+ * module scope, and everything a module holding a `'use workflow'` function
+ * reaches is inlined into the workflow bundle - which runs in a VM with no
+ * `require`. Left beside `hostedPass` it dragged the control plane, the
+ * Postgres driver and the whole harness stack into that bundle, and the
+ * Workflow builder refused the build naming a Node built-in in an innocent
+ * file. That is exactly the failure ADR 0014 built the real-builder gate for,
+ * and the fix is the same one the gate's own documentation gives: a workflow
+ * body reaches steps and the runtime's primitives, and nothing else.
+ *
+ * ```text
+ * plane.claimRun                      execution ownership, the same conditional
+ *                                     UPDATE the Worker endpoint reaches
+ * start(hostedPass, [grant, owner])   the pass is now genuinely running
+ * -- the window ADR 0016 pays to reach --
+ * plane.markExecuting                 claimed -> executing, pass id recorded
+ * ```
+ *
+ * The ordering itself is `@reprove/worker-hosted`'s, deliberately: it is the
+ * fact [ADR 0016](../../../docs/adr/0016-phase-0-acceptance-scenario.md)
+ * reasons about, and it belongs beside the placement it orders rather than
+ * being restated by every composition that drives one. What is here is the
+ * wiring: which control plane, which workflow, which Owner.
+ *
+ * **Nothing in this repository dispatches automatically yet.** ADR 0016's
+ * scenario drives the claim endpoint itself and needs the Run left claimable,
+ * so wiring this into the ingress spine would dispatch every Run before that
+ * scenario could reach one. This is the entry point the scenario
+ * ([#58](https://github.com/nick-neely/reprove/issues/58)) and the tests call;
+ * saying so is the point, because an exported function with no caller reads
+ * like a live path.
+ */
+import type { HostedDispatchOptions, HostedDispatchOutcome } from "@reprove/worker-hosted";
+import type { HostedNotComposed } from "./pass.js";
+/** How one hosted dispatch ended, or that this deployment composes none. */
+export type DispatchOutcome = HostedDispatchOutcome | HostedNotComposed;
+/**
+ * Claims a Run for the hosted placement and starts its pass.
+ *
+ * The ordering is `@reprove/worker-hosted`'s, deliberately: it is the fact ADR
+ * 0016 reasons about, and it belongs beside the placement it orders rather than
+ * being restated by each composition that drives one.
+ *
+ * @param ownerId The Owner the Run belongs to.
+ * @param runId The Run to dispatch. Hosted dispatch always names its Run,
+ *   because polling is the half of the protocol hosted never exercises.
+ * @param options ADR 0016's test-only injection point, forwarded unchanged.
+ *   Nothing in this package sets it, which `pass.test.ts` asserts by reading
+ *   this package's own shipped source.
+ * @returns What the dispatch concluded, or that no hosted placement is composed.
+ */
+export declare const dispatchHostedPass: (ownerId: number, runId: string, options?: HostedDispatchOptions) => Promise<DispatchOutcome>;
+```
+
 ## dist/index.d.ts
 
 ```ts
@@ -149,17 +238,30 @@ export declare const configFromEnvironment: (env: Environment, options: Composit
  * A `'use workflow'` function has to be reachable from the application's
  * module graph for the Workflow build to discover and register it, and it is
  * discovered here because this package declares `workflow` as a dependency -
- * the builder follows a bare import only into a package that does. Starting
- * one goes through `startDelivery()`, which the control plane is composed
- * with; nothing else in Reprove calls `start()`.
+ * the builder follows a bare import only into a package that does. Starting a
+ * lifecycle goes through `startDelivery()`, which the control plane is composed
+ * with; starting a pass goes through `dispatchHostedPass()`, and nothing else
+ * in Reprove calls `start()`.
+ *
+ * **The hosted pass is here rather than in `@reprove/worker-hosted`** for the
+ * reason this package exists at all: ADR 0014 gives it every workflow and step
+ * definition, because a step's module graph is fixed at build time and the
+ * layer that defines steps is the only layer that can configure them. What the
+ * hosted placement *does* is that package's, reached through ports and through
+ * an optional import, so a self-hosted deployment omits it and this one runs
+ * unchanged.
  */
 export type { CompositionOptions, Environment } from "./environment.js";
 export { configFromEnvironment, ENVIRONMENT } from "./environment.js";
-export { controlPlane } from "./composition.js";
+export { composeHostedPlacement, controlPlane, hostedPlacement, } from "./composition.js";
 export type { DispatchedLifecycle, IngressConclusion } from "./ingress.js";
 export { ingressDelivery, RE_DRIVE, startDelivery } from "./ingress.js";
 export type { LifecycleOutcome, LifecycleSignal } from "./lifecycle.js";
 export { lifecycleToken, runLifecycle } from "./lifecycle.js";
+export type { DispatchOutcome } from "./hosted.js";
+export { dispatchHostedPass } from "./hosted.js";
+export type { HostedNotComposed, PassOutcome } from "./pass.js";
+export { HOSTED_WORKER_BUILD_VERSION, hostedPass } from "./pass.js";
 export type { Notified } from "./notify.js";
 export { notifyLifecycle } from "./notify.js";
 export declare const packageName: "@reprove/control-plane-workflow";
@@ -309,15 +411,20 @@ export declare const startDelivery: (delivery: DeliveryToProcess) => void;
  * to memory.
  *
  * **The terminal write is the correctness boundary; cancelling is
- * reclamation.** The liveness branch terminalizes first and would cancel the
+ * reclamation.** The liveness branch terminalizes first and cancels the
  * still-running pass second, best-effort, and only if its transition won.
- * Phase 0 records no pass, so there is nothing to cancel and that is fine: a
+ * Where the Run records no pass there is nothing to cancel and that is fine: a
  * pass that emerges afterwards cannot change a Run whose Acceptance has already
- * closed. The hosted placement
- * ([#57](https://github.com/nick-neely/reprove/issues/57)) is what puts a pass
- * id there to cancel.
+ * closed.
+ *
+ * **The watchdog reads the pass before it writes, and only then.** Once the
+ * deadline has passed and a pass id is recorded, its durable state is what
+ * turns `deadline_elapsed` into the observation that names what the pass
+ * actually did (ADR 0015's set). Before the deadline there is nothing to ask
+ * about - a running pass inside its window is the ordinary case - and with no
+ * pass id there is nothing to ask.
  */
-import type { LostFrom } from "@reprove/control-plane";
+import type { ExecutionLostObservation, LostFrom } from "@reprove/control-plane";
 /**
  * The hook token, scoped to the **lifecycle** and never to the Run alone.
  *
@@ -343,6 +450,18 @@ export interface LifecycleSignal {
     /** Why the notifier thinks the lifecycle should look. */
     readonly reason: "superseded" | "cancelled";
 }
+/**
+ * What the pass's own durable run says about itself, as a step can carry it
+ * back into a workflow body.
+ *
+ * `null` is "its state could not be read", which is a different fact from any
+ * status and is why this is not simply a string: a World that answered nothing
+ * has told the watchdog nothing about the pass, and the observation set has a
+ * member for exactly that.
+ */
+interface PassDisposition {
+    readonly status: string | null;
+}
 /** How one lifecycle ended, which is its return value. */
 export type LifecycleOutcome =
 /** This lifecycle closed the unclaimed window. */
@@ -360,6 +479,14 @@ export type LifecycleOutcome =
      * depends on none.
      */
     readonly lostFrom: LostFrom;
+    /** What the watchdog could say for itself about the pass, if anything. */
+    readonly observation: ExecutionLostObservation;
+    /**
+     * The pass this lifecycle cancelled **after** its transition won, or
+     * `null` where the Run recorded none. Reclamation, never correctness: the
+     * database write is the boundary and this follows it.
+     */
+    readonly cancelledPass: string | null;
 }
 /** The Run was ended by the control plane: superseded, cancelled, or terminal. */
  | {
@@ -389,6 +516,40 @@ export type LifecycleOutcome =
     readonly kind: "unknown_run";
 };
 /**
+ * What the watchdog saw, as one of ADR 0015's observations.
+ *
+ * ```text
+ * no pass recorded        deadline_elapsed
+ * pending | running       deadline_elapsed                 it is still going
+ * completed               workflow_terminal_without_result it ended, and no
+ *                                                          Result ever arrived
+ * failed                  workflow_failed
+ * cancelled               workflow_cancelled
+ * unreadable              workflow_state_unavailable
+ * ```
+ *
+ * **`deadline_elapsed` covers two different pictures** and that is deliberate:
+ * with no pass id, and with a pass still running past its Run's deadline, the
+ * watchdog has seen the same thing - nothing usable arrived in time. Inventing
+ * a name for the second would claim the watchdog knows why, and it does not.
+ *
+ * **A `completed` pass is not a completed Run.** The transition only runs at
+ * all over a Run still inside Acceptance's window, so a pass that returned
+ * normally and left the Run there submitted no Result: that is what
+ * `workflow_terminal_without_result` names, and it is why the status is read
+ * rather than the pass's return value.
+ *
+ * An unrecognized status maps to `workflow_state_unavailable` rather than
+ * throwing: the World's status vocabulary belongs to a dependency, and a
+ * lifecycle's job is to schedule rather than to assert. Saying "its state could
+ * not be read" about a status this loop does not understand is true.
+ *
+ * @param pass What the pass's durable run said, or `null` where the Run records
+ *   no pass at all.
+ * @returns The observation the terminal transition records.
+ */
+export declare const observationFor: (pass: PassDisposition | null) => ExecutionLostObservation;
+/**
  * Schedules one Run.
  *
  * @param runId The Run.
@@ -396,6 +557,7 @@ export type LifecycleOutcome =
  * @returns How this lifecycle ended.
  */
 export declare function runLifecycle(runId: string, ownerId: number): Promise<LifecycleOutcome>;
+export {};
 ```
 
 ## dist/notify.d.ts
@@ -427,4 +589,94 @@ export type Notified = {
  * @returns Whether a lifecycle was woken, and which.
  */
 export declare const notifyLifecycle: (ownerId: number, runId: string, reason: LifecycleSignal["reason"]) => Promise<Notified>;
+```
+
+## dist/pass.d.ts
+
+```ts
+/**
+ * The **pass**: one hosted Worker's attempt at a Run, as a durable run of its
+ * own ([ADR 0014](../../../docs/adr/0014-workflow-orchestration-seam.md)).
+ *
+ * ```text
+ * dispatchHostedPass                    plain function; nothing durable yet
+ *   plane.claimRun                      execution ownership, the same UPDATE
+ *                                       the Worker endpoint reaches
+ *   start(hostedPass, [grant, owner])   the pass is now running
+ *   -- the window ADR 0016 pays to reach --
+ *   plane.markExecuting                 claimed -> executing, pass id recorded
+ *
+ * hostedPass                            'use workflow'
+ *   step executeHostedPass              worker-hosted drives worker-core and
+ *                                       reports through the control plane
+ * ```
+ *
+ * **The workflow lives here and the behaviour lives in
+ * `@reprove/worker-hosted`.** ADR 0014 gives this package "every workflow and
+ * step definition, and all step configuration", because a `'use step'` function
+ * compiles into a bundle whose module graph is fixed at build time, so the
+ * layer that defines steps is the only layer that can configure them - and
+ * `@reprove/worker-hosted` reads no environment and depends on no control
+ * plane, by ADR 0010's matrix. So the ordering, the placement and the Phase 0
+ * Worker core are that package's, reached here through ports; the durable
+ * shape, the step boundaries and the composition are this one's.
+ *
+ * **Everything the workflow body reaches is inlined into the workflow bundle,
+ * which runs in a VM with no `require`.** The body below calls one step and
+ * nothing else, and the harness stack is reached only from inside that step,
+ * where a Node module graph is permitted. `tools/verify-workflow-build.mjs`
+ * asserts the emitted bundle names no module but the workflow runtime, and
+ * names none of `@reprove/worker-core`, `@reprove/adapters`,
+ * `@reprove/sandbox-container` or `@ai-sdk/*` in particular.
+ *
+ * **The grant travels in the pass's arguments, and that includes the execution
+ * token.** It has to: the control plane stores only `sha256(token)`, so the
+ * plaintext cannot be re-read, and a pass that could not present it could
+ * neither submit a Result nor report itself lost. The consequence is stated
+ * rather than hidden - the token is at rest in the World's storage for the life
+ * of the durable run, where the Workflow SDK's own payload encryption is what
+ * protects it, and the control plane's row still holds a digest only.
+ *
+ * **Nothing in this repository starts a pass automatically yet.** ADR 0016's
+ * Phase 0 scenario drives the claim endpoint itself and leaves the Run
+ * claimable, so wiring dispatch into the ingress spine would dispatch every Run
+ * before that scenario could reach it. `dispatchHostedPass` is the entry point
+ * the scenario ([#58](https://github.com/nick-neely/reprove/issues/58)) and the
+ * tests call; saying so is the point, because an exported function with no
+ * caller reads like a live path.
+ */
+import type { ClaimGrant } from "@reprove/protocol/v1";
+import type { HostedPassOutcome } from "@reprove/worker-hosted";
+/**
+ * What a deployment that composed no hosted placement answers with.
+ *
+ * It is a value rather than a throw because it is not a failure: a self-hosted
+ * control plane not executing hosted passes is the deployment working as ADR
+ * 0010 describes it. A throw would put a retry loop and an alert behind a
+ * correct configuration.
+ */
+export interface HostedNotComposed {
+    readonly kind: "not_composed";
+}
+/** How one hosted pass ended, or that this deployment composes none. */
+export type PassOutcome = HostedNotComposed | HostedPassOutcome;
+/**
+ * The Phase 0 build version a hosted pass reports as its own.
+ *
+ * A fixture, and the same shape a self-hosted Worker's would be: ADR 0006 makes
+ * `workerBuildVersion` a Worker's statement about itself, and the hosted
+ * placement's build is the deployment's. It is a constant here because lockstep
+ * versioning (ADR 0010) means there is nothing else it could honestly be until
+ * a release pipeline stamps one.
+ */
+export declare const HOSTED_WORKER_BUILD_VERSION = "0.0.0";
+/**
+ * One hosted Worker's attempt at one Run.
+ *
+ * @param grant The claim grant, which carries the Run's spec and the token the
+ *   execution submits with.
+ * @param ownerId The Owner the Run belongs to, which every step scopes to.
+ * @returns How the pass ended.
+ */
+export declare function hostedPass(grant: ClaimGrant, ownerId: number): Promise<PassOutcome>;
 ```

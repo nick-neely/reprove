@@ -1,7 +1,7 @@
 {
   "name": "@reprove/worker-hosted",
   "version": "0.0.0",
-  "description": "The hosted Worker lifecycle: Workflow steps driving the Worker core through the Adapter's internal detach and resume.",
+  "description": "The hosted Worker lifecycle: the placement that drives the Worker core for a hosted Run, and the dispatch ordering that claims and records its pass.",
   "license": "Apache-2.0",
   "files": [
     "dist"
