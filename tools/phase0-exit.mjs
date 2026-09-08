@@ -606,6 +606,12 @@ const onItsOwnConnection = (origin, path, headers, body) =>
   new Promise((resolve, reject) => {
     const target = new URL(path, origin);
     let sentAt = performance.now();
+    // The same bound `send` puts on every other request in this file. Without
+    // it a result route that stopped answering would leave both halves of the
+    // exactly-once pair pending forever: `Promise.all` would never settle, the
+    // teardown in the `finally` around it would never run, and the gate would
+    // report nothing until the job timeout killed it.
+    const outstanding = AbortSignal.timeout(DELIVERY_TIMEOUT_MS);
     const request = httpRequest(
       {
         agent: new HttpAgent({ keepAlive: false, maxSockets: 1 }),
@@ -614,6 +620,7 @@ const onItsOwnConnection = (origin, path, headers, body) =>
         method: "POST",
         path: target.pathname,
         port: target.port,
+        signal: outstanding,
       },
       (response) => {
         let text = "";
@@ -637,7 +644,17 @@ const onItsOwnConnection = (origin, path, headers, body) =>
         });
       }
     );
-    request.on("error", reject);
+    // An aborted request emits `error` like any other failure, so the deadline
+    // is named here rather than left as "This operation was aborted".
+    request.on("error", (error) => {
+      reject(
+        outstanding.aborted
+          ? new Error(
+              `POST ${path} did not answer within ${DELIVERY_TIMEOUT_MS}ms`
+            )
+          : error
+      );
+    });
     // After `end`, because that is when the request is genuinely outstanding:
     // the interval `[sentAt, receivedAt]` is what the exactly-once walkthrough
     // intersects to show the two were in flight together.
@@ -1217,7 +1234,14 @@ const walkAcceptance = async (c, run, token) => {
     record?.executionTokenHash,
     executionTokenDigest(token)
   );
-  c.is("F6 readRun: acceptedAt is recorded", record?.acceptedAt !== null, true);
+  // `record?.acceptedAt !== null` would hold for a Run that could not be read
+  // at all, because `undefined !== null`. `RunRecord.acceptedAt` is a `Date` on
+  // an accepted Run, so that is what is asserted.
+  c.is(
+    "F6 readRun: acceptedAt is recorded",
+    record?.acceptedAt instanceof Date,
+    true
+  );
   c.is(
     "F6 readRun: the summary is the one submitted",
     record?.resultSummary,
