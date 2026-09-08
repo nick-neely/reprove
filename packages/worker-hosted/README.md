@@ -85,11 +85,14 @@ It is **shipped, not a test double**: it is what the hosted composition runs tod
 
 ## Where the optional edge is enforced
 
-`tools/verify-workspace.mjs` carries this package as `@reprove/control-plane-workflow`'s **optional** internal edge: declared in `optionalDependencies` and nowhere else, because a required declaration installs it into every deployment - including the one ADR 0010 says omits it. Beside that, a `harness-reach` rule reads the whole `@reprove/*` graph and asserts two things the row-by-row matrix cannot see:
+`tools/verify-workspace.mjs` carries this package as `@reprove/control-plane-workflow`'s **optional peer**: `peerDependencies` plus `peerDependenciesMeta.optional`, rejected in `dependencies` and in `optionalDependencies` alike. The spelling is load-bearing rather than stylistic. pnpm installs `optionalDependencies` by default - only an install passing `--omit=optional` skips them - so that field would put this package into every deployment. `autoInstallPeers`, which is on by default, installs missing **non-optional** peers only, so an optional peer arrives exactly when the composition root names it and never otherwise. (`devDependencies` names it too, which no consumer installs: the orchestration package type-checks and tests against this one.)
+
+So the **composition root decides**. `apps/control-plane` is the hosted root and declares this package directly; a self-hosted root declares neither it nor anything that requires it. Beside that, a `harness-reach` rule reads the whole `@reprove/*` graph and asserts three things the row-by-row matrix cannot see:
 
 ```text
 @reprove/control-plane   cannot reach @reprove/worker-core at all
-apps/control-plane       can reach it only through @reprove/worker-hosted
+apps/control-plane       declares @reprove/worker-hosted
+apps/control-plane       can reach @reprove/worker-core only through it
 ```
 
 Removing this node from the graph is exactly what a self-hosted install does, so removing it and re-running the search is the question `pnpm why` answers, asked at review time. `tools/verify-workflow-build.mjs` holds the other end: the emitted workflow bundle names no module but the workflow runtime **and** carries none of the harness stack's package names, inlined or imported.

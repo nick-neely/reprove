@@ -298,6 +298,40 @@ const CONSUMER_TSCONFIG = {
 };
 
 /**
+ * The optional peers a consumer of this package installs, of the ones this
+ * repository publishes.
+ *
+ * An optional peer is *declared*, and a consumer that composes the deployment
+ * it exists for installs it - `apps/control-plane` declares
+ * `@reprove/worker-hosted` for exactly that reason (ADR 0010). This fixture
+ * checks the shipped declarations with `skipLibCheck: false`, and those
+ * declarations name the peer's types, so the consumer modelled here is the one
+ * that has it. Leaving it out would fail on an edge the package does declare,
+ * which is the opposite of what the fixture is for.
+ *
+ * The consequence is stated rather than hidden: a consumer that omits the peer
+ * - a self-hosted control plane, which composes no hosted dispatch - and
+ * type-checks the shipped declarations with lib checking on will see the peer's
+ * specifier unresolved in them. That is what an optional peer is, and it is why
+ * only the *types* of the driver are named there and no value is imported: the
+ * package still runs, and answers "no hosted placement composed".
+ *
+ * External optional peers stay out. `drizzle-orm` declaring an optional peer on
+ * `next` does not put Next.js in a consumer's graph, and installing it would
+ * describe an install nobody performs.
+ *
+ * @param {Record<string, unknown>} manifest The packed manifest.
+ * @param {Map<string, string>} packed Every packed package, name to tarball.
+ * @returns {string[]} The peers to install beside the package.
+ */
+const packedOptionalPeers = (manifest, packed) => {
+  const meta = manifest.peerDependenciesMeta ?? {};
+  return Object.keys(manifest.peerDependencies ?? {})
+    .filter((peer) => meta[peer]?.optional === true && packed.has(peer))
+    .toSorted(byText);
+};
+
+/**
  * The whole consumer fixture as text, generated from the packed manifests so no
  * list of packages, subpaths or dependencies is maintained by hand.
  *
@@ -356,6 +390,10 @@ export const consumerFixture = ({
     ),
   };
 
+  const packed = new Map(
+    ordered.map((entry) => [entry.manifest.name, entry.tarball])
+  );
+
   const consumers = ordered.flatMap((entry) => {
     const { name } = entry.manifest;
     const dir = `consumers/${consumerDirectory(name)}`;
@@ -365,7 +403,15 @@ export const consumerFixture = ({
       version: "0.0.0",
       private: true,
       type: "module",
-      dependencies: { [name]: `file:${entry.tarball}` },
+      dependencies: {
+        [name]: `file:${entry.tarball}`,
+        ...Object.fromEntries(
+          packedOptionalPeers(entry.manifest, packed).map((peer) => [
+            peer,
+            `file:${packed.get(peer)}`,
+          ])
+        ),
+      },
       devDependencies: { "@types/node": nodeTypes },
     };
 

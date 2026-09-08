@@ -462,6 +462,53 @@ describe(consumerFixture, () => {
     expect(protocol.devDependencies).toStrictEqual({ "@types/node": "26.4.0" });
   });
 
+  it("installs a declared optional peer this repository publishes", () => {
+    // An optional peer is declared, and the shipped declarations name its
+    // types, so the consumer modelled here is the deployment that composes it -
+    // `apps/control-plane` declaring `@reprove/worker-hosted` is that
+    // deployment. Leaving it out would fail on an edge the package does
+    // declare.
+    const fixtureWithPeer = consumerFixture({
+      packages: [
+        ...packages,
+        {
+          tarball: "/tmp/pack/reprove-driver-0.0.0.tgz",
+          manifest: {
+            name: "@reprove/driver",
+            exports: { ".": { types: "./dist/index.d.ts" } },
+          },
+        },
+        {
+          tarball: "/tmp/pack/reprove-orchestration-0.0.0.tgz",
+          manifest: {
+            name: "@reprove/orchestration",
+            exports: { ".": { types: "./dist/index.d.ts" } },
+            peerDependencies: { "@reprove/driver": "0.0.0", next: "^16" },
+            peerDependenciesMeta: {
+              "@reprove/driver": { optional: true },
+              next: { optional: true },
+            },
+          },
+        },
+      ],
+      externals: { zod: "4.5.4" },
+      resolutions: [],
+      nodeTypes: "26.4.0",
+    });
+    // SAFETY: the string under test is one this function just generated.
+    const orchestration = JSON.parse(
+      fixtureWithPeer["consumers/orchestration/package.json"] ?? ""
+    ) as Manifest;
+
+    // The packed peer is installed; the external one is not, because a consumer
+    // of this package does not install Next.js on its behalf.
+    expect(orchestration.dependencies).toStrictEqual({
+      "@reprove/driver": "file:/tmp/pack/reprove-driver-0.0.0.tgz",
+      "@reprove/orchestration":
+        "file:/tmp/pack/reprove-orchestration-0.0.0.tgz",
+    });
+  });
+
   it("leaves the fixture root with no dependencies of its own", () => {
     // SAFETY: the string under test is one this function just generated.
     const root = JSON.parse(fixture["package.json"] ?? "") as Manifest;

@@ -28,13 +28,19 @@
     "workflow": "catalog:workflow"
   },
   "devDependencies": {
+    "@reprove/worker-hosted": "workspace:*",
     "@types/node": "catalog:",
     "@workflow/vitest": "catalog:workflow",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
-  "optionalDependencies": {
+  "peerDependencies": {
     "@reprove/worker-hosted": "workspace:*"
+  },
+  "peerDependenciesMeta": {
+    "@reprove/worker-hosted": {
+      "optional": true
+    }
   },
   "engines": {
     "node": ">=22"

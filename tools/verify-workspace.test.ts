@@ -33,6 +33,8 @@ interface Manifest {
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
   optionalDependencies?: Record<string, string>;
+  peerDependencies?: Record<string, string>;
+  peerDependenciesMeta?: Record<string, { optional?: boolean }>;
   scripts?: Record<string, string>;
 }
 
@@ -338,12 +340,11 @@ describe(verifyWorkspace, () => {
     ).toBeTruthy();
   });
 
-  it("rejects the hosted driver declared as a requirement rather than an optional edge", () => {
+  it("rejects the hosted driver declared as a requirement rather than an optional peer", () => {
     // ADR 0010's self-hosted deployment omits `worker-hosted` entirely, and a
     // required declaration installs it into every one.
     const root = copyRepository();
     editManifest(root, "packages/control-plane-workflow", (manifest) => {
-      manifest.optionalDependencies = undefined;
       manifest.dependencies = {
         ...manifest.dependencies,
         "@reprove/worker-hosted": "workspace:*",
@@ -356,6 +357,66 @@ describe(verifyWorkspace, () => {
         "dependency-optionality",
         "packages/control-plane-workflow",
         "@reprove/worker-hosted"
+      )
+    ).toBeTruthy();
+  });
+
+  it("rejects the hosted driver put in optionalDependencies, which pnpm installs by default", () => {
+    // The spelling that reads optional and is not: pnpm installs
+    // `optionalDependencies` unless the install passes `--omit=optional`, so
+    // the self-hosted deployment would get the harness stack anyway.
+    const root = copyRepository();
+    editManifest(root, "packages/control-plane-workflow", (manifest) => {
+      manifest.peerDependencies = undefined;
+      manifest.peerDependenciesMeta = undefined;
+      manifest.optionalDependencies = {
+        "@reprove/worker-hosted": "workspace:*",
+      };
+    });
+
+    expect(
+      broke(
+        verifyWorkspace({ rootDir: root }),
+        "dependency-optionality",
+        "packages/control-plane-workflow",
+        "@reprove/worker-hosted"
+      )
+    ).toBeTruthy();
+  });
+
+  it("rejects an optional peer that is not marked optional", () => {
+    // `autoInstallPeers` is on by default and installs every missing
+    // non-optional peer, so without the mark the edge is a requirement again.
+    const root = copyRepository();
+    editManifest(root, "packages/control-plane-workflow", (manifest) => {
+      manifest.peerDependenciesMeta = undefined;
+    });
+
+    expect(
+      broke(
+        verifyWorkspace({ rootDir: root }),
+        "dependency-optionality",
+        "packages/control-plane-workflow",
+        "peerDependenciesMeta"
+      )
+    ).toBeTruthy();
+  });
+
+  it("rejects an optional edge that no consumer could satisfy", () => {
+    // Declared only as a devDependency it resolves for this package's own build
+    // and for nobody else: a consumer is never told the edge exists.
+    const root = copyRepository();
+    editManifest(root, "packages/control-plane-workflow", (manifest) => {
+      manifest.peerDependencies = undefined;
+      manifest.peerDependenciesMeta = undefined;
+    });
+
+    expect(
+      broke(
+        verifyWorkspace({ rootDir: root }),
+        "dependency-optionality",
+        "packages/control-plane-workflow",
+        "peerDependencies"
       )
     ).toBeTruthy();
   });
@@ -408,6 +469,27 @@ describe(verifyWorkspace, () => {
         "harness-reach",
         "packages/control-plane",
         "@reprove/worker-core"
+      )
+    ).toBeTruthy();
+  });
+
+  it("rejects a hosted composition root that declares no hosted driver", () => {
+    // The optional peer is not auto-installed, so an app that names it nowhere
+    // installs no driver and answers `not_composed` to every dispatch - a
+    // hosted deployment that silently is not one.
+    const root = copyRepository();
+    editManifest(root, "apps/control-plane", (manifest) => {
+      const { "@reprove/worker-hosted": _dropped, ...rest } =
+        manifest.dependencies ?? {};
+      manifest.dependencies = rest;
+    });
+
+    expect(
+      broke(
+        verifyWorkspace({ rootDir: root }),
+        "harness-reach",
+        "apps/control-plane",
+        "declares no edge to @reprove/worker-hosted"
       )
     ).toBeTruthy();
   });

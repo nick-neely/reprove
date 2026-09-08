@@ -1,15 +1,17 @@
 import { packageName as controlPlane } from "@reprove/control-plane";
 import { packageName as controlPlaneWorkflow } from "@reprove/control-plane-workflow";
+import { packageName as workerHosted } from "@reprove/worker-hosted";
 
-// The shell composes the two packages ADR 0010 permits it to depend on, so the
-// composition edges are compiled facts rather than intentions.
+// The shell composes the three packages ADR 0010 permits it to depend on, so
+// the composition edges are compiled facts rather than intentions.
 //
-// `@reprove/worker-hosted` is deliberately absent. It is an optional edge of
-// the orchestration package, which imports it lazily and composes no hosted
-// dispatch when it is missing (#57), and naming it here would put the harness
-// stack back into every deployment's install - including the self-hosted one
-// ADR 0010 says omits it.
-const composedFrom = [controlPlane, controlPlaneWorkflow];
+// `@reprove/worker-hosted` is named here and nowhere further in: the
+// orchestration package carries it as an *optional peer* and imports it lazily,
+// so the composition root is what decides whether a deployment has it (#57).
+// This is the hosted one. The self-hosted composition root declares neither it
+// nor anything requiring it, and pnpm auto-installs only non-optional peers, so
+// that deployment installs no harness code at all.
+const composedFrom = [controlPlane, controlPlaneWorkflow, workerHosted];
 
 const Page = () => (
   <main>

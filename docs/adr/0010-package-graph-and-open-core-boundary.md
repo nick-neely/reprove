@@ -57,23 +57,34 @@ Permitted dependencies, which are also the CI matrix:
 | `worker` | `worker-core`, `protocol` | `@ai-sdk/*` directly |
 | `worker-hosted` | `worker-core`, `protocol`, `workflow` | `@ai-sdk/*` directly |
 | `control-plane` | `protocol`, `drizzle-orm`, `octokit`, `better-auth`, `zod` | `worker-core`, `adapters`, `sandbox-container`, `@ai-sdk/*`, **`workflow`** |
-| `control-plane-workflow` | `protocol`, `control-plane`, `workflow`, `worker-hosted` (optional) | `adapters`, `sandbox-container`, `@ai-sdk/*` |
-| `apps/control-plane` | `@reprove/control-plane`, `@reprove/control-plane-workflow`, `next`, `react` | `drizzle-orm`, Postgres drivers, `octokit`, `better-auth`, `@ai-sdk/*`, `@reprove/{adapters,worker-core,sandbox-container}` |
+| `control-plane-workflow` | `protocol`, `control-plane`, `workflow`, `worker-hosted` (optional peer) | `adapters`, `sandbox-container`, `@ai-sdk/*` |
+| `apps/control-plane` | `@reprove/control-plane`, `@reprove/control-plane-workflow`, `@reprove/worker-hosted`, `next`, `react` | `drizzle-orm`, Postgres drivers, `octokit`, `better-auth`, `@ai-sdk/*`, `@reprove/{adapters,worker-core,sandbox-container}` |
 
 > **Amended by [#57](https://github.com/nick-neely/reprove/issues/57).** One edge in this table is
 > **optional**, and the table could not previously say so. `control-plane-workflow` may depend on
-> `worker-hosted`, declared in `optionalDependencies` and imported lazily, because the hosted
-> placement is composed by the package that defines every workflow and configures every step (ADR
-> 0014) and cannot be composed by the driver itself. Declared as a requirement it would install the
-> harness stack into every deployment, including the self-hosted one the deployment table below says
-> omits it, so `tools/verify-workspace.mjs` carries it as its own class: permitted to import,
-> required to be optional, rejected in `dependencies`.
+> `worker-hosted`, because the hosted placement is composed by the package that defines every
+> workflow and configures every step (ADR 0014) and cannot be composed by the driver itself. It
+> imports it lazily and answers "no hosted placement composed" when it is absent.
 >
-> `apps/control-plane` loses `@reprove/worker-hosted` from its row for the same reason - the app
-> naming it would put the edge back - and the verifier gains a `harness-reach` rule that reads the
-> whole `@reprove/*` graph rather than one manifest at a time: `control-plane` may not reach
-> `worker-core` at all, and the app may reach it **only** through `worker-hosted`. Deleting that node
-> and re-running the search is what a self-hosted install does, so it is the `pnpm why` this ADR
+> The edge is declared as an **optional peer** - `peerDependencies` plus
+> `peerDependenciesMeta.optional` - and that spelling is the whole of what makes the deployment table
+> below true. `optionalDependencies` would not: pnpm installs those by default, and only an install
+> passing `--omit=optional` skips them, so the self-hosted deployment would get the harness stack
+> anyway. pnpm's `autoInstallPeers` (on by default) installs missing **non-optional** peers only, so
+> an optional peer arrives exactly when the composition root names it. `tools/verify-workspace.mjs`
+> carries the edge as its own class: permitted to import, required to be an optional peer, rejected
+> in `dependencies` and in `optionalDependencies` alike, and permitted in `devDependencies` - which
+> no consumer installs - so the package can still type-check and test against it.
+>
+> The consequence is that the **composition root decides**, which is why `apps/control-plane` keeps
+> `@reprove/worker-hosted` in its row: it is the hosted one, and a hosted deployment that named the
+> driver nowhere would install none. A self-hosted composition root declares neither the driver nor
+> anything that requires it, and installs no harness code at all.
+>
+> The verifier gains a `harness-reach` rule that reads the whole `@reprove/*` graph rather than one
+> manifest at a time: `control-plane` may not reach `worker-core` at all, the app must declare
+> `worker-hosted`, and the app may reach `worker-core` **only** through it. Deleting that node and
+> re-running the search is what a self-hosted install does, so it is the `pnpm why` this ADR
 > promises, asked at review time.
 >
 > The boundary is unchanged and is now measured from both ends. The other end is the workflow
