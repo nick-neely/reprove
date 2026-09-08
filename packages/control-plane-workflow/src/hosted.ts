@@ -33,10 +33,22 @@
  * ([#58](https://github.com/nick-neely/reprove/issues/58)) and the tests call;
  * saying so is the point, because an exported function with no caller reads
  * like a live path.
+ *
+ * **What this deliberately does not claim.** `not_composed` is a statement
+ * about *this deployment* and not about the Run: nothing was claimed, nothing
+ * was started, and the Run is left exactly as claimable as it was, for whatever
+ * placement it belongs to. It is not a failure and is not retried - a
+ * self-hosted control plane declining to execute a hosted pass is ADR 0010's
+ * deployment table working - so a caller that treated it as one would put an
+ * alert behind a correct configuration. And it decides nothing about the
+ * dispatch it does perform: the order, the window between `start()` and the
+ * write, and every outcome name below are `@reprove/worker-hosted`'s.
  */
+import type { ControlPlane } from "@reprove/control-plane";
 import type {
   HostedDispatchOptions,
   HostedDispatchOutcome,
+  HostedPlacement,
 } from "@reprove/worker-hosted";
 import { start } from "workflow/api";
 
@@ -48,30 +60,51 @@ import { hostedPass } from "./pass.js";
 export type DispatchOutcome = HostedDispatchOutcome | HostedNotComposed;
 
 /**
- * Claims a Run for the hosted placement and starts its pass.
+ * The two compositions one dispatch reaches, as an argument.
  *
- * The ordering is `@reprove/worker-hosted`'s, deliberately: it is the fact ADR
- * 0016 reasons about, and it belongs beside the placement it orders rather than
- * being restated by each composition that drives one.
+ * The control plane is narrowed to the two statements dispatch uses, so what
+ * this depends on is legible and a double is the same shape the deployment
+ * passes rather than a weaker one.
+ */
+interface HostedComposition {
+  readonly controlPlane: () => Promise<
+    Pick<ControlPlane, "claimRun" | "markExecuting">
+  >;
+  readonly hostedPlacement: () => Promise<HostedPlacement | null>;
+}
+
+/** What this package composes, which is what `dispatchHostedPass` dispatches through. */
+const COMPOSED: HostedComposition = { controlPlane, hostedPlacement };
+
+/**
+ * Claims a Run through a given composition and starts its pass, in the order
+ * the module header above sets out and for the reasons it gives.
  *
+ * Exported for this module's own test, which drives it over doubles rather than
+ * over the composed deployment, for the same reason `composeHostedPlacement`
+ * takes its loader: the branch worth testing is the one where **no** hosted
+ * placement is composed, and no test can uninstall a package from the workspace
+ * it is running in. What the composed path does is `spine.test.ts`'s subject,
+ * against the real World and the real control plane.
+ *
+ * @param composition The control plane and the hosted placement to dispatch
+ *   through.
  * @param ownerId The Owner the Run belongs to.
- * @param runId The Run to dispatch. Hosted dispatch always names its Run,
- *   because polling is the half of the protocol hosted never exercises.
+ * @param runId The Run to dispatch.
  * @param options ADR 0016's test-only injection point, forwarded unchanged.
- *   Nothing in this package sets it, which `pass.test.ts` asserts by reading
- *   this package's own shipped source.
  * @returns What the dispatch concluded, or that no hosted placement is composed.
  */
-export const dispatchHostedPass = async (
+export const dispatchThrough = async (
+  composition: HostedComposition,
   ownerId: number,
   runId: string,
-  options: HostedDispatchOptions = {}
+  options: HostedDispatchOptions
 ): Promise<DispatchOutcome> => {
-  const placement = await hostedPlacement();
+  const placement = await composition.hostedPlacement();
   if (placement === null) {
     return { kind: "not_composed" };
   }
-  const plane = await controlPlane();
+  const plane = await composition.controlPlane();
   return await placement.dispatchHostedRun(
     {
       claimRun: (request) => plane.claimRun(request),
@@ -85,3 +118,21 @@ export const dispatchHostedPass = async (
     options
   );
 };
+
+/**
+ * Claims a Run for this deployment's hosted placement and starts its pass.
+ *
+ * @param ownerId The Owner the Run belongs to.
+ * @param runId The Run to dispatch. Hosted dispatch always names its Run,
+ *   because polling is the half of the protocol hosted never exercises.
+ * @param options ADR 0016's test-only injection point, forwarded unchanged.
+ *   Nothing in this package sets it, which `pass.test.ts` asserts by reading
+ *   this package's own shipped source.
+ * @returns What the dispatch concluded, or that no hosted placement is composed.
+ */
+export const dispatchHostedPass = async (
+  ownerId: number,
+  runId: string,
+  options: HostedDispatchOptions = {}
+): Promise<DispatchOutcome> =>
+  await dispatchThrough(COMPOSED, ownerId, runId, options);

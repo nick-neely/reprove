@@ -27,6 +27,7 @@ import {
 import type {
   HostedAcceptance,
   HostedExecutionLoss,
+  HostedPlacementRequest,
   HostedSubmission,
 } from "./placement.js";
 import { runHostedPlacement } from "./placement.js";
@@ -86,6 +87,24 @@ const recordingPorts = (acceptance: HostedAcceptance, terminalized = true) => {
 const accepted: HostedAcceptance = {
   kind: "accepted",
   runStatus: "completed",
+};
+
+/**
+ * Runs one pass and hands back the error it threw, so a case can read the chain
+ * on it rather than only its message.
+ */
+const throwsFrom = async (request: HostedPlacementRequest): Promise<Error> => {
+  try {
+    await runHostedPlacement(request);
+  } catch (error) {
+    if (error instanceof Error) {
+      return error;
+    }
+    throw new Error(`the placement threw a non-Error: ${String(error)}`, {
+      cause: error,
+    });
+  }
+  throw new Error("the placement returned rather than throwing");
 };
 
 describe("the hosted placement", () => {
@@ -256,5 +275,56 @@ describe("the hosted placement", () => {
       })
     ).rejects.toThrow("the pool is closed");
     expect(losses).toStrictEqual([]);
+  });
+
+  it("carries the Pass's own throw out on the failed report's cause", async () => {
+    // Two failures at once. The port's is what propagates, because the step's
+    // retry is the answer to an unreachable control plane - but the crash it
+    // was reporting has no other trace anywhere, since nothing was written
+    // about it, so losing it would leave the retry unexplainable.
+    const crashed = new Error("the Pass threw past Worker core");
+
+    const thrown = await throwsFrom({
+      core: coreThrowing(crashed),
+      execution: EXECUTION,
+      input: INPUT,
+      ports: {
+        acceptResult: (): Promise<never> => {
+          throw new Error("Acceptance is not reached on this path");
+        },
+        reportExecutionLost: (): Promise<never> => {
+          throw new Error("the pool is closed");
+        },
+      },
+    });
+
+    expect(thrown.message).toBe("the pool is closed");
+    expect(thrown.cause).toBe(crashed);
+  });
+
+  it("leaves a port failure that already explains itself with its own cause", async () => {
+    // The report is where the Pass's throw is attached, and only where nothing
+    // else claimed the slot: an error that already carries a chain knows more
+    // about its own failure than this does.
+    const explained = Object.assign(new Error("the pool is closed"), {
+      cause: new Error("ECONNREFUSED"),
+    });
+
+    const thrown = await throwsFrom({
+      core: coreThrowing(new Error("the Pass threw past Worker core")),
+      execution: EXECUTION,
+      input: INPUT,
+      ports: {
+        acceptResult: (): Promise<never> => {
+          throw new Error("Acceptance is not reached on this path");
+        },
+        reportExecutionLost: (): Promise<never> => {
+          throw explained;
+        },
+      },
+    });
+
+    expect(thrown).toBe(explained);
+    expect(thrown.cause).toStrictEqual(new Error("ECONNREFUSED"));
   });
 });

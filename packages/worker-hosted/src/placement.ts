@@ -196,7 +196,10 @@ export type HostedPassOutcome =
  * for a moment - and reporting the execution lost on it would end a Run whose
  * pass is still running perfectly well. Letting it propagate is the correct
  * answer instead: the caller is a durable step, and the platform's own retry is
- * what a transient failure needs.
+ * what a transient failure needs. Where the failing port is the loss report
+ * itself, the Pass's own throw is carried out on the port error's `cause`: the
+ * port failure is what the step must see, and the crash it was reporting has no
+ * other trace, because nothing was written about it.
  *
  * @param request Worker core, the Run, the execution's identity and the ports.
  * @returns How the pass ended, as the terminal value of the durable run.
@@ -214,13 +217,32 @@ export const runHostedPlacement = async (
     // report carries the token that proves which execution threw rather than
     // waiting for a deadline to notice the silence.
     const detail = error instanceof Error ? error.message : String(error);
-    const reported = await ports.reportExecutionLost({
-      detector: "hosted_prompt",
-      evidence: { executionToken: execution.executionToken, kind: "execution" },
-      observation: "uncaught_throw",
-      ownerId: execution.ownerId,
-      runId: execution.runId,
-    });
+    let reported: HostedLossOutcome;
+    try {
+      reported = await ports.reportExecutionLost({
+        detector: "hosted_prompt",
+        evidence: {
+          executionToken: execution.executionToken,
+          kind: "execution",
+        },
+        observation: "uncaught_throw",
+        ownerId: execution.ownerId,
+        runId: execution.runId,
+      });
+    } catch (portError) {
+      // Two failures at once, and only one of them can propagate. The port's is
+      // the one that has to: it is the control plane being unreachable, and the
+      // durable step's retry is the answer to it. But the throw it was
+      // reporting is the fact whoever reads the retry needs, and it would
+      // otherwise be lost entirely - the Pass that crashed leaves no other
+      // trace, because nothing was written about it. So it travels on `cause`.
+      // An already-explained port failure keeps its own chain rather than
+      // having one overwritten.
+      if (portError instanceof Error && portError.cause === undefined) {
+        portError.cause = error;
+      }
+      throw portError;
+    }
     return { detail, kind: "lost", terminalized: reported.terminalized };
   }
 

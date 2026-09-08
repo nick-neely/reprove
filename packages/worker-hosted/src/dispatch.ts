@@ -42,6 +42,16 @@
  * of it. The functions behind them are the control plane's own `claimRun` and
  * `markExecuting`, which are the same statements the Worker-facing endpoints
  * reach rather than a hosted pair beside them.
+ *
+ * **What this deliberately does not do.** It decides nothing about the Run: the
+ * claim and the transition are the control plane's own conditional statements
+ * and either may refuse, and every outcome below is what one of them answered.
+ * It does not retry - a claim that found no Run and a write that matched
+ * nothing are answers, not transient failures - and it starts no second pass to
+ * repair the window it cannot close, because the Run's own liveness deadline is
+ * what closes that (ADR 0015) and a second pass would be a second claim. It
+ * does not know what a pass *is*: `startPass` hands back an id and this never
+ * looks inside it.
  */
 import type { ClaimGrant } from "@reprove/protocol/v1";
 
@@ -119,7 +129,9 @@ export interface HostedDispatchPorts {
  *                                         what it returns
  * ```
  *
- * `dispatch.test.ts` asserts that the shipped hosted composition never sets it.
+ * `dispatch.test.ts` fixes what the default does - nothing - and `pass.test.ts`
+ * in `@reprove/control-plane-workflow` asserts that no shipped module of the
+ * composition that drives this ever assigns it.
  */
 export interface HostedDispatchOptions {
   /**
@@ -130,9 +142,21 @@ export interface HostedDispatchOptions {
   readonly interruptBeforeRecordingPass?: () => never | Promise<never>;
 }
 
-/** How one dispatch ended. */
+/**
+ * How one dispatch ended.
+ *
+ * **A `dispatched` outcome carries the execution token, so it must not be
+ * logged or serialized.** It is handed back because the caller that dispatched
+ * a Run is the one entitled to act as that execution - Acceptance recognizes a
+ * submission by the plaintext token and the control plane stores only
+ * `sha256(token)`, so this is the last place it can be read. It is a return
+ * value for that caller and nothing else.
+ */
 export type HostedDispatchOutcome =
-  /** The Run is claimed, its pass is running, and the Run records it. */
+  /**
+   * The Run is claimed, its pass is running, and the Run records it. The token
+   * is the execution's identity; see the note above about carrying it.
+   */
   | {
       readonly kind: "dispatched";
       readonly hostedWorkflowRunId: string;
@@ -168,10 +192,10 @@ export const dispatchHostedRun = async (
   if (claimed.kind !== "granted") {
     return {
       kind: "not_claimed",
+      // `claimed.kind` rather than the same word written again: the name is the
+      // claim's, and a second spelling of a closed set is one that can drift.
       reason:
-        claimed.kind === "no_run_available"
-          ? "no_run_available"
-          : claimed.reason,
+        claimed.kind === "no_run_available" ? claimed.kind : claimed.reason,
     };
   }
 
