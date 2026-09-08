@@ -65,8 +65,9 @@ const kick = (delivery: DeliveryToProcess): void => {
 /*
  * The hosted composition, as this package reaches it.
  *
- * `@reprove/worker-hosted` is an **optional** dependency, which is ADR 0010's
- * deployment table expressed as an edge rather than as prose:
+ * `@reprove/worker-hosted` is an **optional peer** - `peerDependencies` plus
+ * `peerDependenciesMeta.optional` - which is ADR 0010's deployment table
+ * expressed as an edge rather than as prose:
  *
  * ```text
  * hosted          control-plane + control-plane-workflow + worker-hosted
@@ -78,6 +79,13 @@ const kick = (delivery: DeliveryToProcess): void => {
  * import is lazy and its absence is an answer rather than a crash: `null`
  * composes no hosted dispatch, and everything else - the webhook, the claim
  * endpoint, Acceptance, the lifecycle - is untouched.
+ *
+ * The peer spelling is what delivers that and `optionalDependencies` would not:
+ * pnpm installs those by default and skips them only for an install passing
+ * `--omit=optional`, while `autoInstallPeers` installs missing *non-optional*
+ * peers only. So the driver arrives exactly when the deployment's composition
+ * root names it - `apps/control-plane` is the hosted one and declares it - and
+ * never otherwise.
  *
  * It is the same shape the `kick` above uses, and for a related reason: an
  * import that may legitimately not resolve cannot be at the top of a module
@@ -91,13 +99,51 @@ const kick = (delivery: DeliveryToProcess): void => {
  * says.
  */
 
+/** The one specifier whose absence means "this deployment is self-hosted". */
+const HOSTED_DRIVER = "@reprove/worker-hosted";
+
 /** Node's two spellings of "that module is not installed". */
 const NOT_INSTALLED = new Set(["ERR_MODULE_NOT_FOUND", "MODULE_NOT_FOUND"]);
+
+/**
+ * The specifier a resolution failure blames, as Node writes it into the
+ * message: `Cannot find package 'x' imported from y`, and `Cannot find module
+ * '/abs/path'` where the package resolved and a file inside it did not.
+ */
+const UNRESOLVED = /Cannot find (?:package|module) '(?<specifier>[^']*)'/u;
 
 /** As much of a module-resolution failure as this module reads. */
 interface ResolutionError {
   readonly code?: string;
+  readonly message?: string;
 }
+
+/**
+ * Whether this failure is the hosted driver being **absent**, rather than
+ * present and unable to load.
+ *
+ * The code alone cannot tell those apart, and reading it alone is the one wrong
+ * answer available: a driver that is installed and whose own dependency does
+ * not resolve raises `ERR_MODULE_NOT_FOUND` too, and calling that "self-hosted"
+ * would report a broken deployment as a correctly configured one. So the
+ * failing specifier has to be the driver itself.
+ *
+ * A resolution failure this cannot attribute - a phrasing Node changed, or a
+ * loader with a message of its own - is **not** absence. It is rethrown by the
+ * caller, on the same principle: an unexplained failure is a defect to surface,
+ * not a deployment shape to infer.
+ *
+ * @param failure The load's failure, read as a resolution error.
+ * @param specifier The driver's own specifier.
+ * @returns Whether the driver itself is what failed to resolve.
+ */
+const isAbsent = (failure: ResolutionError, specifier: string): boolean => {
+  const { code, message } = failure;
+  if (code === undefined || !NOT_INSTALLED.has(code)) {
+    return false;
+  }
+  return UNRESOLVED.exec(message ?? "")?.groups?.specifier === specifier;
+};
 
 /**
  * Loads the hosted composition, or concludes that this deployment has none.
@@ -108,23 +154,27 @@ interface ResolutionError {
  * the workspace it is running in.
  *
  * @param load The import to attempt.
+ * @param specifier What `load` imports, which is what its failure has to name
+ *   for the package to count as absent. Defaults to the hosted driver; a test
+ *   passing a loader of its own is the only caller that names another.
  * @returns The hosted composition, or `null` where the package is not installed.
- * @throws {Error} Whatever the module threw, when it is installed and broken. A
+ * @throws {Error} Whatever the module threw, when it is installed and broken -
+ *   including a resolution failure that names anything but `specifier`. A
  *   package that is present and fails to load is a deployment defect, and
  *   answering `null` would report it as a self-hosted deployment.
  */
 export const composeHostedPlacement = async (
-  load: () => Promise<{ readonly hostedPlacement: HostedPlacement }>
+  load: () => Promise<{ readonly hostedPlacement: HostedPlacement }>,
+  specifier: string = HOSTED_DRIVER
 ): Promise<HostedPlacement | null> => {
   try {
     const loaded = await load();
     return loaded.hostedPlacement;
   } catch (error) {
-    // SAFETY: `code` is Node's own field on a resolution failure. Anything
-    // raised for another reason carries none, fails the test below, and is
-    // rethrown.
-    const { code } = error as ResolutionError;
-    if (code !== undefined && NOT_INSTALLED.has(code)) {
+    // SAFETY: `code` and `message` are Node's own fields on a resolution
+    // failure. Anything raised for another reason carries no matching `code`,
+    // fails the test below, and is rethrown.
+    if (isAbsent(error as ResolutionError, specifier)) {
       return null;
     }
     throw error;
@@ -138,13 +188,32 @@ let hosted: Promise<HostedPlacement | null> | undefined;
  *
  * Memoized like the control plane above, and for the weaker of the two reasons:
  * the module registry already caches the import, so this saves the repeated
- * `try` rather than repeated work.
+ * `try` rather than repeated work. A composition that **throws** - the driver
+ * installed and broken - is cleared for the same reason `controlPlane()` clears
+ * its own, and with the same care about which attempt is cleared: a deployment
+ * being repaired must not need a redeploy to clear a poisoned module, and
+ * clearing unconditionally would let a caller awaiting the failed promise
+ * discard a later caller's healthy one.
  *
  * @returns The hosted composition, or `null` in a self-hosted deployment.
+ * @throws {Error} Whatever the driver threw, when it is installed and broken.
  */
 export const hostedPlacement = async (): Promise<HostedPlacement | null> => {
-  hosted ??= composeHostedPlacement(() => import("@reprove/worker-hosted"));
-  return await hosted;
+  // The specifier stays a literal in the `import()`: a bundler resolves this
+  // edge at build time, and it can only do that for one it can read.
+  hosted ??= composeHostedPlacement(
+    () => import("@reprove/worker-hosted"),
+    HOSTED_DRIVER
+  );
+  const attempted = hosted;
+  try {
+    return await attempted;
+  } catch (error) {
+    if (hosted === attempted) {
+      hosted = undefined;
+    }
+    throw error;
+  }
 };
 
 const compose = async (): Promise<ControlPlane> =>

@@ -760,9 +760,12 @@ describe("the durable spine", () => {
       await expect(
         composeHostedPlacement(() =>
           Promise.reject(
-            Object.assign(new Error("Cannot find package"), {
-              code: "ERR_MODULE_NOT_FOUND",
-            })
+            Object.assign(
+              new Error(
+                "Cannot find package '@reprove/worker-hosted' imported from composition.js"
+              ),
+              { code: "ERR_MODULE_NOT_FOUND" }
+            )
           )
         )
       ).resolves.toBeNull();
