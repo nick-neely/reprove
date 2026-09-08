@@ -41,7 +41,9 @@ to watch a Run be "terminalized by liveness alone" through the real lifecycle lo
 sleep and the real conditional UPDATE, against a deadline that actually arrives inside a CI budget.
 A fake clock would disagree with the durable schedule it is meant to be testing, because Workflow's
 `sleep` runs on wall time. Either is refused at boot unless it is a positive whole number of
-milliseconds.
+milliseconds whose deadline is an instant a `Date` holds. There is no maximum below that one: a
+window a deployment deliberately made long simply detects late, which is what naming a long one
+asks for.
 
 The App id and the private key are what
 [ADR 0013](../../docs/adr/0013-github-ingress-and-run-creation-idempotency.md)'s canonical fetch

@@ -148,6 +148,38 @@ describe("the deployment's configuration, read from the environment", () => {
     }
   });
 
+  it("refuses a whole duration whose deadline is not an instant", () => {
+    // Both windows are applied as `new Date(now + milliseconds)`. A whole
+    // number of milliseconds inside `Number.MAX_SAFE_INTEGER` can still push
+    // that past the range `Date` represents, and `Invalid Date` reaches the
+    // claim rather than this parse, where nothing left names the variable.
+    for (const variable of [
+      ENVIRONMENT.claimableForMs,
+      ENVIRONMENT.livenessForMs,
+    ]) {
+      expect(() =>
+        configFromEnvironment(
+          { ...complete, [variable]: String(Number.MAX_SAFE_INTEGER) },
+          { runProfile: PROFILE }
+        )
+      ).toThrow(variable);
+    }
+  });
+
+  it("takes a long window a deployment really named, because none is too long", () => {
+    // A liveness window of a year detects nothing sooner, which is what a
+    // deployment that names one is asking for. There is no product maximum for
+    // this parse to hold, and one invented here would be selection policy the
+    // injected profile deliberately keeps out of the environment.
+    const year = 365 * 24 * 60 * 60 * 1000;
+    const config = configFromEnvironment(
+      { ...complete, [ENVIRONMENT.livenessForMs]: String(year) },
+      { runProfile: PROFILE }
+    );
+
+    expect(config.github.runProfile.livenessForMs).toBe(year);
+  });
+
   it("treats an empty override as one nobody set", () => {
     // A deployment platform that writes every declared variable writes an empty
     // string for the ones with no value, and that must not be a refusal.

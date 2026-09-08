@@ -141,6 +141,28 @@ const ESCAPED_NEWLINE = String.raw`\n`;
 const WHOLE_MILLISECONDS = /^[1-9]\d*$/u;
 
 /**
+ * Whether a duration names a deadline that exists.
+ *
+ * Both windows are applied the same way - `claimableUntil = now +
+ * claimableForMs` in run creation, `executionExpiresAt = claimedAt +
+ * livenessForMs` in the claim - and both of those are a `Date`. Past the range
+ * ECMA-262 gives `Date`, that sum is `Invalid Date`, which is not refused
+ * anywhere downstream: `normalizeRunProfile` asks only that the **duration** be
+ * finite and positive, and the first thing to notice is the claim that fails
+ * trying to write a `NaN` timestamp, naming neither the variable nor the value.
+ *
+ * There is no maximum below that one. A liveness window of a year detects a
+ * lost execution owner a year late, which is exactly what a deployment that
+ * names one is asking for; a product limit invented here would be selection
+ * policy, which ADR 0013 keeps out of anything read from the environment.
+ *
+ * @param milliseconds The duration a deployment named.
+ * @returns Whether a deadline that far ahead is a representable instant.
+ */
+const isReachableDeadline = (milliseconds: number): boolean =>
+  !Number.isNaN(new Date(Date.now() + milliseconds).getTime());
+
+/**
  * One duration override, or the profile's own value where none was set.
  *
  * Unlike every other value here, an unusable one is **refused rather than
@@ -155,7 +177,7 @@ const WHOLE_MILLISECONDS = /^[1-9]\d*$/u;
  * @param fallback The injected profile's own duration.
  * @returns The duration to use.
  * @throws {TypeError} Naming the variable, when it is set to anything but a
- *   positive whole number of milliseconds.
+ *   positive whole number of milliseconds a deadline can be placed at.
  */
 const durationOverride = (
   env: Environment,
@@ -177,7 +199,13 @@ const durationOverride = (
       `${variable} is ${JSON.stringify(raw)}, which is not a positive whole number of milliseconds`
     );
   }
-  return Number(raw);
+  const milliseconds = Number(raw);
+  if (!isReachableDeadline(milliseconds)) {
+    throw new TypeError(
+      `${variable} is ${JSON.stringify(raw)}, which puts its deadline past the last instant a Date holds`
+    );
+  }
+  return milliseconds;
 };
 
 const reportToStderr = (error: Error): void => {
