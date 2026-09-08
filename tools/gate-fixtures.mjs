@@ -52,6 +52,12 @@ const RUNTIME_ROLE = "reprove_runtime";
 /** The gate's own database, recreated on every run. */
 export const DATABASE = "reprove_gate";
 
+/**
+ * The interface every fixture listener is bound to, and the one the scenario
+ * reaches them on. Named once so the bind and the origin cannot disagree.
+ */
+const LOOPBACK = "127.0.0.1";
+
 /** Where the built application listens. Override with `REPROVE_GATE_PORT`. */
 export const PORT = Number(process.env.REPROVE_GATE_PORT ?? "3939");
 if (!(Number.isInteger(PORT) && PORT > 0 && PORT < 65_536)) {
@@ -597,29 +603,38 @@ export const signedDelivery = (delivery = {}) => {
  *   it serves, what it has said, and how to stop it and everything it forked.
  */
 export const startBuiltApp = (githubUrl, key, extra = {}) => {
-  const origin = `http://127.0.0.1:${PORT}`;
-  const server = spawn(nextBin(), ["start", "-p", String(PORT)], {
-    cwd: APP,
-    env: {
-      ...process.env,
-      PORT: String(PORT),
-      NEXT_TELEMETRY_DISABLED: "1",
-      REPROVE_DATABASE_URL: runtimeUrl(DATABASE),
-      REPROVE_GITHUB_WEBHOOK_SECRET: WEBHOOK_SECRET,
-      REPROVE_GITHUB_APP_ID: APP_ID,
-      REPROVE_GITHUB_PRIVATE_KEY: key,
-      REPROVE_GITHUB_API_URL: githubUrl,
-      WORKFLOW_TARGET_WORLD: "@workflow/world-postgres",
-      WORKFLOW_POSTGRES_URL: adminUrl(DATABASE),
-      WORKFLOW_LOCAL_BASE_URL: origin,
-      ...extra,
-    },
-    stdio: ["ignore", "pipe", "pipe"],
-    // Its own process group, so the signals below reach the render workers
-    // `next start` forks as well as the process this spawned. Killing only the
-    // direct child leaves a worker holding the port for the next run.
-    detached: true,
-  });
+  const origin = `http://${LOOPBACK}:${PORT}`;
+  // Bound to loopback explicitly rather than left on `next start`'s default of
+  // every interface. The fixture's webhook secret is a phrase committed to this
+  // repository, so an application reachable from the runner's network is one
+  // anybody on it can post a validly signed delivery to, and the scenario would
+  // be asserting over a Run it did not create.
+  const server = spawn(
+    nextBin(),
+    ["start", "-p", String(PORT), "-H", LOOPBACK],
+    {
+      cwd: APP,
+      env: {
+        ...process.env,
+        PORT: String(PORT),
+        NEXT_TELEMETRY_DISABLED: "1",
+        REPROVE_DATABASE_URL: runtimeUrl(DATABASE),
+        REPROVE_GITHUB_WEBHOOK_SECRET: WEBHOOK_SECRET,
+        REPROVE_GITHUB_APP_ID: APP_ID,
+        REPROVE_GITHUB_PRIVATE_KEY: key,
+        REPROVE_GITHUB_API_URL: githubUrl,
+        WORKFLOW_TARGET_WORLD: "@workflow/world-postgres",
+        WORKFLOW_POSTGRES_URL: adminUrl(DATABASE),
+        WORKFLOW_LOCAL_BASE_URL: origin,
+        ...extra,
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+      // Its own process group, so the signals below reach the render workers
+      // `next start` forks as well as the process this spawned. Killing only the
+      // direct child leaves a worker holding the port for the next run.
+      detached: true,
+    }
+  );
   let log = "";
   server.stdout.on("data", (chunk) => {
     log += String(chunk);
