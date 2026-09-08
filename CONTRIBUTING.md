@@ -89,7 +89,7 @@ lifecycle loop, the real durable sleep and the real conditional UPDATE run
 against a deadline that arrives inside a CI budget. Roughly a minute of the
 gate's time is that wait, and it is polled rather than slept through.
 
-Three pieces of state the scenario needs are arranged with `psql` as the
+Two pieces of state the scenario needs are arranged with `psql` as the
 superuser rather than driven, and each stands in for something Phase 0
 deliberately does not have: a `worker` row and its credential stand in for
 Enrollment, and a Run's placement is flipped because Phase 0 exposes no

@@ -53,8 +53,9 @@
  * It fails with instructions rather than skipping when the stack is down.
  *
  * Run as `node tools/verify-workflow-build.mjs`, after `turbo run build` has
- * produced every package's `dist`. `--keep` leaves the gate's database and the
- * built application in place for inspection.
+ * produced every package's `dist`. `--keep` leaves the gate's database in place
+ * for inspection; the built application is always stopped, because a `next
+ * start` left running would hold the port and the gate's own event loop open.
  */
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";

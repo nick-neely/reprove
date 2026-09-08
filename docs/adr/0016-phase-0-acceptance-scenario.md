@@ -252,6 +252,20 @@ Asserted absent, because Phase 1 owns them:
 - **The injection point is a known impurity.** A test-only branch in shipped orchestration is a real
   cost, accepted for one case, and it is the second thing ADR 0014's orchestration package carries
   that would be better behind a private surface - `reportHostedFailure` being the first.
+- **The two Run windows are readable from the environment, and that is the third such cost.**
+  Added by [#58](https://github.com/nick-neely/reprove/issues/58): "with only the two durations
+  moved" needed somewhere to move them from, and a scenario that watched the real durable sleep
+  against the shipped ten minutes does not fit any CI budget. So
+  `REPROVE_RUN_CLAIMABLE_FOR_MS` and `REPROVE_RUN_LIVENESS_FOR_MS` are read in
+  `@reprove/control-plane-workflow`'s one environment module and folded into the injected profile,
+  ungated, on every boot. They are the **only** fields of `Phase0RunProfile` a deployment may name,
+  and the line is that a duration changes how long a window is open rather than what runs inside it
+  - a harness, a model or a placement read from a variable would be exactly the hazard ADR 0013
+  built the profile to prevent. `normalizeRunProfile` still bounds both, and an unusable value is
+  refused at boot rather than passed through. One hazard follows and is named rather than left to be
+  discovered: a very short `REPROVE_RUN_CLAIMABLE_FOR_MS` in a real deployment narrows the window in
+  which `runLifecycle`'s unrecorded-lifecycle grace can leave a Run with nothing to close it, from
+  minutes to seconds.
 - **`worker_lost` is still never observed against a real Worker.** All three of ADR 0015's detectors
   remain exercised against fixtures.
 

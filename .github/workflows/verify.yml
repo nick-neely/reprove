@@ -19,7 +19,10 @@ jobs:
     name: verify
     runs-on: ubuntu-latest
     # The real-builder gate (`verify:workflow`) builds the app from clean and
-    # then runs it, which costs two to three minutes on top of the rest.
+    # then walks the Phase 0 exit against it, which costs three to four minutes
+    # on top of the rest. About a minute of that is one deliberate wait: the
+    # liveness walkthrough runs the real durable sleep against a real deadline,
+    # polled rather than slept through.
     timeout-minutes: 30
     steps:
       # `fetch-depth: 0` because `tools/verify-migrations.mjs` compares the

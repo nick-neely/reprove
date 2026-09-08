@@ -57,9 +57,11 @@
  * lifecycle, the claim, Acceptance, the watchdog - is the built application,
  * over real HTTP, against real Postgres behind real PgBouncer.
  *
- * **Three arrangements are made with `psql` as the superuser**, and each stands
- * in for something ADR 0016 asserts absent from Phase 0 rather than working
- * around something that exists. They are marked where they happen.
+ * **Two things are arranged with `psql` as the superuser**, and each stands in
+ * for something ADR 0016 asserts absent from Phase 0 rather than working around
+ * something that exists: the Worker and its credential (`arrangeWorker`), and a
+ * Run's placement (`arrangeSelfHosted`). Both are marked where they happen, and
+ * nothing else in this file writes as the superuser.
  *
  * **The ingress re-drive is cited, not re-proven.** ADR 0013 made automatic
  * re-drive of `contended` and `transient` dispositions a Phase 0 exit condition
@@ -124,8 +126,26 @@ import {
  * slept is asleep toward its claim window, and nothing notifies it when a claim
  * lands. So it wakes at `claimableUntil`, re-reads, finds a `claimed` Run whose
  * execution deadline has already passed, and closes **that** window - which is
- * the transition under test. The scenario therefore claims its silent Runs
- * first, walks everything else while the clock runs, and polls at the end.
+ * the transition under test. The scenario therefore claims every Run as soon as
+ * it exists, walks everything else while the clock runs, and polls at the end.
+ *
+ * **`claimableFor` is therefore a budget, and the order of the walkthroughs is
+ * what keeps the scenario inside it.** Two spans have to fit:
+ *
+ * ```text
+ * creation -> claim        two requests, for every Run. F1's 25 MiB body runs
+ *                          between the spine's claim and the next creation, so
+ *                          no Run's window is open while it does.
+ * claim -> Acceptance      F3, F4's ten rejections, F5, and then F6 or F8. All
+ *                          HTTP on loopback; two of the bodies are a quarter of
+ *                          a megabyte and the rest are small.
+ * ```
+ *
+ * Measured, the second span is a couple of seconds against a 45-second budget.
+ * It is still asserted rather than assumed: `stillClaimed` runs in front of the
+ * two walkthroughs that depend on it, so an overrun on a loaded runner reports
+ * the budget it broke instead of cascading into a dozen failures about
+ * Acceptance answering `409`.
  */
 const CLAIMABLE_FOR_MS = 45_000;
 const LIVENESS_FOR_MS = 8000;
@@ -327,9 +347,14 @@ export const submissionFor = (runId, executionToken, overrides = {}) => ({
  *
  * This is the absence battery's strongest assertion and its cheapest: the
  * canned server is the oracle, so "no Check run was published, no Review, no
- * Comment" is not a claim about what the code does not call - it is the request
- * list being **exactly** the installation-token exchange plus one canonical
- * fetch per pull request the scenario drove.
+ * Comment" is not a claim about what the code does not call - it is that
+ * **nothing outside the allowlist was ever requested**, and the allowlist is
+ * the installation-token exchange and the canonical fetches.
+ *
+ * It deduplicates rather than counting, deliberately: how many times canonical
+ * state was fetched for one pull request is a retry question, and the ingress
+ * step is retried by design. What it refuses is a request line that should not
+ * exist at all.
  *
  * @param {import("./gate-fixtures.mjs").CannedRequest[]} seen Every request the
  *   canned GitHub received.
@@ -413,6 +438,33 @@ export const restHeaderFault = (request) => {
 /** One row, or `null` where the statement matched none. */
 const oneRow = (statement, values) =>
   psql(DATABASE, statement, values)[0] ?? null;
+
+/**
+ * Whether a Run is still held by the execution that claimed it.
+ *
+ * The claim window is a fuse lit at Run creation and the watchdog wakes at the
+ * end of it, so everything between a claim and the Acceptance that answers it
+ * has to fit inside `CLAIMABLE_FOR_MS`. This is what turns an overrun into one
+ * sentence naming the budget rather than a walkthrough's worth of failures
+ * about a `409` nobody expected.
+ *
+ * @param {object} c The scenario's context.
+ * @param {{id: string}} run The Run about to be submitted to.
+ * @param {string} walkthrough What is about to run.
+ * @returns {boolean} Whether to run it.
+ */
+const stillClaimed = (c, run, walkthrough) => {
+  const row = oneRow("select status from run where id = :'runId'", {
+    runId: run.id,
+  });
+  if (row?.[0] === "claimed") {
+    return true;
+  }
+  c.bad(
+    `${walkthrough} cannot run: its Run reads ${row?.[0] ?? "nothing"} rather than claimed. Everything between a Run's creation and its Acceptance has to fit inside REPROVE_RUN_CLAIMABLE_FOR_MS (${CLAIMABLE_FOR_MS}ms), because the watchdog wakes at claimableUntil and closes the execution window it finds already passed.`
+  );
+  return false;
+};
 
 /**
  * Waits for one pull request's delivery to become a queued Run with a recorded
@@ -544,7 +596,8 @@ const untilRunTerminal = async (runId) =>
  * @param {string} path The route.
  * @param {Readonly<Record<string, string>>} headers The request headers.
  * @param {string} body The request body.
- * @returns {Promise<{status: number, body: unknown}>} The answer.
+ * @returns {Promise<{status: number, body: unknown, sentAt: number,
+ *   receivedAt: number}>} The answer, and the interval it was outstanding for.
  */
 const onItsOwnConnection = (origin, path, headers, body) =>
   // `node:http` predates promises and exposes no promise-returning form, so
@@ -552,6 +605,7 @@ const onItsOwnConnection = (origin, path, headers, body) =>
   // oxlint-disable-next-line promise/avoid-new
   new Promise((resolve, reject) => {
     const target = new URL(path, origin);
+    let sentAt = performance.now();
     const request = httpRequest(
       {
         agent: new HttpAgent({ keepAlive: false, maxSockets: 1 }),
@@ -574,12 +628,22 @@ const onItsOwnConnection = (origin, path, headers, body) =>
           } catch {
             // Reported by the assertion that reads the reason out of it.
           }
-          resolve({ body: parsed, status: response.statusCode ?? 0 });
+          resolve({
+            body: parsed,
+            receivedAt: performance.now(),
+            sentAt,
+            status: response.statusCode ?? 0,
+          });
         });
       }
     );
     request.on("error", reject);
-    request.end(body);
+    // After `end`, because that is when the request is genuinely outstanding:
+    // the interval `[sentAt, receivedAt]` is what the exactly-once walkthrough
+    // intersects to show the two were in flight together.
+    request.end(body, () => {
+      sentAt = performance.now();
+    });
   });
 
 // --- the walkthroughs --------------------------------------------------------
@@ -882,7 +946,7 @@ const claim = async (c, runId) =>
   });
 
 /**
- * F2 and F3: what each placement answers, and what a second claim answers.
+ * F2: what the endpoint answers about the placement it is not.
  *
  * ADR 0016 asks for "claim endpoint status and body, for both placements", and
  * the honest reading is that **a claim only ever reaches its own placement**:
@@ -890,28 +954,41 @@ const claim = async (c, runId) =>
  * `placement_mismatch` and a self-hosted Run answers with a grant. Those are
  * the endpoint's two answers about placement, and there is no third.
  *
+ * It runs first among the walkthroughs that touch a Run, because it is the one
+ * that needs the spine's Run still claimable.
+ *
  * @param {object} c The scenario's context.
  * @param {{id: string}} hosted The spine's Run, which is hosted.
- * @param {{id: string}} selfHosted The Run this walkthrough claims.
- * @returns {Promise<string>} The execution token the grant handed back.
+ * @returns {Promise<void>} When it has been asserted.
  */
-const walkClaims = async (c, hosted, selfHosted) => {
+const walkPlacementMismatch = async (c, hosted) => {
   c.refuses(
     "F2 a self-hosted Worker claiming the hosted Run",
     await claim(c, hosted.id),
     409,
     "placement_mismatch"
   );
+};
 
-  const granted = await claim(c, selfHosted.id);
-  c.is("F3 the self-hosted Run is granted", granted.status, 200);
-  const grant = claimGrantSchema.safeParse(granted.body);
+/**
+ * F3: the grant a self-hosted claim returns, and what a second claim answers.
+ *
+ * The claim itself happened as soon as the Run existed, for the reason the
+ * claim-window budget above gives; this is what is said about it afterwards.
+ *
+ * @param {object} c The scenario's context.
+ * @param {{id: string}} run The Run that was claimed.
+ * @param {unknown} grantBody The body the claim answered with.
+ * @returns {Promise<void>} When the grant has been validated.
+ */
+const walkClaimGrant = async (c, run, grantBody) => {
+  const grant = claimGrantSchema.safeParse(grantBody);
   if (grant.success) {
     c.ok("F3 the grant validates against claimGrantSchema");
     c.is(
       "F3 the grant names the Run it was asked for",
       grant.data.runSpec.runId,
-      selfHosted.id
+      run.id
     );
     c.is(
       "F3 the grant's spec carries the claimed placement",
@@ -931,7 +1008,7 @@ const walkClaims = async (c, hosted, selfHosted) => {
 
   c.refuses(
     "F3 the same Run claimed a second time",
-    await claim(c, selfHosted.id),
+    await claim(c, run.id),
     409,
     "already_claimed"
   );
@@ -940,15 +1017,13 @@ const walkClaims = async (c, hosted, selfHosted) => {
   const row = oneRow(
     `select status, coalesce(worker_id::text, ''), worker_protocol_version::text
        from run where id = :'runId'`,
-    { runId: selfHosted.id }
+    { runId: run.id }
   );
   c.is(
     "F3 the claimed Run records the Worker that holds it",
     `${row?.[0]}/${row?.[1]}/${row?.[2]}`,
     `claimed/${c.workerId}/1`
   );
-
-  return granted.body?.executionToken ?? "";
 };
 
 /**
@@ -1114,6 +1189,9 @@ const walkResultRejections = async (c, run, token) => {
  * @returns {Promise<void>} When the readback has been asserted.
  */
 const walkAcceptance = async (c, run, token) => {
+  if (!stillClaimed(c, run, "F6 Acceptance")) {
+    return;
+  }
   const submission = JSON.stringify(submissionFor(run.id, token));
   const headers = {
     authorization: `Bearer ${c.credential}`,
@@ -1207,6 +1285,9 @@ const walkAcceptance = async (c, run, token) => {
  * @returns {Promise<void>} When the pair has been asserted.
  */
 const walkConcurrency = async (c, run, token) => {
+  if (!stillClaimed(c, run, "F8 exactly-once")) {
+    return;
+  }
   const body = JSON.stringify(submissionFor(run.id, token));
   const headers = {
     authorization: `Bearer ${c.credential}`,
@@ -1218,6 +1299,17 @@ const walkConcurrency = async (c, run, token) => {
     onItsOwnConnection(c.app.origin, path, headers, body),
   ]);
 
+  // Concurrency, asserted rather than arranged. Two `200 and 409` answers are
+  // also what a fully serialized pair produces, and F7 already proves the
+  // sequential case, so a pair the **client** ran one after the other would
+  // report `ok` while proving nothing new. Overlapping intervals say both were
+  // outstanding at the same instant. What this cannot see - and does not claim
+  // to - is the ordering the row lock then imposes inside Postgres, which is
+  // the mechanism under test rather than a confound.
+  const overlap =
+    Math.min(first.receivedAt, second.receivedAt) >
+    Math.max(first.sentAt, second.sentAt);
+  c.is("F8 both submissions really were in flight together", overlap, true);
   c.is(
     "F8 two simultaneous submissions yield exactly one 200 and one 409",
     [first.status, second.status].toSorted().join(" and "),
@@ -1283,6 +1375,46 @@ const walkLiveness = async (c, silent) => {
       `${label} scheduled by the one lifecycle it recorded at creation`,
       row[6],
       run.workflowRunId
+    );
+
+    // The same row, through `withOwner()` on the pooled runtime role, which is
+    // the read ADR 0016's criterion names - and the only place in this
+    // scenario where the **populated** structured failure detail crosses the
+    // published surface. F6 reads it in its `null` state, which is the weakest
+    // possible reading of "structured failure detail". The psql row above stays
+    // because it is the poll, and because it carries two columns `readRun` does
+    // not: the recorded lifecycle and the Worker identity.
+    const record = await c.plane.readRun(OWNER_ID, run.id);
+    c.is(`${label} readRun: the Run is failed`, record?.status, "failed");
+    c.is(
+      `${label} readRun: the reason is worker_lost`,
+      record?.failureReason,
+      "worker_lost"
+    );
+    c.is(
+      `${label} readRun: the detail names the detector`,
+      record?.failureDetail?.detector,
+      "hosted_watchdog"
+    );
+    c.is(
+      `${label} readRun: the detail names what it observed`,
+      record?.failureDetail?.observation,
+      "deadline_elapsed"
+    );
+    c.is(
+      `${label} readRun: the detail names which window it was lost from`,
+      record?.failureDetail?.lostFrom,
+      "claimed"
+    );
+    c.is(
+      `${label} readRun: no pass is recorded`,
+      record?.hostedWorkflowRunId,
+      null
+    );
+    c.is(
+      `${label} readRun: no Result was ever absorbed`,
+      record?.acceptedAt,
+      null
     );
     // The placement-neutrality half: one of these Runs records the Worker that
     // claimed it and the other records none, and both end the same way.
@@ -1364,11 +1496,14 @@ const walkAbsence = async (c, run) => {
     "0"
   );
 
-  // No narrative is supplied to any Reviewer, and there is no runtime probe for
-  // that because there is no Reviewer: the hosted placement's own input sets
-  // `narrative: { description: null, title: 'Run <id>' }`
-  // (`packages/worker-hosted/src/core.ts`), and the self-hosted path here has
-  // no Worker at all beyond the one the scenario is standing in for.
+  // ADR 0016's list has one more entry - "no narrative supplied to any
+  // Reviewer" - and this battery deliberately does not assert it, because
+  // nothing here could: no Reviewer runs, so there is no narrative to observe
+  // the absence of. It is an argument from the code (`phase0RunInput` in
+  // `packages/worker-hosted/src/core.ts` sets
+  // `narrative: { description: null, title: 'Run <id>' }`) rather than an
+  // observation, and it belongs in the pull request's non-claims rather than
+  // among assertions that are made.
 
   const authorized = {
     authorization: `Bearer ${c.credential}`,
@@ -1504,16 +1639,44 @@ export const runPhase0Exit = async (report) => {
 
     // W0, and the hosted Run every later walkthrough forks off.
     const spine = await walkSpine(c);
-    await walkWebhookRefusals(c);
 
     const worker = arrangeWorker();
     c.credential = worker.credential;
     c.workerId = worker.workerId;
 
+    // F2 first, because it is the one walkthrough that needs the spine's Run
+    // still claimable, and then the hosted claim that closes it. Both are two
+    // requests away from the delivery that created the Run, which is what
+    // keeps the claim-window budget above at a couple of seconds.
+    await walkPlacementMismatch(c, spine);
+
+    // The hosted half of F9, taken through the real hosted claim. `start()` is
+    // deliberately not called after it: this is the window ADR 0016 pays for,
+    // and the reason the label below does not say `start()` was reached.
+    const orphan = await plane.claimRun({ ownerId: OWNER_ID, runId: spine.id });
+    is("the hosted Run was claimed by the hosted path", orphan.kind, "granted");
+    const orphanDeadline = executionDeadlineOf(spine.id);
+    is(
+      "the hosted claim recorded no pass, which is the abandoned shape",
+      oneRow(
+        `select status, coalesce(hosted_workflow_run_id, '')
+           from run where id = :'runId'`,
+        { runId: spine.id }
+      )?.join("/"),
+      "claimed/"
+    );
+
+    // F1 needs no Run at all, and one of its five refusals posts 25 MiB. It
+    // runs here, between the spine's claim and the next Run's creation, so
+    // that no Run's claim window is open while it does.
+    await walkWebhookRefusals(c);
+
     // The three Runs the rest of the scenario needs, created through the same
-    // spine and claimed straight away - the liveness walkthrough's clock starts
-    // at the claim, and everything below runs while it ticks.
+    // spine and each claimed immediately: the claim window is a fuse lit at
+    // Run creation, so nothing expensive belongs between the two.
     const runs = {};
+    const grants = {};
+    const tokens = {};
     for (const [name, guid] of [
       ["accepted", GUIDS.accepted],
       ["concurrent", GUIDS.concurrent],
@@ -1534,31 +1697,20 @@ export const runPhase0Exit = async (report) => {
       }
       runs[name] = await untilRunQueued(PULLS[name]);
       arrangeSelfHosted(runs[name].id);
+      const granted = await claim(c, runs[name].id);
+      if (granted.status !== 200) {
+        throw new Error(
+          `the claim for ${name} answered ${granted.status} ${granted.text}`
+        );
+      }
+      grants[name] = granted.body;
+      tokens[name] = granted.body?.executionToken ?? "";
     }
-    ok("three further Runs were created through the same spine");
-
-    const acceptedToken = await walkClaims(c, spine, runs.accepted);
-
-    const concurrent = await claim(c, runs.concurrent.id);
-    is("the concurrency Run was claimed", concurrent.status, 200);
-    const silent = await claim(c, runs.silent.id);
-    is("the silent Run was claimed", silent.status, 200);
+    ok("three further Runs were created through the same spine and claimed");
     const silentDeadline = executionDeadlineOf(runs.silent.id);
 
-    // The hosted half of F9, taken through the real hosted claim. `start()` is
-    // deliberately not called after it: this is the window ADR 0016 pays for.
-    const orphan = await plane.claimRun({ ownerId: OWNER_ID, runId: spine.id });
-    is("the hosted Run was claimed by the hosted path", orphan.kind, "granted");
-    const orphanDeadline = executionDeadlineOf(spine.id);
-    is(
-      "the hosted claim recorded no pass, which is the abandoned shape",
-      oneRow(
-        `select status, coalesce(hosted_workflow_run_id, '')
-           from run where id = :'runId'`,
-        { runId: spine.id }
-      )?.join("/"),
-      "claimed/"
-    );
+    const acceptedToken = tokens.accepted;
+    await walkClaimGrant(c, runs.accepted, grants.accepted);
 
     await walkResultRejections(c, runs.accepted, acceptedToken);
     c.refuses(
@@ -1575,23 +1727,19 @@ export const runPhase0Exit = async (report) => {
     );
 
     await walkAcceptance(c, runs.accepted, acceptedToken);
-    await walkConcurrency(
-      c,
-      runs.concurrent,
-      concurrent.body?.executionToken ?? ""
-    );
+    await walkConcurrency(c, runs.concurrent, tokens.concurrent);
 
     await walkLiveness(c, [
       {
         deadline: silentDeadline,
         label: "F9 self-hosted silence:",
         run: runs.silent,
-        token: silent.body?.executionToken ?? "",
+        token: tokens.silent,
         workerId: worker.workerId,
       },
       {
         deadline: orphanDeadline,
-        label: "F9 the hosted start() orphan:",
+        label: "F9 the hosted claim left abandoned:",
         run: spine,
         token: orphan.kind === "granted" ? orphan.grant.executionToken : "",
         // Null, and that is the placement rather than an omission: ADR 0006

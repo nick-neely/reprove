@@ -1,8 +1,9 @@
-import { createHash } from "node:crypto";
+import { createHash, createSign, generateKeyPairSync } from "node:crypto";
 
 import { describe, expect, it } from "vitest";
 
 import {
+  appJwtFault,
   executionTokenDigest,
   resultFor,
   submissionFor,
@@ -143,5 +144,88 @@ describe(unexpectedRequests, () => {
     expect(unexpectedRequests([publish, publish, publish], [])).toStrictEqual([
       "POST /repos/acme/reprove/check-runs",
     ]);
+  });
+});
+
+/** One JOSE segment, as a compact JWS encodes it. */
+const segment = (value: Readonly<Record<string, string>>): string =>
+  Buffer.from(JSON.stringify(value), "utf-8").toString("base64url");
+
+/** The recorded installation-token exchange, carrying whatever it carried. */
+const carrying = (authorization?: string) => ({
+  headers: authorization === undefined ? {} : { authorization },
+  method: "POST",
+  url: "/app/installations/42/access_tokens",
+});
+
+describe(appJwtFault, () => {
+  const KEY = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const PRIVATE_PEM = KEY.privateKey
+    .export({ format: "pem", type: "pkcs8" })
+    .toString();
+  const PUBLIC_PEM = KEY.publicKey
+    .export({ format: "pem", type: "spki" })
+    .toString();
+  const OTHER_PEM = generateKeyPairSync("rsa", { modulusLength: 2048 })
+    .publicKey.export({ format: "pem", type: "spki" })
+    .toString();
+
+  /** A compact JWS the way `appJwt` mints one, over whatever it is given. */
+  const assertion = (
+    header: Readonly<Record<string, string>>,
+    payload: Readonly<Record<string, string>>
+  ): string => {
+    const signingInput = `${segment(header)}.${segment(payload)}`;
+    const signer = createSign("RSA-SHA256");
+    signer.update(signingInput);
+    return `${signingInput}.${signer.sign(PRIVATE_PEM).toString("base64url")}`;
+  };
+
+  const RS256 = { alg: "RS256", typ: "JWT" };
+  /** The App id `gate-fixtures.mjs` starts the built application with. */
+  const APP = { iss: "1234" };
+
+  it("accepts the assertion the built application is supposed to send", () => {
+    expect(
+      appJwtFault(carrying(`Bearer ${assertion(RS256, APP)}`), PUBLIC_PEM)
+    ).toBeNull();
+  });
+
+  it("reports a request that carried no credential at all", () => {
+    expect(appJwtFault(carrying(), PUBLIC_PEM)).toBe(
+      "carried no bearer credential"
+    );
+  });
+
+  it("reports a bearer credential that is not a JWS", () => {
+    expect(appJwtFault(carrying("Bearer ghs_a_token"), PUBLIC_PEM)).toBe(
+      "carried a bearer credential that is not a compact JWS"
+    );
+  });
+
+  it("reports a JOSE header that is not an RS256 JWT", () => {
+    expect(
+      appJwtFault(
+        carrying(`Bearer ${assertion({ alg: "HS256", typ: "JWT" }, APP)}`),
+        PUBLIC_PEM
+      )
+    ).toContain("rather than an RS256 JWT");
+  });
+
+  it("reports an assertion issued by a different App", () => {
+    expect(
+      appJwtFault(
+        carrying(`Bearer ${assertion(RS256, { iss: "9999" })}`),
+        PUBLIC_PEM
+      )
+    ).toContain("rather than the App id 1234");
+  });
+
+  it("reports a well-formed assertion the App's key did not sign", () => {
+    // The branch the whole check exists for: everything above is shape, and
+    // only this one separates a real signature from a convincing placeholder.
+    expect(
+      appJwtFault(carrying(`Bearer ${assertion(RS256, APP)}`), OTHER_PEM)
+    ).toBe("carried a JWS that does not verify under the App's own key");
   });
 });
