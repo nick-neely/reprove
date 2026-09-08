@@ -184,3 +184,89 @@ export const RUN_CANCELLATION_REASONS = [
   "pull_request_drafted",
 ] as const;
 export type RunCancellationReason = (typeof RUN_CANCELLATION_REASONS)[number];
+
+/**
+ * `run.failure_reason`, on `failed`.
+ *
+ * One member, and [ADR 0015](../../../../docs/adr/0015-execution-ownership-and-worker-liveness.md)
+ * argues for it at length: `worker_lost` serves **both Worker kinds and all
+ * three detectors**, because ADR 0001's single Worker concept is load-bearing
+ * and "my daemon or your infrastructure?" is answered by the detector, which is
+ * evidence rather than domain vocabulary.
+ *
+ * It is the fallback for an execution that ended without a more specific
+ * acceptable terminal report reaching the control plane. An uncaught throw
+ * qualifies even though Reprove witnessed it, because a crash is not an
+ * acceptable terminal report. A structured Failure from `worker-core` does
+ * **not**: that path keeps its own specific reason, so
+ * `sandbox_teardown_incomplete` is never collapsed into this.
+ */
+export const RUN_FAILURE_REASONS = ["worker_lost"] as const;
+export type RunFailureReason = (typeof RUN_FAILURE_REASONS)[number];
+
+/**
+ * `run.failure_detail.detector`: which of ADR 0015's three noticed.
+ *
+ * ```text
+ * hosted_prompt     hosted, in-process   an uncaught throw in the pass    milliseconds
+ * hosted_watchdog   hosted, lifecycle    no usable signal by deadline     bounded
+ * lease_expired     self-hosted, later   renewal stops                    bounded
+ * ```
+ *
+ * All three call the same transition on the same predicate. They differ because
+ * the **evidence** differs; the terminal write does not fork.
+ *
+ * **Only `hosted_watchdog` has a caller today.** `hosted_prompt`'s entry point
+ * exists and is tested, but the `try`/`catch` that uses it belongs to a hosted
+ * pass, which #57 composes; `lease_expired` waits on a self-hosted Worker and a
+ * renewal transport, neither of which Phase 0 has. Both are declared ahead of
+ * their callers deliberately - this is ADR 0015's fixed vocabulary, and the
+ * property that makes renewal "a column write rather than a second liveness
+ * system" is easier to keep true when the vocabulary it lands in already
+ * exists.
+ */
+export const EXECUTION_LOST_DETECTORS = [
+  "hosted_prompt",
+  "hosted_watchdog",
+  "lease_expired",
+] as const;
+export type ExecutionLostDetector = (typeof EXECUTION_LOST_DETECTORS)[number];
+
+/**
+ * `run.failure_detail.observation`: what the detector actually saw.
+ *
+ * ```text
+ * uncaught_throw                    the pass threw and Reprove was on the stack
+ * workflow_failed                   the durable pass ended failed
+ * workflow_cancelled                the durable pass was cancelled
+ * workflow_terminal_without_result  it ended, and no Result was ever submitted
+ * workflow_state_unavailable        its state could not be read at all
+ * deadline_elapsed                  nothing usable arrived by executionExpiresAt
+ * ```
+ *
+ * Only `uncaught_throw` and `deadline_elapsed` are reachable in Phase 0. The
+ * other four describe a **pass's** durable run, which arrives with the hosted
+ * placement (#57); they are declared here because they are ADR 0015's fixed set
+ * and inventing code paths to reach them early would prove nothing.
+ */
+export const EXECUTION_LOST_OBSERVATIONS = [
+  "uncaught_throw",
+  "workflow_failed",
+  "workflow_cancelled",
+  "workflow_terminal_without_result",
+  "workflow_state_unavailable",
+  "deadline_elapsed",
+] as const;
+export type ExecutionLostObservation =
+  (typeof EXECUTION_LOST_OBSERVATIONS)[number];
+
+/**
+ * `run.failure_detail.lostFrom`: which side of the eligibility window the Run
+ * was abandoned on.
+ *
+ * It is `ResultEligibleRunStatus` **reused rather than restated**, because it is
+ * the same fact: the terminal transition writes over exactly Acceptance's
+ * window, so a Run can only be lost from inside it. A second list here would be
+ * the divergence ADR 0015 forbids, in the one place it would be least visible.
+ */
+export type LostFrom = ResultEligibleRunStatus;

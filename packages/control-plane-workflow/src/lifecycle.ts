@@ -5,7 +5,7 @@
  *
  * It schedules; it does not decide. Every fact about a Run's outcome is written
  * by the control plane, and this workflow reads what was written and acts on
- * exactly one deadline: the unclaimed window. [ADR
+ * the Run's **two** bounded windows. [ADR
  * 0015](../../../docs/adr/0015-execution-ownership-and-worker-liveness.md)
  * shapes it as a **state-driven loop** that re-reads authoritative Run state on
  * every wake rather than trusting the timestamp it slept toward:
@@ -15,10 +15,23 @@
  *   -> read authoritative Run state
  *      invisible, or another lifecycle recorded  -> return, having written nothing
  *      terminal                                  -> return
- *      queued, deadline ahead                    -> sleep toward it, or until notified
- *      queued, deadline passed                   -> attempt `unscheduled`
- *      claimed | executing                       -> return (see below)
+ *      queued              -> claim-window branch, on claimableUntil
+ *      claimed | executing -> liveness branch, on the CURRENT executionExpiresAt
+ *                             deadline ahead   -> sleep toward it, or until notified
+ *                             deadline passed  -> attempt failed(worker_lost)
  * ```
+ *
+ * **The two branches are one shape.** Each window is a deadline the Run itself
+ * carries, so below the branch the loop sleeps toward it or tries to close it,
+ * and only the transition differs. The re-read is what makes a self-hosted
+ * Lease renewal work later without a new mechanism: renewal advances a column,
+ * and a wake that finds a later deadline sleeps again.
+ *
+ * **One durable run per Run.** A separate watchdog workflow was rejected: it
+ * would add a third `start()` orphan window of exactly the kind that leaves a
+ * Run at `claimed` with a live, unrecorded pass - the hole this loop's second
+ * branch exists to close. The cost is one pending `sleep` per lost race, an
+ * un-cancelled job that fires later as an early-return no-op.
  *
  * **Everything this workflow body reaches is inlined into the workflow bundle,
  * and that bundle runs in a VM with no `require`.** So the body calls the
@@ -30,15 +43,16 @@
  * stayed green. The real-builder gate exists because that rule cannot be left
  * to memory.
  *
- * **The `claimed | executing` branch returns rather than watching.** ADR 0015
- * gives execution liveness to this same loop, with `executionExpiresAt` as its
- * second window; that column is written at claim, which is
- * [#54](https://github.com/nick-neely/reprove/issues/54)'s, and the liveness
- * branch is [#56](https://github.com/nick-neely/reprove/issues/56)'s. Until
- * then a Run that left the unclaimed window is reported as having done so, and
- * `claimableUntil` is not stretched to cover what it was never allowed to
- * govern.
+ * **The terminal write is the correctness boundary; cancelling is
+ * reclamation.** The liveness branch terminalizes first and would cancel the
+ * still-running pass second, best-effort, and only if its transition won.
+ * Phase 0 records no pass, so there is nothing to cancel and that is fine: a
+ * pass that emerges afterwards cannot change a Run whose Acceptance has already
+ * closed. The hosted placement
+ * ([#57](https://github.com/nick-neely/reprove/issues/57)) is what puts a pass
+ * id there to cancel.
  */
+import type { ExecutionLossOutcome, LostFrom } from "@reprove/control-plane";
 import { createHook, getWorkflowMetadata, sleep } from "workflow";
 
 import { controlPlane } from "./composition.js";
@@ -82,28 +96,72 @@ export interface LifecycleSignal {
   readonly reason: "superseded" | "cancelled";
 }
 
+/**
+ * The window this wake falls in, whichever of the two it is.
+ *
+ * The loop treats both the same way below the branch - sleep toward the
+ * deadline, or try to close it - so the step resolves which one is active and
+ * hands back **one** deadline rather than two the body would have to re-join.
+ * That makes "two windows, one shape" structural instead of a pair of ternaries
+ * that happen to agree.
+ */
+interface ActiveWindow {
+  /** When it closes, as the body will sleep toward it. */
+  readonly deadlineAt: string;
+  /**
+   * Whether it has already closed. Decided in the step, because a workflow body
+   * may not read the clock: the loop needs to know about a deadline it did not
+   * sleep toward, and a replayed body would carry the first attempt's answer.
+   */
+  readonly passed: boolean;
+}
+
 /** What the lifecycle wakes to, as a step returns it. */
 interface WokenTo {
   readonly status: string;
-  readonly claimableUntil: string;
   readonly workflowRunId: string | null;
   /**
-   * Decided in the step, because a workflow body may not read the clock: the
-   * loop needs to know whether a deadline it did not sleep toward has already
-   * passed, and the answer has to come from outside the replayed body.
+   * The deadline that bounds this Run **now**: `claimableUntil` while it is
+   * unclaimed, and the current `executionExpiresAt` once it is claimed.
+   *
+   * Re-resolved on every wake rather than remembered, which is what will make a
+   * self-hosted Lease renewal a column write rather than a second mechanism: a
+   * wake that finds a later deadline simply sleeps toward it.
+   *
+   * `null` only for a claimed or executing Run carrying no `executionExpiresAt`
+   * - a shape a claim cannot produce, since it writes all six ownership columns
+   * in one statement. A terminal Run has no window either, and the body returns
+   * on its status before it looks here.
    */
-  readonly deadlinePassed: boolean;
+  readonly window: ActiveWindow | null;
 }
 
 /** How one lifecycle ended, which is its return value. */
 export type LifecycleOutcome =
   /** This lifecycle closed the unclaimed window. */
   | { readonly kind: "unscheduled" }
+  /** This lifecycle closed the executing window: nobody came back for the Run. */
+  | {
+      readonly kind: "worker_lost";
+      /**
+       * Which side of Acceptance's window it was abandoned on, as the control
+       * plane's own vocabulary rather than as a bare string. The type comes
+       * from `@reprove/control-plane`'s published surface, which is a closed
+       * set of strings and names no Drizzle type - so this package still
+       * depends on none.
+       */
+      readonly lostFrom: LostFrom;
+    }
   /** The Run was ended by the control plane: superseded, cancelled, or terminal. */
   | { readonly kind: "ended"; readonly status: string }
   /**
-   * The Run left the unclaimed window. What bounds it now is execution
-   * liveness, which this loop does not yet own.
+   * The Run is claimed or executing and carries no execution deadline, so
+   * there is no second window to watch.
+   *
+   * A claim writes all six execution-ownership columns in one statement, so
+   * this is a state the schema cannot reach. It is reported rather than thrown
+   * on because a lifecycle's job is to schedule, not to assert: a Run in a
+   * shape nothing can produce is something to look at, not something to end.
    */
   | { readonly kind: "claimed"; readonly status: string }
   /** Another lifecycle is the recorded one, or none was recorded in time. */
@@ -137,6 +195,20 @@ const LEFT_UNCLAIMED = new Set(["claimed", "executing"]);
 const RECORD_GRACE_MS = 2000;
 const RECORD_GRACE_WAKES = 5;
 
+/**
+ * How long the loop waits before re-reading after a conditional write matched
+ * nothing.
+ *
+ * It is not a backoff for a race the loop expects to lose repeatedly: every
+ * cause of a lost write moves the Run out of the window it was writing over, so
+ * the next read returns. It is there so that **a future conjunct cannot turn
+ * that argument into a tight loop** - a predicate that can fail while the Run
+ * stays put would otherwise spin against the database, once per step, at
+ * whatever the platform charges for one. Short enough that a genuine race costs
+ * a fraction of a second, which is the only case that reaches it today.
+ */
+const LOST_RACE_MS = 500;
+
 /** What `Promise.race` below resolves to, so the branch is on a name. */
 type Woke = "notified" | "deadline";
 
@@ -154,11 +226,23 @@ async function readRun(
   if (schedule === null) {
     return null;
   }
+  // Which window bounds the Run now. `queued` is bounded by the claim window
+  // and everything past it by execution liveness; a terminal Run is bounded by
+  // neither, and the body returns on its status before it reads this.
+  const deadline =
+    schedule.status === UNCLAIMED
+      ? schedule.claimableUntil
+      : schedule.executionExpiresAt;
   return {
     status: schedule.status,
-    claimableUntil: schedule.claimableUntil.toISOString(),
+    window:
+      deadline === null
+        ? null
+        : {
+            deadlineAt: deadline.toISOString(),
+            passed: deadline.getTime() <= Date.now(),
+          },
     workflowRunId: schedule.workflowRunId,
-    deadlinePassed: schedule.claimableUntil.getTime() <= Date.now(),
   };
 }
 
@@ -174,6 +258,34 @@ async function closeUnclaimedWindow(
   "use step";
   const plane = await controlPlane();
   return await plane.lifecycle.expireUnclaimed(ownerId, runId, workflowRunId);
+}
+
+/**
+ * `claimed | executing` to `failed(worker_lost)`, conditional on the deadline
+ * having passed and on the writer being the recorded lifecycle. The predicate
+ * lives in the control plane; this is the call.
+ *
+ * `now` is read **here** rather than passed from the body, for the reason
+ * `readRun` decides `deadlinePassed` here: a workflow body may not read the
+ * clock, and a replayed body would carry the first attempt's timestamp.
+ */
+async function closeExecutionWindow(
+  ownerId: number,
+  runId: string,
+  workflowRunId: string
+): Promise<ExecutionLossOutcome> {
+  "use step";
+  const plane = await controlPlane();
+  return await plane.lifecycle.terminateLostExecution({
+    detector: "hosted_watchdog",
+    evidence: { kind: "deadline", now: new Date(), workflowRunId },
+    // The watchdog's own evidence, and the honest one: it did not see the pass
+    // die, it saw nothing usable arrive in time. The observations that name
+    // what a pass did belong to the placement that runs one (#57).
+    observation: "deadline_elapsed",
+    ownerId,
+    runId,
+  });
 }
 
 /**
@@ -214,16 +326,22 @@ export async function runLifecycle(
       if (woken.workflowRunId !== null && woken.workflowRunId !== mine) {
         return { kind: "orphaned", recordedLifecycle: woken.workflowRunId };
       }
-      if (LEFT_UNCLAIMED.has(woken.status)) {
-        return { kind: "claimed", status: woken.status };
-      }
-      if (woken.status !== UNCLAIMED) {
+      const unclaimed = woken.status === UNCLAIMED;
+      if (!(unclaimed || LEFT_UNCLAIMED.has(woken.status))) {
         return { kind: "ended", status: woken.status };
       }
+      if (woken.window === null) {
+        // Claimed or executing with no execution deadline, which a claim cannot
+        // produce. There is no window to watch and nothing this loop may write.
+        return { kind: "claimed", status: woken.status };
+      }
+      // From here down the loop is one shape for either window: sleep toward
+      // the deadline, or try to close it. Only the transition differs.
+      const { window } = woken;
 
-      if (!woken.deadlinePassed) {
+      if (!window.passed) {
         const deadline = (async (): Promise<Woke> => {
-          await sleep(new Date(woken.claimableUntil));
+          await sleep(new Date(window.deadlineAt));
           return "deadline";
         })();
         const woke = await Promise.race(
@@ -235,7 +353,9 @@ export async function runLifecycle(
         // Either way the next thing to do is read the Run again: a
         // notification says only that something may have changed, and a
         // deadline the loop slept toward still has to be checked against the
-        // recorded lifecycle before anything is written.
+        // authoritative Run before anything is written. That re-read is also
+        // what will absorb a Lease renewal - a deadline that moved is simply
+        // the next one to sleep toward.
         continue;
       }
 
@@ -249,11 +369,38 @@ export async function runLifecycle(
         await sleep(RECORD_GRACE_MS);
         continue;
       }
-      if (await closeUnclaimedWindow(ownerId, runId, mine)) {
-        return { kind: "unscheduled" };
+
+      if (unclaimed) {
+        if (await closeUnclaimedWindow(ownerId, runId, mine)) {
+          return { kind: "unscheduled" };
+        }
+      } else {
+        const lost = await closeExecutionWindow(ownerId, runId, mine);
+        if (lost.terminalized) {
+          // Terminalized first. Cancelling the still-running pass is
+          // reclamation and belongs **after** this, best-effort, and only
+          // because this transition won - cancelling first would make a
+          // resource operation load-bearing for correctness. Phase 0 records
+          // no pass to cancel, so there is nothing here yet and a pass that
+          // emerges later cannot change a Run whose Acceptance has closed;
+          // the hosted placement (#57) is what fills this in.
+          return { kind: "worker_lost", lostFrom: lost.lostFrom };
+        }
       }
-      // The conditional write matched nothing: the Run was claimed or ended
-      // between the read and the write. The re-read says which.
+
+      // The conditional write matched nothing: the Run moved between the read
+      // and the write, and the re-read says which way. Every cause of that
+      // moves the Run out of this window - it was claimed, or it accepted a
+      // Result, or another writer ended it - so the next pass through the loop
+      // returns rather than arriving back here.
+      //
+      // The wait is what makes that argument safe to be wrong about. A
+      // conjunct added later that can fail while the Run stays in the window
+      // would otherwise turn this into a tight loop against the database,
+      // billed per step and invisible in any test that does not watch step
+      // counts. One short sleep costs a re-read nothing and bounds the damage
+      // to one attempt per interval.
+      await sleep(LOST_RACE_MS);
     }
   } finally {
     hook.dispose();

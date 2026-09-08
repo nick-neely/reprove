@@ -33,9 +33,13 @@ export type { CommittedMigration } from "./db/migrations.js";
 export { MIGRATIONS_FOLDER, readCommittedMigrations } from "./db/migrations.js";
 export type { CheckName, CheckOutcome } from "./db/refusal.js";
 export type {
+  ExecutionLostDetector,
+  ExecutionLostObservation,
   IngressDisposition,
   IngressRetryClass,
   IngressState,
+  LostFrom,
+  RunFailureReason,
   RunStatus,
 } from "./db/schema-values.js";
 export { BootRefusalError } from "./db/refusal.js";
@@ -62,7 +66,13 @@ export {
 } from "./github/manifest.js";
 export type { KickProcessing } from "./github/webhook.js";
 export { WEBHOOK_STATUS } from "./github/webhook.js";
-export type { RunLifecyclePort, RunSchedule } from "./run/schedule.js";
+export type {
+  ExecutionLoss,
+  ExecutionLossEvidence,
+  ExecutionLossOutcome,
+  RunLifecyclePort,
+  RunSchedule,
+} from "./run/schedule.js";
 export type {
   AcceptanceOutcome,
   AcceptedRunStatus,

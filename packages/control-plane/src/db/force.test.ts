@@ -78,6 +78,10 @@ describe("the committed migration history", () => {
       // `Result` no table, plus the Finding's `end_line`. Six nullable columns
       // and no classification change, so the generator had nothing to append.
       ["0008_run_accepted_result", "drizzle"],
+      // ADR 0015's `failed` detail: the reason code and the structured account
+      // beside it. Two nullable columns and no classification change, so the
+      // generator had nothing to append after this one either.
+      ["0009_run_failure_reason", "drizzle"],
     ]);
   });
 

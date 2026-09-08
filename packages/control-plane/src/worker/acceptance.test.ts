@@ -32,6 +32,7 @@ import { migrate } from "../db/migrate.js";
 import type { RuntimeDb } from "../db/runtime.js";
 import { createRuntimeDb } from "../db/runtime.js";
 import * as schema from "../db/schema.js";
+import { terminateLostExecution } from "../run/lifecycle.js";
 import { WORKER_RESULT_STATUS } from "./acceptance-outcome.js";
 import type { AcceptanceConfig } from "./acceptance.js";
 import { acceptResult, bucketKeyOf } from "./acceptance.js";
@@ -55,6 +56,9 @@ const EXECUTION_EXPIRES_AT = new Date("2026-02-01T12:10:00.000Z");
 
 const TOKEN = "an-execution-token-handed-back-by-the-claim";
 const OTHER_TOKEN = "a-token-that-was-rotated-out-from-under-it";
+
+/** The durable run scheduling a Run, which the watchdog's write is guarded on. */
+const LIFECYCLE = "wrun_lifecycle";
 
 /** A proposed change, which only autonomy=fix may carry (ADR 0007). */
 const PATCH = {
@@ -535,6 +539,116 @@ describe("accepting a Result", () => {
       await expect(late.json()).resolves.toMatchObject({
         reason: "not_eligible",
       });
+    });
+  });
+
+  describe("racing the liveness transition", () => {
+    /** The watchdog, waking after this Run's execution deadline has passed. */
+    const abandon = (runId: string, ownerId: number = ACME) =>
+      runtime.withOwner(ownerId, (tx) =>
+        terminateLostExecution(tx, {
+          detector: "hosted_watchdog",
+          evidence: {
+            kind: "deadline",
+            now: NOW,
+            workflowRunId: LIFECYCLE,
+          },
+          observation: "deadline_elapsed",
+          ownerId,
+          runId,
+        })
+      );
+
+    it("rejects a Result that arrives after worker_lost, on the current token", async () => {
+      // The case ADR 0015 built Acceptance to prevent, from the other side: a
+      // Worker returns from a partition holding a Run that was declared
+      // `worker_lost` twenty minutes earlier. Its token is still the Run's
+      // own - nothing rotated - so `execution_mismatch` would be the wrong
+      // name and, worse, would suggest the Run was still live. The Run ended,
+      // and that is what the response says.
+      const runId = await seedRun(ACME, {
+        status: "executing",
+        workflowRunId: LIFECYCLE,
+      });
+      await expect(abandon(runId)).resolves.toMatchObject({
+        lostFrom: "executing",
+        terminalized: true,
+      });
+
+      const late = await submit(runId);
+
+      expect(late.status).toBe(WORKER_RESULT_STATUS.rejected);
+      await expect(late.json()).resolves.toMatchObject({
+        reason: "not_eligible",
+      });
+      // Rejected rather than reviving it: the Run stays exactly as the
+      // transition left it, with no Result absorbed and no Findings written.
+      const row = await runRow(ACME, runId);
+      expect({
+        acceptedAt: row?.acceptedAt,
+        findings: await findingRows(ACME, runId),
+        status: row?.status,
+        summary: row?.resultSummary,
+      }).toStrictEqual({
+        acceptedAt: null,
+        findings: [],
+        status: "failed",
+        summary: null,
+      });
+    });
+
+    it("leaves an accepted Run alone when the watchdog arrives second", async () => {
+      // The same race, the other way round. Whichever of the two conditional
+      // updates wins closes the other path, so a Run that accepted a Result
+      // while the watchdog was waking is not overwritten with a Failure.
+      const runId = await seedRun(ACME, { workflowRunId: LIFECYCLE });
+      const accepted = await submit(runId);
+      expect(accepted.status).toBe(WORKER_RESULT_STATUS.accepted);
+
+      await expect(abandon(runId)).resolves.toStrictEqual({
+        lostFrom: null,
+        terminalized: false,
+      });
+
+      const row = await runRow(ACME, runId);
+      expect(row?.status).toBe("completed");
+      expect(row?.acceptedAt).not.toBeNull();
+      expect(row?.failureReason).toBeNull();
+    });
+
+    it("settles a simultaneous acceptance and termination on the row lock", async () => {
+      // Two conditional updates aimed at one row at the same time, which is
+      // the only way this invariant can be tested as the property of a
+      // statement that it is. Postgres serializes them: one matches a row and
+      // commits, the other re-evaluates its `WHERE` against the committed row
+      // and matches zero. Either may win - what must never happen is both.
+      const runId = await seedRun(ACME, {
+        status: "executing",
+        workflowRunId: LIFECYCLE,
+      });
+
+      const [accepted, lost] = await Promise.all([
+        submit(runId),
+        abandon(runId),
+      ]);
+
+      const acceptedWon = accepted.status === WORKER_RESULT_STATUS.accepted;
+      expect(acceptedWon).not.toBe(lost.terminalized);
+
+      // Asserted as one shape rather than as two branches, so that whichever
+      // way the race fell the row is checked against the *whole* of what the
+      // winner should have left - a Run cannot end `completed` carrying a
+      // failure reason, nor `failed` carrying an accepted Result.
+      const row = await runRow(ACME, runId);
+      expect({
+        acceptedResult: row?.acceptedAt !== null,
+        failure: row?.failureReason,
+        status: row?.status,
+      }).toStrictEqual(
+        acceptedWon
+          ? { acceptedResult: true, failure: null, status: "completed" }
+          : { acceptedResult: false, failure: "worker_lost", status: "failed" }
+      );
     });
   });
 

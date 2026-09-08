@@ -264,6 +264,61 @@ export declare const startDelivery: (delivery: DeliveryToProcess) => void;
 
 ```ts
 /**
+ * The Run's durable schedule - [ADR
+ * 0014](../../../docs/adr/0014-workflow-orchestration-seam.md)'s **lifecycle**,
+ * which outlives any Worker.
+ *
+ * It schedules; it does not decide. Every fact about a Run's outcome is written
+ * by the control plane, and this workflow reads what was written and acts on
+ * the Run's **two** bounded windows. [ADR
+ * 0015](../../../docs/adr/0015-execution-ownership-and-worker-liveness.md)
+ * shapes it as a **state-driven loop** that re-reads authoritative Run state on
+ * every wake rather than trusting the timestamp it slept toward:
+ *
+ * ```text
+ * wake
+ *   -> read authoritative Run state
+ *      invisible, or another lifecycle recorded  -> return, having written nothing
+ *      terminal                                  -> return
+ *      queued              -> claim-window branch, on claimableUntil
+ *      claimed | executing -> liveness branch, on the CURRENT executionExpiresAt
+ *                             deadline ahead   -> sleep toward it, or until notified
+ *                             deadline passed  -> attempt failed(worker_lost)
+ * ```
+ *
+ * **The two branches are one shape.** Each window is a deadline the Run itself
+ * carries, so below the branch the loop sleeps toward it or tries to close it,
+ * and only the transition differs. The re-read is what makes a self-hosted
+ * Lease renewal work later without a new mechanism: renewal advances a column,
+ * and a wake that finds a later deadline sleeps again.
+ *
+ * **One durable run per Run.** A separate watchdog workflow was rejected: it
+ * would add a third `start()` orphan window of exactly the kind that leaves a
+ * Run at `claimed` with a live, unrecorded pass - the hole this loop's second
+ * branch exists to close. The cost is one pending `sleep` per lost race, an
+ * un-cancelled job that fires later as an early-return no-op.
+ *
+ * **Everything this workflow body reaches is inlined into the workflow bundle,
+ * and that bundle runs in a VM with no `require`.** So the body calls the
+ * runtime's own primitives and the steps below, and nothing else; the control
+ * plane is reached only from inside a step, where a Node module graph is
+ * permitted. A helper hoisted to module scope and called from the body would
+ * drag its whole transitive graph into the bundle and break every workflow in
+ * the application, with an error naming an innocent one, while the build
+ * stayed green. The real-builder gate exists because that rule cannot be left
+ * to memory.
+ *
+ * **The terminal write is the correctness boundary; cancelling is
+ * reclamation.** The liveness branch terminalizes first and would cancel the
+ * still-running pass second, best-effort, and only if its transition won.
+ * Phase 0 records no pass, so there is nothing to cancel and that is fine: a
+ * pass that emerges afterwards cannot change a Run whose Acceptance has already
+ * closed. The hosted placement
+ * ([#57](https://github.com/nick-neely/reprove/issues/57)) is what puts a pass
+ * id there to cancel.
+ */
+import type { LostFrom } from "@reprove/control-plane";
+/**
  * The hook token, scoped to the **lifecycle** and never to the Run alone.
  *
  * Hook tokens are globally unique, and `start()` takes no idempotency key, so
@@ -294,14 +349,31 @@ export type LifecycleOutcome =
 {
     readonly kind: "unscheduled";
 }
+/** This lifecycle closed the executing window: nobody came back for the Run. */
+ | {
+    readonly kind: "worker_lost";
+    /**
+     * Which side of Acceptance's window it was abandoned on, as the control
+     * plane's own vocabulary rather than as a bare string. The type comes
+     * from `@reprove/control-plane`'s published surface, which is a closed
+     * set of strings and names no Drizzle type - so this package still
+     * depends on none.
+     */
+    readonly lostFrom: LostFrom;
+}
 /** The Run was ended by the control plane: superseded, cancelled, or terminal. */
  | {
     readonly kind: "ended";
     readonly status: string;
 }
 /**
- * The Run left the unclaimed window. What bounds it now is execution
- * liveness, which this loop does not yet own.
+ * The Run is claimed or executing and carries no execution deadline, so
+ * there is no second window to watch.
+ *
+ * A claim writes all six execution-ownership columns in one statement, so
+ * this is a state the schema cannot reach. It is reported rather than thrown
+ * on because a lifecycle's job is to schedule, not to assert: a Run in a
+ * shape nothing can produce is something to look at, not something to end.
  */
  | {
     readonly kind: "claimed";
