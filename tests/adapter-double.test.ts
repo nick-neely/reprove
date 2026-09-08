@@ -30,8 +30,14 @@ const filesUnder = (directory: string): string[] =>
  * A file `tsconfig.build.json` keeps out of `dist`, spelled the way
  * `tools/verify-workspace.mjs` spells it: a test, and the support module a test
  * imports.
+ *
+ * `.d` is optional in the middle because the assertions below read `dist`, and
+ * every build here inherits `declaration: true`: a test source that reached the
+ * build output arrives as `example.test.js` *and* `example.test.d.ts`, and a
+ * pattern anchored on `.ts` alone would report the second one as shipped
+ * output like any other module.
  */
-const UNSHIPPED = /\.test(?:-support)?\.[cm]?tsx?$/u;
+const UNSHIPPED = /\.test(?:-support)?(?:\.d)?\.[cm]?tsx?$/u;
 
 const sourcesOf = (workspace: string): string[] =>
   filesUnder(path.join(ROOT, workspace, "src"));
@@ -110,5 +116,37 @@ describe("the test-only Codex Adapter double", () => {
         file.endsWith("boundary.test-support.ts")
       )
     ).toHaveLength(1);
+  });
+
+  it("names an unshipped file in every spelling a build emits it as", () => {
+    // The `dist` assertions above are only as strong as this pattern, and one
+    // spelling is easy to miss: the builds set `declaration: true`, so a test
+    // source that reached the output arrives twice - once as JavaScript and
+    // once as `.d.ts` - and a pattern that matched only the first would let the
+    // declaration through as ordinary shipped output.
+    //
+    // The JavaScript half needs no spelling of its own: the two are emitted
+    // together, so matching the declaration is enough for the assertion to
+    // fail on a test that reached `dist`.
+    for (const unshipped of [
+      "packages/worker-core/src/boundary.test.ts",
+      "packages/worker-core/src/boundary.test-support.ts",
+      "packages/worker-core/dist/boundary.test.d.ts",
+      "packages/worker-core/dist/boundary.test-support.d.ts",
+    ]) {
+      expect(UNSHIPPED.test(unshipped)).toBeTruthy();
+    }
+
+    // And nothing else: `.test` has to be the whole segment before the
+    // extension, or a module whose name merely ends in it would be read as a
+    // test and excused from every assertion above.
+    for (const shipped of [
+      "packages/worker-core/src/boundary.ts",
+      "packages/worker-core/dist/boundary.d.ts",
+      "packages/worker-core/dist/latest.d.ts",
+      "packages/worker-core/dist/test.d.ts",
+    ]) {
+      expect(UNSHIPPED.test(shipped)).toBeFalsy();
+    }
   });
 });
