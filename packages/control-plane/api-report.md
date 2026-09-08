@@ -153,6 +153,7 @@ import type { GitHubFetch } from "./github/client.js";
 import type { DeliveryToProcess, ProcessedDelivery } from "./github/delivery.js";
 import type { Phase0RunProfile } from "./github/profile.js";
 import type { KickProcessing } from "./github/webhook.js";
+import type { RunRecord } from "./run/record.js";
 import type { ExecutionLoss, ExecutionLossOutcome, HostedExecution, RunLifecyclePort } from "./run/schedule.js";
 import type { AcceptanceOutcome, SubmittedResult } from "./worker/acceptance-outcome.js";
 import type { ClaimOutcome, HostedClaimRequest } from "./worker/claim-outcome.js";
@@ -335,6 +336,31 @@ export interface ControlPlane {
      * is never collapsed into `worker_lost`.
      */
     readonly reportExecutionLost: (loss: ExecutionLoss) => Promise<ExecutionLossOutcome>;
+    /**
+     * One Run, as an observer sees it: status, the digest of the execution token,
+     * when Acceptance absorbed a Result, and the structured detail behind a
+     * failure.
+     *
+     * The one operation here that **decides nothing**, and it is on the surface
+     * because [ADR 0016](../../../docs/adr/0016-phase-0-acceptance-scenario.md)
+     * has the Phase 0 exit read the `run` row back "through `withOwner()` on the
+     * pooled runtime role", and nothing published could see any of those columns.
+     * Reading them with `psql` instead was rejected: it reproduces neither the
+     * restricted role nor the transaction-local tenant context, so it would not
+     * be the read the criterion names.
+     *
+     * It is deliberately **not** on `RunLifecyclePort`. That port is four
+     * operations - what a lifecycle may do to a Run - and every write on it is
+     * conditional on the caller being the recorded lifecycle. An unconditional
+     * read for somebody who is not a lifecycle at all does not belong inside a
+     * contract whose smallness is the point.
+     *
+     * @returns The Run, or `null` where this Owner has no such Run - which is
+     *   also the answer for a Run another Owner holds, because RLS makes it
+     *   invisible rather than merely ineligible. ADR 0016 makes that same
+     *   conflation load-bearing when it removes `wrong_tenant` from Acceptance.
+     */
+    readonly readRun: (ownerId: number, runId: string) => Promise<RunRecord | null>;
     /** Drains the connection pool. */
     readonly close: () => Promise<void>;
 }
@@ -5283,6 +5309,7 @@ export { PHASE_0_RUN_PROFILE } from "./github/profile.js";
 export { APP_EVENTS, APP_PERMISSIONS, githubAppManifest, WEBHOOK_PATH, } from "./github/manifest.js";
 export type { KickProcessing } from "./github/webhook.js";
 export { WEBHOOK_STATUS } from "./github/webhook.js";
+export type { ExecutionLostDetail, RunRecord } from "./run/record.js";
 export type { ExecutionLoss, ExecutionLossEvidence, ExecutionLossOutcome, HostedExecution, RunLifecyclePort, RunSchedule, } from "./run/schedule.js";
 export type { AcceptanceOutcome, AcceptedRunStatus, ResultRejection, SubmittedResult, } from "./worker/acceptance-outcome.js";
 export { WORKER_RESULT_STATUS } from "./worker/acceptance-outcome.js";
@@ -5518,6 +5545,118 @@ export declare const expireUnclaimed: (tx: TenantTransaction, runId: string, wor
  * @returns Whether the transition was written, and what it was lost from.
  */
 export declare const terminateLostExecution: (tx: TenantTransaction, loss: ExecutionLoss) => Promise<ExecutionLossOutcome>;
+```
+
+## dist/run/observe.d.ts
+
+```ts
+import type { TenantTransaction } from "../db/runtime.js";
+import type { RunRecord } from "./record.js";
+/**
+ * One Run, as an observer sees it, or `null` where this Owner has no such Run.
+ *
+ * **`null` conflates two things deliberately.** A Run belonging to another
+ * Owner is not merely absent from this result - it is invisible, because the
+ * read runs inside `withOwner()` and RLS is what answers. ADR 0016 makes the
+ * same conflation load-bearing when it removes `wrong_tenant` from Acceptance's
+ * rejection set: "a cross-tenant submission and a nonsense Run id are now
+ * indistinguishable, deliberately", and that is also the safer disclosure.
+ *
+ * @param tx A tenant transaction already scoped to the Owner asking.
+ * @param runId The Run.
+ * @returns The observable state of the Run, or `null`.
+ */
+export declare const readRun: (tx: TenantTransaction, runId: string) => Promise<RunRecord | null>;
+```
+
+## dist/run/record.d.ts
+
+```ts
+/**
+ * What a Run looks like from outside, as one read that decides nothing.
+ *
+ * This is the **observation** half of the Run's published surface, and it is
+ * separate from `schedule.ts` on purpose. `RunSchedule` is the authoritative
+ * state a lifecycle wakes to and re-reads on every wake, and `RunLifecyclePort`
+ * is deliberately four operations - what a lifecycle may do to a Run, and
+ * nothing else. Adding `acceptedAt` or a failure detail to that type would put
+ * fields no lifecycle reads inside a contract whose smallness is the point, so
+ * the observation is its own read instead.
+ *
+ * [ADR 0016](../../../../docs/adr/0016-phase-0-acceptance-scenario.md) is what
+ * asks for it: the Phase 0 exit observes "the `run` row read back through
+ * `withOwner()` on the pooled runtime role - status, token, `acceptedAt`,
+ * structured failure detail". The alternative was to read those columns with
+ * `psql` as the admin role, which reproduces neither the runtime role nor the
+ * transaction-local tenant context and so would not be the read the criterion
+ * names. Going through `createControlPlane()` gets both for free.
+ *
+ * It lives apart from the module that queries it for the same boundary reason
+ * `schedule.ts` and `github/delivery.ts` do: ADR 0010 forbids
+ * `apps/control-plane` from depending on Drizzle, and `verify-packages`
+ * measures that by type-checking the packed declarations, so a published type
+ * declared in a module that imports Drizzle drags its declaration graph into
+ * that check. Every field below is spelled over the closed value sets and the
+ * primitives, and names nothing from a driver.
+ */
+import type { ExecutionLostDetector, ExecutionLostObservation, LostFrom, RunFailureReason, RunPlacement, RunStatus } from "../db/schema-values.js";
+/**
+ * The structured account of a lost execution, as the terminal transition wrote
+ * it.
+ *
+ * Three fields rather than a free `jsonb` shape, because they are what
+ * `terminateLostExecution` builds: the detector that noticed, what it saw, and
+ * which side of the window the Run was lost from. ADR 0015's operational
+ * question - "my daemon or your infrastructure?" - is answered by `detector`
+ * rather than by a second failure reason, which is why reading it back matters
+ * at all.
+ */
+export interface ExecutionLostDetail {
+    readonly detector: ExecutionLostDetector;
+    readonly observation: ExecutionLostObservation;
+    readonly lostFrom: LostFrom;
+}
+/**
+ * One Run, as an observer sees it.
+ *
+ * Deliberately a **subset** of the row rather than all of it. The spec half is
+ * immutable and already known to whoever created the Run; what is worth
+ * publishing is the state that moved, and the evidence for why it moved.
+ */
+export interface RunRecord {
+    readonly status: RunStatus;
+    /**
+     * Which placement the Run was created for. Read here because the two
+     * placements reach the same claim and the same Acceptance, so the placement
+     * is the only thing that says which story a given row is telling.
+     */
+    readonly placement: RunPlacement;
+    /**
+     * `sha256:<hex>` over the token the claim minted, or `null` on a Run that was
+     * never claimed.
+     *
+     * The digest rather than the token, because the plaintext is returned to the
+     * Worker exactly once and is not recoverable from the row afterwards - that
+     * is the whole reason the column stores a digest. Publishing a digest is safe
+     * for the same reason storing one is: it authorizes nothing.
+     */
+    readonly executionTokenHash: string | null;
+    /** When Acceptance absorbed a Result, and `null` where it never has. */
+    readonly acceptedAt: Date | null;
+    /** `worker_lost`, on a `failed` Run. `null` on every other Run. */
+    readonly failureReason: RunFailureReason | null;
+    /** What was observed, beside the reason that names it. */
+    readonly failureDetail: ExecutionLostDetail | null;
+    /** The Reviewer's prose, from the accepted Result. */
+    readonly resultSummary: string | null;
+    /**
+     * The **pass** the Run records - one hosted Worker's attempt at it. `null`
+     * means no pass is recorded, never that none is running: the window between
+     * `start()` and `markExecuting` cannot be closed, and a crash inside it
+     * leaves exactly this shape (ADR 0016).
+     */
+    readonly hostedWorkflowRunId: string | null;
+}
 ```
 
 ## dist/run/schedule.d.ts

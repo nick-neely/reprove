@@ -66,6 +66,7 @@ export {
 } from "./github/manifest.js";
 export type { KickProcessing } from "./github/webhook.js";
 export { WEBHOOK_STATUS } from "./github/webhook.js";
+export type { ExecutionLostDetail, RunRecord } from "./run/record.js";
 export type {
   ExecutionLoss,
   ExecutionLossEvidence,

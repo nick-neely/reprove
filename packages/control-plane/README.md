@@ -512,6 +512,34 @@ The transition, the shared predicate and `executionExpiresAt` are all **placemen
 self-hosted Worker's Lease renewal, when it has a transport, advances a column and needs no second
 liveness system.
 
+### `readRun` is the one operation that decides nothing
+
+```text
+readRun(owner, run)   status, placement, the token digest, acceptedAt,
+                      failureReason, the structured failureDetail,
+                      resultSummary, and the pass the Run records
+```
+
+Every other read here exists to be acted on. This one exists to be **looked at**, because
+[ADR 0016](../../docs/adr/0016-phase-0-acceptance-scenario.md) has the Phase 0 exit read the `run`
+row back "through `withOwner()` on the pooled runtime role - status, token, `acceptedAt`, structured
+failure detail", and none of those columns was reachable from outside the package. Reading them with
+`psql` instead was rejected as the primary read: it reproduces neither the restricted runtime role
+nor the transaction-local tenant context, so it would not be the read the criterion names - and
+under a transaction-mode pooler a `set_config` from one invocation is not there for the next one.
+
+It is deliberately **not** on the lifecycle port, which stays at four operations, and it is
+deliberately not fields added to `RunSchedule`: that type is the authoritative state a lifecycle
+re-reads on every wake, and putting `acceptedAt` on it would be scope creep into a contract whose
+smallness is the argument. **The token is the digest**, never the token: the plaintext is returned
+in the claim grant exactly once and is not recoverable from the row, which is why the column stores
+`sha256:<hex>` in the first place. A caller holding the plaintext compares digests.
+
+`null` means "this Owner has no such Run", and that answer covers a Run another Owner holds as well
+as a Run id nobody holds. RLS is what answers, so the other Owner's Run is invisible rather than
+merely inaccessible - the same conflation ADR 0016 makes load-bearing when it removes `wrong_tenant`
+from Acceptance's rejection set.
+
 `ProcessedDelivery.endedRuns` is the other half of the same seam. It carries the id and the terminal
 status - `superseded` or `cancelled` - of every live Run the delivery ended, in the transaction that
 ended it, and the status is already written by the time a caller reads it. A caller needs the list

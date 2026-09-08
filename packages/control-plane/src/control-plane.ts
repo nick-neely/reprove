@@ -40,6 +40,8 @@ import {
   recordLifecycle,
   terminateLostExecution,
 } from "./run/lifecycle.js";
+import { readRun } from "./run/observe.js";
+import type { RunRecord } from "./run/record.js";
 import type {
   ExecutionLoss,
   ExecutionLossOutcome,
@@ -251,6 +253,34 @@ export interface ControlPlane {
   readonly reportExecutionLost: (
     loss: ExecutionLoss
   ) => Promise<ExecutionLossOutcome>;
+  /**
+   * One Run, as an observer sees it: status, the digest of the execution token,
+   * when Acceptance absorbed a Result, and the structured detail behind a
+   * failure.
+   *
+   * The one operation here that **decides nothing**, and it is on the surface
+   * because [ADR 0016](../../../docs/adr/0016-phase-0-acceptance-scenario.md)
+   * has the Phase 0 exit read the `run` row back "through `withOwner()` on the
+   * pooled runtime role", and nothing published could see any of those columns.
+   * Reading them with `psql` instead was rejected: it reproduces neither the
+   * restricted role nor the transaction-local tenant context, so it would not
+   * be the read the criterion names.
+   *
+   * It is deliberately **not** on `RunLifecyclePort`. That port is four
+   * operations - what a lifecycle may do to a Run - and every write on it is
+   * conditional on the caller being the recorded lifecycle. An unconditional
+   * read for somebody who is not a lifecycle at all does not belong inside a
+   * contract whose smallness is the point.
+   *
+   * @returns The Run, or `null` where this Owner has no such Run - which is
+   *   also the answer for a Run another Owner holds, because RLS makes it
+   *   invisible rather than merely ineligible. ADR 0016 makes that same
+   *   conflation load-bearing when it removes `wrong_tenant` from Acceptance.
+   */
+  readonly readRun: (
+    ownerId: number,
+    runId: string
+  ) => Promise<RunRecord | null>;
   /** Drains the connection pool. */
   readonly close: () => Promise<void>;
 }
@@ -425,6 +455,8 @@ export const createControlPlane = async (
     processDelivery,
     lifecycle,
     reportExecutionLost,
+    readRun: (ownerId, runId) =>
+      runtime.withOwner(ownerId, (tx) => readRun(tx, runId)),
     close: runtime.close,
   };
 };
