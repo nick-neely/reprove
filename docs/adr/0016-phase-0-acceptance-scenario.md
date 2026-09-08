@@ -126,6 +126,13 @@ from inside the boundary is `unknown_run`.
 oversized  upgrade_required  malformed  unknown_run  execution_mismatch  not_eligible
 ```
 
+> **Observed by [#58](https://github.com/nick-neely/reprove/issues/58):** five of those six are
+> reachable over HTTP and the scenario asserts each by name. `upgrade_required` is not, and it is
+> unreachable by arithmetic rather than by omission: `WORKER_PROTOCOL_SUPPORT` has
+> `minimum === current === 1`, and the submission envelope requires a positive integer, so no
+> well-formed submission can advertise a version below the minimum. It becomes reachable the first
+> time this control plane serves two protocol versions, and nothing about the set changes meanwhile.
+
 A cross-tenant submission and a nonsense Run id are now indistinguishable, **deliberately**. That is
 also the safer disclosure: the response stops confirming that a Run exists under an Owner the caller
 cannot see.
@@ -167,6 +174,20 @@ reach it: the scenario needs an injection point at the composition seam, which i
 inside shipped orchestration. It is paid because ADR 0015 names this window as the hole that widened
 [#41](https://github.com/nick-neely/reprove/issues/41) from `executing` to Acceptance's whole
 eligibility window. A scenario that skipped it would not exercise what #39 inherited.
+
+> **Amended by [#58](https://github.com/nick-neely/reprove/issues/58):** the injection point exists
+> (`HostedDispatchOptions.interruptBeforeRecordingPass`) and is exercised, but **not from the build
+> gate**. `start()` cannot be called from the gate's process at all: the Workflow client transform
+> stamps a workflow's id at build time, so a workflow imported from a package's `dist` carries none
+> and `start()` refuses it. The gate reaches the abandoned **row shape** - `claimed`, token assigned,
+> `hosted_workflow_run_id` null - through the real hosted claim, `ControlPlane.claimRun`, which is
+> the same conditional UPDATE `dispatchHostedPass` calls, and then never records a pass; the
+> terminal transition it observes is therefore the real one, over the real deadline, on a Run in the
+> exact shape this section describes. What it does **not** show is a durable pass genuinely running
+> behind that row, and that half is `spine.test.ts`'s, through the real dispatch path and the real
+> injection point, inside the same required check. The cost this section names is still paid - the
+> test-only branch is still in shipped orchestration - and the scenario's claim is narrowed
+> accordingly rather than the branch being removed.
 
 **Self-hosted silence is kept alongside it, at no cost.** A self-hosted Worker claims over the
 authenticated endpoint and goes quiet; nothing in Phase 0 moves it to `executing`, because there is
