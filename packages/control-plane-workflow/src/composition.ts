@@ -29,6 +29,7 @@ import {
   createControlPlane,
   PHASE_0_RUN_PROFILE,
 } from "@reprove/control-plane";
+import type { HostedPlacement } from "@reprove/worker-hosted";
 
 import { configFromEnvironment } from "./environment.js";
 
@@ -59,6 +60,91 @@ const kick = (delivery: DeliveryToProcess): void => {
       );
     }
   })();
+};
+
+/*
+ * The hosted composition, as this package reaches it.
+ *
+ * `@reprove/worker-hosted` is an **optional** dependency, which is ADR 0010's
+ * deployment table expressed as an edge rather than as prose:
+ *
+ * ```text
+ * hosted          control-plane + control-plane-workflow + worker-hosted
+ * self-hosted     control-plane + control-plane-workflow
+ * ```
+ *
+ * *"A control plane that dispatches only to self-hosted Workers installs no
+ * harness code at all"* is only true if this package can run without it, so the
+ * import is lazy and its absence is an answer rather than a crash: `null`
+ * composes no hosted dispatch, and everything else - the webhook, the claim
+ * endpoint, Acceptance, the lifecycle - is untouched.
+ *
+ * It is the same shape the `kick` above uses, and for a related reason: an
+ * import that may legitimately not resolve cannot be at the top of a module
+ * every route reaches.
+ *
+ * **What "absent" means depends on who resolves the specifier.** Under Node it
+ * is a resolution failure at the moment of the import, which is what this
+ * classifies. Under a bundler the import is resolved at build time, so a
+ * deployment that omits the package omits it from the build - and what an
+ * operator verifies is the package graph, with `pnpm why`, exactly as ADR 0010
+ * says.
+ */
+
+/** Node's two spellings of "that module is not installed". */
+const NOT_INSTALLED = new Set(["ERR_MODULE_NOT_FOUND", "MODULE_NOT_FOUND"]);
+
+/** As much of a module-resolution failure as this module reads. */
+interface ResolutionError {
+  readonly code?: string;
+}
+
+/**
+ * Loads the hosted composition, or concludes that this deployment has none.
+ *
+ * Exported for the composition seam's own test, which drives it over a loader
+ * rather than over the real module: the property under test is that an absent
+ * package composes no hosted dispatch, and no test can uninstall a package from
+ * the workspace it is running in.
+ *
+ * @param load The import to attempt.
+ * @returns The hosted composition, or `null` where the package is not installed.
+ * @throws {Error} Whatever the module threw, when it is installed and broken. A
+ *   package that is present and fails to load is a deployment defect, and
+ *   answering `null` would report it as a self-hosted deployment.
+ */
+export const composeHostedPlacement = async (
+  load: () => Promise<{ readonly hostedPlacement: HostedPlacement }>
+): Promise<HostedPlacement | null> => {
+  try {
+    const loaded = await load();
+    return loaded.hostedPlacement;
+  } catch (error) {
+    // SAFETY: `code` is Node's own field on a resolution failure. Anything
+    // raised for another reason carries none, fails the test below, and is
+    // rethrown.
+    const { code } = error as ResolutionError;
+    if (code !== undefined && NOT_INSTALLED.has(code)) {
+      return null;
+    }
+    throw error;
+  }
+};
+
+let hosted: Promise<HostedPlacement | null> | undefined;
+
+/**
+ * The hosted composition this process holds, resolved on first use.
+ *
+ * Memoized like the control plane above, and for the weaker of the two reasons:
+ * the module registry already caches the import, so this saves the repeated
+ * `try` rather than repeated work.
+ *
+ * @returns The hosted composition, or `null` in a self-hosted deployment.
+ */
+export const hostedPlacement = async (): Promise<HostedPlacement | null> => {
+  hosted ??= composeHostedPlacement(() => import("@reprove/worker-hosted"));
+  return await hosted;
 };
 
 const compose = async (): Promise<ControlPlane> =>

@@ -32,6 +32,7 @@ interface Manifest {
   exports?: Record<string, Record<string, string>>;
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
+  optionalDependencies?: Record<string, string>;
   scripts?: Record<string, string>;
 }
 
@@ -333,6 +334,101 @@ describe(verifyWorkspace, () => {
         "dependency-allowlist",
         "packages/control-plane",
         "@reprove/worker-core"
+      )
+    ).toBeTruthy();
+  });
+
+  it("rejects the hosted driver declared as a requirement rather than an optional edge", () => {
+    // ADR 0010's self-hosted deployment omits `worker-hosted` entirely, and a
+    // required declaration installs it into every one.
+    const root = copyRepository();
+    editManifest(root, "packages/control-plane-workflow", (manifest) => {
+      manifest.optionalDependencies = undefined;
+      manifest.dependencies = {
+        ...manifest.dependencies,
+        "@reprove/worker-hosted": "workspace:*",
+      };
+    });
+
+    expect(
+      broke(
+        verifyWorkspace({ rootDir: root }),
+        "dependency-optionality",
+        "packages/control-plane-workflow",
+        "@reprove/worker-hosted"
+      )
+    ).toBeTruthy();
+  });
+
+  it("rejects a required edge made installable away", () => {
+    const root = copyRepository();
+    editManifest(root, "packages/control-plane-workflow", (manifest) => {
+      // The required declaration is dropped and the optional one put in its
+      // place, so what the rule sees is one edge declared the wrong way rather
+      // than the same edge declared twice.
+      const { "@reprove/control-plane": _moved, ...rest } =
+        manifest.dependencies ?? {};
+      manifest.dependencies = rest;
+      manifest.optionalDependencies = {
+        ...manifest.optionalDependencies,
+        "@reprove/control-plane": "workspace:*",
+      };
+    });
+
+    expect(
+      broke(
+        verifyWorkspace({ rootDir: root }),
+        "dependency-optionality",
+        "packages/control-plane-workflow",
+        "@reprove/control-plane"
+      )
+    ).toBeTruthy();
+  });
+
+  it("rejects the harness stack reaching the control plane through any path", () => {
+    // The row-by-row matrix cannot see this: `control-plane` names no harness
+    // package here, and reaches one through a package that does.
+    const root = copyRepository();
+    editManifest(root, "packages/control-plane", (manifest) => {
+      manifest.dependencies = {
+        ...manifest.dependencies,
+        "@reprove/protocol": "workspace:*",
+      };
+    });
+    editManifest(root, "packages/protocol", (manifest) => {
+      manifest.dependencies = {
+        ...manifest.dependencies,
+        "@reprove/worker-core": "workspace:*",
+      };
+    });
+
+    expect(
+      broke(
+        verifyWorkspace({ rootDir: root }),
+        "harness-reach",
+        "packages/control-plane",
+        "@reprove/worker-core"
+      )
+    ).toBeTruthy();
+  });
+
+  it("rejects the app reaching the harness stack past the hosted driver", () => {
+    // The edge that makes the optional one worthless: with a second route to
+    // `worker-core`, omitting `worker-hosted` no longer omits the harness.
+    const root = copyRepository();
+    editManifest(root, "apps/control-plane", (manifest) => {
+      manifest.dependencies = {
+        ...manifest.dependencies,
+        "@reprove/worker-core": "workspace:*",
+      };
+    });
+
+    expect(
+      broke(
+        verifyWorkspace({ rootDir: root }),
+        "harness-reach",
+        "apps/control-plane",
+        "@reprove/worker-hosted"
       )
     ).toBeTruthy();
   });

@@ -38,9 +38,14 @@ import {
 } from "@reprove/control-plane";
 import type { Result } from "@reprove/protocol/v1";
 import { protocolVersion } from "@reprove/protocol/v1";
+import type {
+  HostedDispatchOptions,
+  HostedDispatchOutcome,
+} from "@reprove/worker-hosted";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { getRun, start } from "workflow/api";
 
+import { composeHostedPlacement } from "./composition.js";
 import { ENVIRONMENT } from "./environment.js";
 import type { CannedGitHub } from "./github.test-support.js";
 import {
@@ -50,10 +55,17 @@ import {
   startCannedGitHub,
   WEBHOOK_SECRET,
 } from "./github.test-support.js";
+import { dispatchHostedPass } from "./hosted.js";
 import type { IngressConclusion } from "./ingress.js";
 import { ingressDelivery } from "./ingress.js";
 import type { LifecycleOutcome } from "./lifecycle.js";
 import { runLifecycle } from "./lifecycle.js";
+import type { PassOutcome } from "./pass.js";
+import {
+  silentPass,
+  throwingPass,
+  unfinishedPass,
+} from "./pass.test-support.js";
 
 /**
  * The local stack, as `tools/db/compose.yaml` publishes it. Spelled here rather
@@ -288,6 +300,118 @@ const acceptableResult = (runId: string): Result => ({
   workerBuildVersion: "0.1.0",
 });
 
+/**
+ * A queued hosted Run created through a control plane the caller supplies, so a
+ * case can choose the profile whose windows it needs.
+ */
+const queuedRunThrough = async (plane: ControlPlane): Promise<string> => {
+  const repository = freshRepository();
+  github.pullRequest(1, {
+    headSha: "b".repeat(40),
+    baseSha: "a".repeat(40),
+    open: true,
+    draft: false,
+  });
+  const delivery = await commit({
+    action: "opened",
+    repositoryId: repository,
+    pullRequestNumber: 1,
+    headSha: "b".repeat(40),
+  });
+  const processed = await plane.processDelivery(delivery);
+  if (processed.runId === null) {
+    throw new Error(`no Run was created: ${JSON.stringify(processed.outcome)}`);
+  }
+  return processed.runId;
+};
+
+/**
+ * A control plane whose **execution**-liveness window is short, for the cases
+ * that watch a watchdog close one. The caller closes it.
+ *
+ * Only that one duration moves (ADR 0016): the claim, the loop, the durable
+ * sleep and the conditional UPDATE are all the real ones.
+ */
+const shortLivenessPlane = async (): Promise<ControlPlane> =>
+  await createControlPlane({
+    database: { connectionString: RUNTIME_URL },
+    github: {
+      webhookSecret: WEBHOOK_SECRET,
+      appId: APP_ID,
+      privateKey: PRIVATE_KEY,
+      runProfile: { ...PHASE_0_RUN_PROFILE, livenessForMs: SHORT_WINDOW_MS },
+      apiUrl: github.url,
+    },
+    kick: () => {},
+  });
+
+/**
+ * Hosted dispatch in the shipped order, over the shipped ports, with the pass
+ * itself supplied by the case.
+ *
+ * The stand-in is what makes a watchdog case possible at all: the shipped
+ * `hostedPass` composes the Phase 0 fixture Worker core, so it submits a Result
+ * within milliseconds and terminalizes the Run - leaving nothing for a
+ * watchdog to close. A pass that has not answered yet is the ordinary shape in
+ * production and the impossible one for a fixture, and the watchdog reads
+ * exactly one thing about a pass: the status its durable run carries. So the
+ * ordering, the injection point, the claim and the `markExecuting` write are
+ * all the real ones, and only what `start()` starts is the case's.
+ */
+const dispatchStandIn = async (
+  plane: ControlPlane,
+  runId: string,
+  startPass: () => Promise<{ runId: string }>,
+  options: HostedDispatchOptions = {}
+): Promise<HostedDispatchOutcome> => {
+  const placement = await composeHostedPlacement(
+    () => import("@reprove/worker-hosted")
+  );
+  if (placement === null) {
+    throw new Error("this workspace installs @reprove/worker-hosted");
+  }
+  return await placement.dispatchHostedRun(
+    {
+      claimRun: (request) => plane.claimRun(request),
+      markExecuting: (execution) => plane.markExecuting(execution),
+      startPass: async () => {
+        const run = await startPass();
+        started.push(run.runId);
+        return { hostedWorkflowRunId: run.runId };
+      },
+    },
+    { ownerId: ACME, runId },
+    options
+  );
+};
+
+/** A claimed Run with a short liveness window and a recorded stand-in pass. */
+const withRecordedPass = async (
+  startPass: () => Promise<{ runId: string }>
+): Promise<{
+  runId: string;
+  hostedWorkflowRunId: string;
+  executionToken: string;
+}> => {
+  const short = await shortLivenessPlane();
+  try {
+    const runId = await queuedRunThrough(short);
+    const dispatched = await dispatchStandIn(short, runId, startPass);
+    if (dispatched.kind !== "dispatched") {
+      throw new Error(
+        `the Run was not dispatched: ${JSON.stringify(dispatched)}`
+      );
+    }
+    return {
+      executionToken: dispatched.executionToken,
+      hostedWorkflowRunId: dispatched.hostedWorkflowRunId,
+      runId,
+    };
+  } finally {
+    await short.close();
+  }
+};
+
 const dispatch = async (
   runId: string
 ): Promise<{ workflowRunId: string; outcome: Promise<LifecycleOutcome> }> => {
@@ -521,8 +645,12 @@ describe("the durable spine", () => {
     ).resolves.toBeTruthy();
 
     await expect(lifecycle.outcome).resolves.toStrictEqual({
+      // No pass was ever recorded, so there is nothing to cancel and nothing
+      // the watchdog can say beyond the deadline having passed.
+      cancelledPass: null,
       kind: "worker_lost",
       lostFrom: "claimed",
+      observation: "deadline_elapsed",
     });
     await expect(
       controlPlane.lifecycle.schedule(ACME, runId)
@@ -589,6 +717,272 @@ describe("the durable spine", () => {
     await expect(
       controlPlane.lifecycle.schedule(ACME, runId)
     ).resolves.toMatchObject({ status: "completed" });
+  });
+
+  describe("the hosted placement", () => {
+    it("runs a hosted Run through Worker core, and its Result reaches Acceptance", async () => {
+      // The whole point of the placement, end to end and through the shipped
+      // composition: `dispatchHostedPass` claims, starts the durable pass and
+      // records it; the pass composes the Phase 0 Worker core and submits what
+      // it produced to the same Acceptance a self-hosted Worker reaches over
+      // HTTP. Placement decided the composition; nothing about the Run's
+      // treatment differs.
+      const runId = await queuedRunThrough(controlPlane);
+
+      const dispatched = await dispatchHostedPass(ACME, runId);
+      if (dispatched.kind !== "dispatched") {
+        throw new Error(
+          `the Run was not dispatched: ${JSON.stringify(dispatched)}`
+        );
+      }
+      started.push(dispatched.hostedWorkflowRunId);
+
+      await expect(
+        getRun<PassOutcome>(dispatched.hostedWorkflowRunId).returnValue
+      ).resolves.toStrictEqual({ kind: "accepted", runStatus: "completed" });
+      // The Run records the pass, which is the column the lifecycle cancels
+      // from, and it is terminal because a Result was absorbed rather than
+      // because anything here said so.
+      await expect(
+        controlPlane.lifecycle.schedule(ACME, runId)
+      ).resolves.toMatchObject({
+        hostedWorkflowRunId: dispatched.hostedWorkflowRunId,
+        status: "completed",
+      });
+    });
+
+    it("serves a self-hosted Run with no hosted placement composed at all", async () => {
+      // ADR 0010's other deployment: `control-plane` + `control-plane-workflow`
+      // and no harness code anywhere. Nothing on this path consults the hosted
+      // composition - the webhook, the ingress workflow, Run creation, the
+      // lifecycle and the claim are all reached without it - so a control plane
+      // whose hosted driver is not installed serves exactly as this one does.
+      await expect(
+        composeHostedPlacement(() =>
+          Promise.reject(
+            Object.assign(new Error("Cannot find package"), {
+              code: "ERR_MODULE_NOT_FOUND",
+            })
+          )
+        )
+      ).resolves.toBeNull();
+
+      const selfHosted = await createControlPlane({
+        database: { connectionString: RUNTIME_URL },
+        github: {
+          webhookSecret: WEBHOOK_SECRET,
+          appId: APP_ID,
+          privateKey: PRIVATE_KEY,
+          runProfile: { ...PHASE_0_RUN_PROFILE, placement: "self_hosted" },
+          apiUrl: github.url,
+        },
+        kick: () => {},
+      });
+      let runId = "";
+      try {
+        runId = await queuedRunThrough(selfHosted);
+      } finally {
+        await selfHosted.close();
+      }
+
+      // Claimable, and waiting for its own placement: the hosted claim is
+      // refused by name rather than taking a Run another mechanism dispatches.
+      await expect(
+        controlPlane.lifecycle.schedule(ACME, runId)
+      ).resolves.toMatchObject({
+        hostedWorkflowRunId: null,
+        status: "queued",
+      });
+      await expect(
+        controlPlane.claimRun({ ownerId: ACME, runId })
+      ).resolves.toStrictEqual({
+        kind: "refused",
+        reason: "placement_mismatch",
+      });
+    });
+
+    it("leaves a Run claimed with no pass recorded when dispatch dies before recording one", async () => {
+      // ADR 0016's mandatory abandoned case, reached the only way it can be
+      // reached: the injection point between `start()` and `markExecuting`. The
+      // pass is genuinely running and nothing anywhere records it.
+      const short = await shortLivenessPlane();
+      let runId = "";
+      try {
+        runId = await queuedRunThrough(short);
+        await expect(
+          dispatchStandIn(short, runId, () => start(unfinishedPass, []), {
+            interruptBeforeRecordingPass: () => {
+              throw new Error("the dispatching process died");
+            },
+          })
+        ).rejects.toThrow("the dispatching process died");
+      } finally {
+        await short.close();
+      }
+
+      await expect(
+        controlPlane.lifecycle.schedule(ACME, runId)
+      ).resolves.toMatchObject({
+        hostedWorkflowRunId: null,
+        status: "claimed",
+      });
+
+      // `claimableUntil` writes only over `queued`, so nothing but execution
+      // liveness can end this Run - which is why ADR 0015 covers the whole of
+      // Acceptance's window rather than `executing` alone.
+      const lifecycle = await dispatch(runId);
+      await controlPlane.lifecycle.record(ACME, runId, lifecycle.workflowRunId);
+
+      await expect(lifecycle.outcome).resolves.toStrictEqual({
+        cancelledPass: null,
+        kind: "worker_lost",
+        lostFrom: "claimed",
+        observation: "deadline_elapsed",
+      });
+    });
+
+    it("terminalizes the Run first and cancels the pass it recorded second", async () => {
+      // The ordering #56 left structural. The database write is the
+      // correctness boundary; cancelling is reclamation that follows a
+      // transition that won.
+      const { hostedWorkflowRunId, runId } = await withRecordedPass(() =>
+        start(unfinishedPass, [])
+      );
+      const lifecycle = await dispatch(runId);
+      await controlPlane.lifecycle.record(ACME, runId, lifecycle.workflowRunId);
+
+      await expect(lifecycle.outcome).resolves.toStrictEqual({
+        cancelledPass: hostedWorkflowRunId,
+        kind: "worker_lost",
+        // The pass is still running past the Run's deadline, so the watchdog
+        // has seen nothing but the deadline and says only that.
+        lostFrom: "executing",
+        observation: "deadline_elapsed",
+      });
+      await expect(
+        controlPlane.lifecycle.schedule(ACME, runId)
+      ).resolves.toMatchObject({ hostedWorkflowRunId, status: "failed" });
+      await expect(getRun(hostedWorkflowRunId).status).resolves.toBe(
+        "cancelled"
+      );
+    });
+
+    it("cancels nothing when its transition lost the race to Acceptance", async () => {
+      // Cancelling first would make a resource operation load-bearing for
+      // correctness: the Run completed while the lifecycle slept, so the pass
+      // that produced that Result must not be killed on the way past.
+      const { executionToken, hostedWorkflowRunId, runId } =
+        await withRecordedPass(() => start(unfinishedPass, []));
+
+      const lifecycle = await dispatch(runId);
+      await controlPlane.lifecycle.record(ACME, runId, lifecycle.workflowRunId);
+      await expect(
+        controlPlane.acceptResult({
+          executionToken,
+          ownerId: ACME,
+          result: acceptableResult(runId),
+          runId,
+        })
+      ).resolves.toStrictEqual({ kind: "accepted", runStatus: "completed" });
+
+      await expect(lifecycle.outcome).resolves.toStrictEqual({
+        kind: "ended",
+        status: "completed",
+      });
+      await expect(getRun(hostedWorkflowRunId).status).resolves.toBe("running");
+    });
+
+    it("names a pass that was cancelled out of band", async () => {
+      const { hostedWorkflowRunId, runId } = await withRecordedPass(() =>
+        start(unfinishedPass, [])
+      );
+      await getRun(hostedWorkflowRunId).cancel();
+
+      const lifecycle = await dispatch(runId);
+      await controlPlane.lifecycle.record(ACME, runId, lifecycle.workflowRunId);
+
+      await expect(lifecycle.outcome).resolves.toMatchObject({
+        kind: "worker_lost",
+        observation: "workflow_cancelled",
+      });
+    });
+
+    it("names a pass that ended without ever submitting a Result", async () => {
+      // The Run is still inside Acceptance's window, so a pass that returned
+      // normally submitted nothing. That is a different fact from a deadline
+      // that merely elapsed, and the failure detail records which.
+      const { hostedWorkflowRunId, runId } = await withRecordedPass(() =>
+        start(silentPass, [])
+      );
+      await expect(getRun(hostedWorkflowRunId).returnValue).resolves.toBe(
+        "returned"
+      );
+
+      const lifecycle = await dispatch(runId);
+      await controlPlane.lifecycle.record(ACME, runId, lifecycle.workflowRunId);
+
+      await expect(lifecycle.outcome).resolves.toMatchObject({
+        kind: "worker_lost",
+        observation: "workflow_terminal_without_result",
+      });
+    });
+
+    it("names a pass that failed where no in-process detector could see it", async () => {
+      // The `hosted_prompt` detector catches a Pass that throws inside the
+      // placement. This is the other shape: the durable run itself failed, so
+      // the only witness is the World, and the watchdog is what reads it.
+      const { hostedWorkflowRunId, runId } = await withRecordedPass(() =>
+        start(throwingPass, [])
+      );
+      await expect(getRun(hostedWorkflowRunId).returnValue).rejects.toThrow(
+        /pass threw|failed/u
+      );
+
+      const lifecycle = await dispatch(runId);
+      await controlPlane.lifecycle.record(ACME, runId, lifecycle.workflowRunId);
+
+      await expect(lifecycle.outcome).resolves.toMatchObject({
+        kind: "worker_lost",
+        observation: "workflow_failed",
+      });
+    });
+
+    it("says the pass state was unavailable, and still cancels best-effort", async () => {
+      // A pass id the World has never heard of. Reclamation is best-effort by
+      // design - the Run is already terminal, and a cancel that throws must not
+      // retry a transition that has been decided.
+      const short = await shortLivenessPlane();
+      let runId = "";
+      let token = "";
+      try {
+        runId = await queuedRunThrough(short);
+        const claim = await short.claimRun({ ownerId: ACME, runId });
+        if (claim.kind !== "granted") {
+          throw new Error(`the Run was not claimed: ${JSON.stringify(claim)}`);
+        }
+        token = claim.grant.executionToken;
+        await expect(
+          short.markExecuting({
+            executionToken: token,
+            hostedWorkflowRunId: "wrun_never_started",
+            ownerId: ACME,
+            runId,
+          })
+        ).resolves.toBeTruthy();
+      } finally {
+        await short.close();
+      }
+
+      const lifecycle = await dispatch(runId);
+      await controlPlane.lifecycle.record(ACME, runId, lifecycle.workflowRunId);
+
+      await expect(lifecycle.outcome).resolves.toStrictEqual({
+        cancelledPass: "wrun_never_started",
+        kind: "worker_lost",
+        lostFrom: "executing",
+        observation: "workflow_state_unavailable",
+      });
+    });
   });
 
   it("re-drives a contended delivery through the platform's step retry", async () => {

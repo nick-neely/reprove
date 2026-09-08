@@ -12,7 +12,6 @@
   "dependencies": {
     "@reprove/control-plane": "workspace:*",
     "@reprove/control-plane-workflow": "workspace:*",
-    "@reprove/worker-hosted": "workspace:*",
     "@workflow/world-postgres": "catalog:workflow",
     "next": "^16.3.4",
     "react": "^19.2.8",

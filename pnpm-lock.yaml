@@ -107,9 +107,6 @@ importers:
       '@reprove/control-plane-workflow':
         specifier: workspace:*
         version: link:../../packages/control-plane-workflow
-      '@reprove/worker-hosted':
-        specifier: workspace:*
-        version: link:../../packages/worker-hosted
       '@workflow/world-postgres':
         specifier: catalog:workflow
         version: 4.3.5(@types/pg@8.23.1)(kysely@0.29.5)(supports-color@8.1.1)(typescript@7.0.2)
@@ -228,6 +225,10 @@ importers:
       vitest:
         specifier: 'catalog:'
         version: 4.1.11(@types/node@26.4.0)(vite@8.2.2(@types/node@26.4.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))
+    optionalDependencies:
+      '@reprove/worker-hosted':
+        specifier: workspace:*
+        version: link:../worker-hosted
 
   packages/protocol:
     dependencies:

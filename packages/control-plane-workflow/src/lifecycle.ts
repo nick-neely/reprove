@@ -44,16 +44,26 @@
  * to memory.
  *
  * **The terminal write is the correctness boundary; cancelling is
- * reclamation.** The liveness branch terminalizes first and would cancel the
+ * reclamation.** The liveness branch terminalizes first and cancels the
  * still-running pass second, best-effort, and only if its transition won.
- * Phase 0 records no pass, so there is nothing to cancel and that is fine: a
+ * Where the Run records no pass there is nothing to cancel and that is fine: a
  * pass that emerges afterwards cannot change a Run whose Acceptance has already
- * closed. The hosted placement
- * ([#57](https://github.com/nick-neely/reprove/issues/57)) is what puts a pass
- * id there to cancel.
+ * closed.
+ *
+ * **The watchdog reads the pass before it writes, and only then.** Once the
+ * deadline has passed and a pass id is recorded, its durable state is what
+ * turns `deadline_elapsed` into the observation that names what the pass
+ * actually did (ADR 0015's set). Before the deadline there is nothing to ask
+ * about - a running pass inside its window is the ordinary case - and with no
+ * pass id there is nothing to ask.
  */
-import type { ExecutionLossOutcome, LostFrom } from "@reprove/control-plane";
+import type {
+  ExecutionLossOutcome,
+  ExecutionLostObservation,
+  LostFrom,
+} from "@reprove/control-plane";
 import { createHook, getWorkflowMetadata, sleep } from "workflow";
+import { getRun } from "workflow/api";
 
 import { controlPlane } from "./composition.js";
 
@@ -134,6 +144,28 @@ interface WokenTo {
    * on its status before it looks here.
    */
   readonly window: ActiveWindow | null;
+  /**
+   * The **pass** the Run records, or `null` where it records none.
+   *
+   * Two different states share that `null`, and the loop does not need to tell
+   * them apart: no pass was ever started, or one was started and the process
+   * died before `markExecuting` recorded it (ADR 0016). Either way there is no
+   * id to read a disposition from and none to cancel.
+   */
+  readonly hostedWorkflowRunId: string | null;
+}
+
+/**
+ * What the pass's own durable run says about itself, as a step can carry it
+ * back into a workflow body.
+ *
+ * `null` is "its state could not be read", which is a different fact from any
+ * status and is why this is not simply a string: a World that answered nothing
+ * has told the watchdog nothing about the pass, and the observation set has a
+ * member for exactly that.
+ */
+interface PassDisposition {
+  readonly status: string | null;
 }
 
 /** How one lifecycle ended, which is its return value. */
@@ -151,6 +183,14 @@ export type LifecycleOutcome =
        * depends on none.
        */
       readonly lostFrom: LostFrom;
+      /** What the watchdog could say for itself about the pass, if anything. */
+      readonly observation: ExecutionLostObservation;
+      /**
+       * The pass this lifecycle cancelled **after** its transition won, or
+       * `null` where the Run recorded none. Reclamation, never correctness: the
+       * database write is the boundary and this follows it.
+       */
+      readonly cancelledPass: string | null;
     }
   /** The Run was ended by the control plane: superseded, cancelled, or terminal. */
   | { readonly kind: "ended"; readonly status: string }
@@ -234,6 +274,7 @@ async function readRun(
       ? schedule.claimableUntil
       : schedule.executionExpiresAt;
   return {
+    hostedWorkflowRunId: schedule.hostedWorkflowRunId,
     status: schedule.status,
     window:
       deadline === null
@@ -272,21 +313,124 @@ async function closeUnclaimedWindow(
 async function closeExecutionWindow(
   ownerId: number,
   runId: string,
-  workflowRunId: string
+  workflowRunId: string,
+  observation: ExecutionLostObservation
 ): Promise<ExecutionLossOutcome> {
   "use step";
   const plane = await controlPlane();
   return await plane.lifecycle.terminateLostExecution({
     detector: "hosted_watchdog",
     evidence: { kind: "deadline", now: new Date(), workflowRunId },
-    // The watchdog's own evidence, and the honest one: it did not see the pass
-    // die, it saw nothing usable arrive in time. The observations that name
-    // what a pass did belong to the placement that runs one (#57).
-    observation: "deadline_elapsed",
+    observation,
     ownerId,
     runId,
   });
 }
+
+/**
+ * What the pass's durable run says about itself, read once the deadline has
+ * passed and a pass id is recorded.
+ *
+ * It is read **only then**, and that is not an optimization: a pass that is
+ * still running before its Run's deadline is the ordinary case, and asking the
+ * World about it on every wake would be a round trip per sleep that could not
+ * change what the loop does.
+ *
+ * Every failure is one answer - `null`, "unreadable" - because the distinction
+ * the observation set draws is between a state the watchdog *read* and one it
+ * could not. A pass whose id the World has never heard of is unreadable in the
+ * same way a World that is down is: neither tells the watchdog what the pass
+ * did.
+ */
+async function readPassDisposition(
+  hostedWorkflowRunId: string
+): Promise<PassDisposition> {
+  "use step";
+  try {
+    return { status: await getRun(hostedWorkflowRunId).status };
+  } catch {
+    return { status: null };
+  }
+}
+
+/**
+ * Cancels the pass, best-effort, after the terminal transition has won.
+ *
+ * ADR 0014 has the lifecycle and the pass "cancelled by opposite mechanisms:
+ * the lifecycle is resumed through its cancel hook so it terminates reportably,
+ * the pass is cancelled outright". This is the second, and it swallows every
+ * failure on purpose: the Run is already `failed(worker_lost)`, and a pass that
+ * outlives its cancellation is inert - Acceptance has closed, so it can submit
+ * nothing. Reporting a reclamation failure by throwing would retry the step and
+ * re-run a transition that has already been decided.
+ */
+async function cancelPass(hostedWorkflowRunId: string): Promise<void> {
+  "use step";
+  try {
+    await getRun(hostedWorkflowRunId).cancel();
+  } catch {
+    // Already gone, already terminal, or unreachable. See above.
+  }
+}
+
+/**
+ * What the watchdog saw, as one of ADR 0015's observations.
+ *
+ * ```text
+ * no pass recorded        deadline_elapsed
+ * pending | running       deadline_elapsed                 it is still going
+ * completed               workflow_terminal_without_result it ended, and no
+ *                                                          Result ever arrived
+ * failed                  workflow_failed
+ * cancelled               workflow_cancelled
+ * unreadable              workflow_state_unavailable
+ * ```
+ *
+ * **`deadline_elapsed` covers two different pictures** and that is deliberate:
+ * with no pass id, and with a pass still running past its Run's deadline, the
+ * watchdog has seen the same thing - nothing usable arrived in time. Inventing
+ * a name for the second would claim the watchdog knows why, and it does not.
+ *
+ * **A `completed` pass is not a completed Run.** The transition only runs at
+ * all over a Run still inside Acceptance's window, so a pass that returned
+ * normally and left the Run there submitted no Result: that is what
+ * `workflow_terminal_without_result` names, and it is why the status is read
+ * rather than the pass's return value.
+ *
+ * An unrecognized status maps to `workflow_state_unavailable` rather than
+ * throwing: the World's status vocabulary belongs to a dependency, and a
+ * lifecycle's job is to schedule rather than to assert. Saying "its state could
+ * not be read" about a status this loop does not understand is true.
+ *
+ * @param pass What the pass's durable run said, or `null` where the Run records
+ *   no pass at all.
+ * @returns The observation the terminal transition records.
+ */
+export const observationFor = (
+  pass: PassDisposition | null
+): ExecutionLostObservation => {
+  if (pass === null) {
+    return "deadline_elapsed";
+  }
+  switch (pass.status) {
+    case "pending":
+    case "running": {
+      return "deadline_elapsed";
+    }
+    case "completed": {
+      return "workflow_terminal_without_result";
+    }
+    case "failed": {
+      return "workflow_failed";
+    }
+    case "cancelled": {
+      return "workflow_cancelled";
+    }
+    default: {
+      return "workflow_state_unavailable";
+    }
+  }
+};
 
 /**
  * Schedules one Run.
@@ -375,16 +519,34 @@ export async function runLifecycle(
           return { kind: "unscheduled" };
         }
       } else {
-        const lost = await closeExecutionWindow(ownerId, runId, mine);
+        const pass =
+          woken.hostedWorkflowRunId === null
+            ? null
+            : await readPassDisposition(woken.hostedWorkflowRunId);
+        const observation = observationFor(pass);
+        const lost = await closeExecutionWindow(
+          ownerId,
+          runId,
+          mine,
+          observation
+        );
         if (lost.terminalized) {
           // Terminalized first. Cancelling the still-running pass is
           // reclamation and belongs **after** this, best-effort, and only
           // because this transition won - cancelling first would make a
-          // resource operation load-bearing for correctness. Phase 0 records
-          // no pass to cancel, so there is nothing here yet and a pass that
-          // emerges later cannot change a Run whose Acceptance has closed;
-          // the hosted placement (#57) is what fills this in.
-          return { kind: "worker_lost", lostFrom: lost.lostFrom };
+          // resource operation load-bearing for correctness. Where the Run
+          // records no pass there is nothing to cancel, and that is fine: a
+          // pass that emerges later cannot change a Run whose Acceptance has
+          // already closed.
+          if (woken.hostedWorkflowRunId !== null) {
+            await cancelPass(woken.hostedWorkflowRunId);
+          }
+          return {
+            cancelledPass: woken.hostedWorkflowRunId,
+            kind: "worker_lost",
+            lostFrom: lost.lostFrom,
+            observation,
+          };
         }
       }
 

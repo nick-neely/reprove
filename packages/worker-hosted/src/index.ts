@@ -68,6 +68,13 @@ export const hostedPlacement = {
   runHostedPlacement,
 } as const;
 
+/**
+ * The composition's type, so a consumer that imports this package **only as a
+ * type** - which is what an optional dependency is imported as at the top of a
+ * module - never has to write `typeof import(...)` to name it.
+ */
+export type HostedPlacement = typeof hostedPlacement;
+
 export {
   createPhase0WorkerCore,
   PHASE_0_SUMMARY,
