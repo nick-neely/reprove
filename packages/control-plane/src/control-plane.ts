@@ -35,6 +35,7 @@ import type { KickProcessing } from "./github/webhook.js";
 import { createGitHubWebhookHandler } from "./github/webhook.js";
 import {
   expireUnclaimed,
+  markExecuting,
   readSchedule,
   recordLifecycle,
   terminateLostExecution,
@@ -42,6 +43,7 @@ import {
 import type {
   ExecutionLoss,
   ExecutionLossOutcome,
+  HostedExecution,
   RunLifecyclePort,
 } from "./run/schedule.js";
 import type {
@@ -151,6 +153,29 @@ export interface ControlPlane {
    * scheduling half of the protocol, so it names its Run and never polls.
    */
   readonly claimRun: (request: HostedClaimRequest) => Promise<ClaimOutcome>;
+  /**
+   * The other half of hosted dispatch: the claimed Run becomes `executing` and
+   * records the **pass** running it.
+   *
+   * It is here beside `claimRun` rather than on `RunLifecyclePort`, which stays
+   * at four operations. The port is what a lifecycle may do to a Run, and every
+   * write on it is conditional on the caller being the recorded lifecycle; this
+   * is the execution's own write, guarded by the token the claim handed it, and
+   * putting it there would make the lifecycle's ownership rule untrue of one of
+   * its members.
+   *
+   * The pass id is recorded **after** `start()` returns, because `start()`
+   * accepts no caller-supplied run id (ADR 0014). A crash in that window leaves
+   * a running pass no column names, which is
+   * [ADR 0016](../../../docs/adr/0016-phase-0-acceptance-scenario.md)'s
+   * mandatory abandoned case and is closed by execution liveness rather than
+   * here.
+   *
+   * @returns Whether the transition was written. `false` means the Run moved -
+   *   it ended, or the token is no longer its current one - and the caller's
+   *   pass is running against a Run that has closed.
+   */
+  readonly markExecuting: (execution: HostedExecution) => Promise<boolean>;
   /**
    * `POST /api/worker/runs/:runId/result`, which is the stale-result boundary
    * ([ADR 0006](../../../docs/adr/0006-worker-protocol.md)).
@@ -393,6 +418,10 @@ export const createControlPlane = async (
         })
       ),
     handleWorkerResult,
+    markExecuting: (execution) =>
+      runtime.withOwner(execution.ownerId, (tx) =>
+        markExecuting(tx, execution)
+      ),
     acceptResult: accept,
     processDelivery,
     lifecycle,

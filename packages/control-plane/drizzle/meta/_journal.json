@@ -71,6 +71,13 @@
       "when": 1788822081920,
       "tag": "0009_run_failure_reason",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1788831303253,
+      "tag": "0010_run_hosted_pass",
+      "breakpoints": true
     }
   ]
 }

@@ -36,6 +36,7 @@ describe("the committed migrations", () => {
       "0007_run_worker_reference",
       "0008_run_accepted_result",
       "0009_run_failure_reason",
+      "0010_run_hosted_pass",
     ]);
     // The hash is `sha256(entire raw .sql file)`, which is what `migrate()`
     // writes as the ledger's `hash` and what check six joins against.

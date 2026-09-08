@@ -35,6 +35,7 @@ import { RUN_STATUSES } from "../db/schema-values.js";
 import { hashExecutionToken } from "../worker/execution-token.js";
 import {
   expireUnclaimed,
+  markExecuting,
   readSchedule,
   recordLifecycle,
   terminateLostExecution,
@@ -54,6 +55,8 @@ const CLAIMABLE_UNTIL = new Date("2026-02-01T12:05:00.000Z");
 
 /** The lifecycle every claimed Run below records, so the guard is not the variable. */
 const LIFECYCLE = "wrun_recorded";
+/** The pass: one hosted Worker's attempt, which is a different durable run. */
+const PASS = "wrun_pass";
 /** The token the claim handed back. Only its digest is ever stored. */
 const TOKEN = "an-execution-token-handed-back-by-the-claim";
 const CLAIMED_AT = new Date("2026-02-01T12:00:00.000Z");
@@ -297,6 +300,10 @@ describe("a Run's lifecycle, as the database arbitrates it", () => {
         // claimed has no execution to bound, so the second one is null here.
         executionExpiresAt: null,
         workflowRunId: null,
+        // The pass is the other durable run, and a Run that was never claimed
+        // has none. ADR 0014 keeps the two in separate columns because they are
+        // cancelled by opposite mechanisms.
+        hostedWorkflowRunId: null,
       });
     });
 
@@ -381,6 +388,116 @@ describe("a Run's lifecycle, as the database arbitrates it", () => {
 
       expect(expired).toStrictEqual(held.map(() => false));
       expect(after).toStrictEqual(held);
+    });
+  });
+
+  describe("taking the claimed Run into executing", () => {
+    it("records the pass and moves the Run, for the execution that holds the token", async () => {
+      const runId = await claimedRun("claimed");
+
+      await expect(
+        runtime.withOwner(ACME, (tx) =>
+          markExecuting(tx, {
+            executionToken: TOKEN,
+            hostedWorkflowRunId: PASS,
+            ownerId: ACME,
+            runId,
+          })
+        )
+      ).resolves.toBeTruthy();
+      await expect(
+        runtime.withOwner(ACME, (tx) => readSchedule(tx, runId))
+      ).resolves.toMatchObject({
+        hostedWorkflowRunId: PASS,
+        status: "executing",
+      });
+    });
+
+    it("writes nothing for an execution whose token is not this Run's current one", async () => {
+      // The token is the whole of this write's ownership guard, exactly as it
+      // is for the in-process detector: only the execution the claim granted
+      // may say which pass is running it.
+      const runId = await claimedRun("claimed");
+
+      await expect(
+        runtime.withOwner(ACME, (tx) =>
+          markExecuting(tx, {
+            executionToken: "a-token-rotated-out-from-under-it",
+            hostedWorkflowRunId: PASS,
+            ownerId: ACME,
+            runId,
+          })
+        )
+      ).resolves.toBeFalsy();
+      await expect(statusOf(runId)).resolves.toBe("claimed");
+    });
+
+    it("writes nothing over a Run that has already accepted a Result", async () => {
+      // The window is Acceptance's, so a Run that terminalized while the
+      // dispatcher was between `start()` and this write is left alone. Moving
+      // it to `executing` would revive a Run whose Acceptance has closed.
+      const runId = await claimedRun("claimed", { acceptedAt: NOW });
+
+      await expect(
+        runtime.withOwner(ACME, (tx) =>
+          markExecuting(tx, {
+            executionToken: TOKEN,
+            hostedWorkflowRunId: PASS,
+            ownerId: ACME,
+            runId,
+          })
+        )
+      ).resolves.toBeFalsy();
+      await expect(statusOf(runId)).resolves.toBe("claimed");
+    });
+
+    it("leaves every status other than claimed exactly as it was", async () => {
+      // `claimed -> executing` and no other transition. `executing` is refused
+      // too: a second pass id written over a Run that is already executing
+      // would replace the id the lifecycle needs in order to cancel the pass
+      // actually running.
+      const held = RUN_STATUSES.filter((status) => status !== "claimed");
+      const inserted = await Promise.all(
+        held.map((status, index) => insertRun(status, 800 + index))
+      );
+      // Every Run in the table carries the current token, so **status is the
+      // only thing the predicate can be refusing on**.
+      await database.admin(
+        `update run set execution_token_hash = '${hashExecutionToken(TOKEN)}'`
+      );
+
+      const written = await Promise.all(
+        inserted.map((runId) =>
+          runtime.withOwner(ACME, (tx) =>
+            markExecuting(tx, {
+              executionToken: TOKEN,
+              hostedWorkflowRunId: PASS,
+              ownerId: ACME,
+              runId,
+            })
+          )
+        )
+      );
+      const statuses = await Promise.all(inserted.map(statusOf));
+
+      expect(written).toStrictEqual(held.map(() => false));
+      expect(statuses).toStrictEqual([...held]);
+    });
+
+    it("matches nothing across the tenant boundary", async () => {
+      const runId = await claimedRun("claimed");
+
+      await expect(
+        runtime.withOwner(STRANGER, (tx) =>
+          markExecuting(tx, {
+            executionToken: TOKEN,
+            hostedWorkflowRunId: PASS,
+            ownerId: STRANGER,
+            runId,
+          })
+        )
+      ).resolves.toBeFalsy();
+      await expect(statusOf(runId)).resolves.toBe("claimed");
     });
   });
 

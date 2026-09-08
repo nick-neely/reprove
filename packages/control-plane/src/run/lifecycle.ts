@@ -21,6 +21,13 @@
  * executionExpiresAt   claimed | executing -> failed  terminateLostExecution
  * ```
  *
+ * Beside them is the one transition **inside** the second window rather than
+ * out of it: `markExecuting` takes a claimed Run to `executing` and records the
+ * pass running it. It is here rather than beside the claim because the pass is
+ * a durable run and this module is where the Run's durable runs are written,
+ * and its ownership guard is the execution token rather than the recorded
+ * lifecycle - the caller is the execution, not the schedule watching it.
+ *
  * The second is [ADR 0015](../../../../docs/adr/0015-execution-ownership-and-worker-liveness.md)'s,
  * and it is the one transition here that is not the lifecycle's alone: the
  * in-process detector reaches it too, presenting an execution token where the
@@ -47,6 +54,7 @@ import type {
   ExecutionLoss,
   ExecutionLossEvidence,
   ExecutionLossOutcome,
+  HostedExecution,
   RunSchedule,
 } from "./schedule.js";
 
@@ -93,6 +101,7 @@ export const readSchedule = async (
       claimableUntil: schema.run.claimableUntil,
       executionExpiresAt: schema.run.executionExpiresAt,
       workflowRunId: schema.run.workflowRunId,
+      hostedWorkflowRunId: schema.run.hostedWorkflowRunId,
     })
     .from(schema.run)
     .where(eq(schema.run.id, runId))
@@ -109,7 +118,69 @@ export const readSchedule = async (
     claimableUntil: row.claimableUntil,
     executionExpiresAt: row.executionExpiresAt,
     workflowRunId: row.workflowRunId,
+    hostedWorkflowRunId: row.hostedWorkflowRunId,
   };
+};
+
+/**
+ * `claimed` to `executing`, recording the pass that is running the Run.
+ *
+ * ```text
+ * update run
+ *    set status = 'executing', hosted_workflow_run_id = <the pass>
+ *  where <Acceptance's eligibility window>
+ *    and status = 'claimed'
+ *    and execution_token_hash = sha256(<the presented token>)
+ * ```
+ *
+ * **The window is Acceptance's**, for the reason `terminateLostExecution` below
+ * carries it: this write races the same two conditional updates over the same
+ * row. A Run that accepted a Result or was terminalized while dispatch was
+ * between `start()` and here has closed, and moving it to `executing` would
+ * revive a Run whose Acceptance is over.
+ *
+ * **`status = 'claimed'` is the transition's own half**, added to the shared
+ * window rather than replacing it. A Run already `executing` records a pass,
+ * and overwriting that id would leave the lifecycle cancelling the wrong
+ * durable run - or nothing at all - while the recorded one kept running.
+ *
+ * **The token is the ownership guard**, where the lifecycle's writes carry
+ * `workflow_run_id`. The caller here is the execution rather than the schedule
+ * watching it, so the only thing that says which execution it is is the token
+ * the claim handed it. Hashed here; the plaintext never reaches SQL.
+ *
+ * **It cannot be made atomic with `start()`.** ADR 0014: `start()` accepts no
+ * caller-supplied run id, so a crash between the two leaves a pass that is
+ * genuinely running and a Run that records none. That is not a defect this
+ * statement can close, and ADR 0015 is what closes it instead - execution
+ * liveness covers the `claimed` half of the window precisely because of this.
+ *
+ * @param tx A tenant transaction already scoped to the Run's Owner.
+ * @param execution The Run, the token that execution holds, and its pass.
+ * @returns Whether the transition was written.
+ */
+export const markExecuting = async (
+  tx: TenantTransaction,
+  execution: HostedExecution
+): Promise<boolean> => {
+  const executing = await tx
+    .update(schema.run)
+    .set({
+      status: "executing" satisfies RunStatus,
+      hostedWorkflowRunId: execution.hostedWorkflowRunId,
+    })
+    .where(
+      and(
+        resultEligibleWindow(execution.ownerId, execution.runId),
+        eq(schema.run.status, "claimed"),
+        eq(
+          schema.run.executionTokenHash,
+          hashExecutionToken(execution.executionToken)
+        )
+      )
+    )
+    .returning({ id: schema.run.id });
+  return executing.length > 0;
 };
 
 /**

@@ -82,6 +82,11 @@ describe("the committed migration history", () => {
       // beside it. Two nullable columns and no classification change, so the
       // generator had nothing to append after this one either.
       ["0009_run_failure_reason", "drizzle"],
+      // The pass: the durable run one hosted Worker's attempt at the Run is,
+      // recorded beside the lifecycle rather than in it (#57). One nullable
+      // column and no classification change, so the generator had nothing to
+      // append after this one either.
+      ["0010_run_hosted_pass", "drizzle"],
     ]);
   });
 

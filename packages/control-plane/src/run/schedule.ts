@@ -43,6 +43,35 @@ export interface RunSchedule {
    * and ends.
    */
   readonly workflowRunId: string | null;
+  /**
+   * The **pass** the Run records - one hosted Worker's attempt at it - or
+   * `null` where none is recorded.
+   *
+   * A different durable run from `workflowRunId` and read here for one reason:
+   * the lifecycle cancels it, and only after its own terminal transition has
+   * won (ADR 0015). `null` means no pass is recorded rather than that none is
+   * running: the window between `start()` and `markExecuting` cannot be closed,
+   * so a crash inside it leaves exactly this shape (ADR 0016).
+   */
+  readonly hostedWorkflowRunId: string | null;
+}
+
+/**
+ * One hosted dispatch's claim that its pass is now running, as the write that
+ * records it is told about it.
+ *
+ * The token rather than the lifecycle is the ownership guard here, for the same
+ * reason it is the in-process detector's: the caller is the execution itself,
+ * not the schedule watching it, and the token is the only thing that says which
+ * execution it is. Hashed before it reaches SQL.
+ */
+export interface HostedExecution {
+  readonly ownerId: number;
+  readonly runId: string;
+  /** The token the claim handed this execution, exactly once. */
+  readonly executionToken: string;
+  /** The durable run that dispatch started for it, as `start()` named it. */
+  readonly hostedWorkflowRunId: string;
 }
 
 /**
