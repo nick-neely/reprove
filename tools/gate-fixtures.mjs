@@ -24,7 +24,7 @@
  * database is created and read through `psql` inside the stack's own container.
  */
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { createHmac, generateKeyPairSync } from "node:crypto";
+import { createHmac, createVerify, generateKeyPairSync } from "node:crypto";
 import { once } from "node:events";
 import { existsSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
@@ -79,6 +79,14 @@ export const REPOSITORY_FULL_NAME = "acme/reprove";
 export const PULL_REQUEST = 7;
 export const HEAD_SHA = "b".repeat(40);
 export const BASE_SHA = "a".repeat(40);
+
+/**
+ * What the canned installation-token exchange hands back. A shape rather than a
+ * token: GitHub's installation tokens are `ghs_` followed by entropy, and this
+ * carries none, so what the built application echoes on its next request is
+ * recognizable without anything secret being committed.
+ */
+export const INSTALLATION_TOKEN = "ghs_a_token";
 
 export const STARTUP_TIMEOUT_MS = 90_000;
 /**
@@ -277,19 +285,39 @@ export const buildFromClean = () => {
 // --- the run -----------------------------------------------------------------
 
 /**
+ * One request the built application sent to GitHub, as the canned server
+ * received it.
+ *
+ * The headers are kept as well as the request line, because ADR 0016's
+ * substitution is "only at the transport": the App JWT is signed, the exchange
+ * is issued and the installation token is carried, and none of that is
+ * observable from a method and a path. What the recording makes checkable is
+ * that the credential on each request is the one that request is supposed to
+ * carry.
+ *
+ * @typedef {object} CannedRequest
+ * @property {string} method The request method.
+ * @property {string} url The request target, which is a path here because the
+ *   client sends an origin-form request line.
+ * @property {Readonly<Record<string, string | string[] | undefined>>} headers
+ *   The headers, lower-cased by Node's own parser.
+ */
+
+/**
  * GitHub, on loopback. The App JWT, the installation-token exchange, the
  * request line and the response parsing all execute for real inside the built
  * application; what is canned is the two bodies.
  *
- * @returns {Promise<{url: string, seen: string[], close: () => Promise<void>}>}
- *   Where it listens, the request lines it has been sent, and how to stop it.
+ * @returns {Promise<{url: string, seen: CannedRequest[], close: () => Promise<void>}>}
+ *   Where it listens, the requests it has been sent, and how to stop it.
  */
 export const startCannedGitHub = async () => {
+  /** @type {CannedRequest[]} */
   const seen = [];
   const server = createServer((request, response) => {
     const method = request.method ?? "GET";
     const url = request.url ?? "/";
-    seen.push(`${method} ${url}`);
+    seen.push({ headers: { ...request.headers }, method, url });
     request.resume();
     request.on("end", () => {
       const answer = (status, body) => {
@@ -298,7 +326,7 @@ export const startCannedGitHub = async () => {
       };
       if (method === "POST" && url.endsWith("/access_tokens")) {
         answer(201, {
-          token: "ghs_a_token",
+          token: INSTALLATION_TOKEN,
           expires_at: "2026-02-01T13:00:00Z",
         });
         return;
@@ -339,16 +367,147 @@ export const startCannedGitHub = async () => {
 };
 
 /**
- * The App's private key, generated per run rather than committed: a PEM in the
+ * The App's key, generated per run rather than committed: a PEM in the
  * repository is a secret as far as scanning is concerned, and nothing here
  * needs the same key twice.
  *
- * @returns {string} A PKCS#8 PEM.
+ * The **public** half is returned beside the private one because it is what
+ * makes the App JWT checkable rather than merely present. A gate that only
+ * looked for three dot-separated segments would pass against a client that
+ * signed with the wrong key, over the wrong bytes, or not at all.
+ *
+ * @returns {{privateKey: string, publicKey: string}} The pair, PEM-encoded.
  */
-export const privateKey = () =>
-  generateKeyPairSync("rsa", { modulusLength: 2048 })
-    .privateKey.export({ format: "pem", type: "pkcs8" })
-    .toString();
+export const appKeyPair = () => {
+  const pair = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  return {
+    privateKey: pair.privateKey
+      .export({ format: "pem", type: "pkcs8" })
+      .toString(),
+    publicKey: pair.publicKey
+      .export({ format: "pem", type: "spki" })
+      .toString(),
+  };
+};
+
+/**
+ * What a compact JWS carries, once it has been taken apart.
+ *
+ * @typedef {object} DecodedJws
+ * @property {Record<string, unknown>} header The JOSE header.
+ * @property {Record<string, unknown>} payload The claims.
+ * @property {string} signingInput The two encoded segments the signature covers.
+ * @property {Buffer} signature The signature bytes.
+ */
+
+/**
+ * A plain object, identified by its prototype the way
+ * `github/profile.ts`'s own `isRecord` is: an array and a null are both
+ * `typeof "object"`, and neither is a JOSE header.
+ *
+ * @param {unknown} value Anything `JSON.parse` returned.
+ * @returns {boolean} Whether it is a plain object.
+ */
+const isRecord = (value) =>
+  value !== null && Object.getPrototypeOf(value) === Object.prototype;
+
+/**
+ * One base64url segment of a compact JWS, as the JSON it encodes.
+ *
+ * @param {string} segment The encoded segment.
+ * @returns {unknown} Whatever it decodes to.
+ * @throws {SyntaxError} When it is not JSON, which the caller reads as "not a
+ *   JWS".
+ */
+const decodeSegment = (segment) =>
+  JSON.parse(Buffer.from(segment, "base64url").toString("utf-8"));
+
+/**
+ * Takes a compact JWS apart, verifying nothing.
+ *
+ * Separate from {@link verifiesUnder} on purpose: what a caller wants to say
+ * about an App JWT is two different things - that its claims are the ones the
+ * App is supposed to assert, and that the bytes were signed by the App's key -
+ * and folding them together would let a failure of either be reported as the
+ * other.
+ *
+ * @param {string} jws A compact JWS.
+ * @returns {DecodedJws | null} Its parts, or `null` for anything that is not
+ *   three base64url segments carrying two JSON objects.
+ */
+export const decodeJws = (jws) => {
+  const segments = jws.split(".");
+  const [header, payload, signature] = segments;
+  if (segments.length !== 3 || !(header && payload && signature)) {
+    return null;
+  }
+  try {
+    const parsedHeader = decodeSegment(header);
+    const parsedPayload = decodeSegment(payload);
+    if (!(isRecord(parsedHeader) && isRecord(parsedPayload))) {
+      return null;
+    }
+    return {
+      header: parsedHeader,
+      payload: parsedPayload,
+      signature: Buffer.from(signature, "base64url"),
+      signingInput: `${header}.${payload}`,
+    };
+  } catch {
+    // Not JSON under the base64url, which is not a JWS however well-formed the
+    // segment count is.
+    return null;
+  }
+};
+
+/**
+ * Whether a compact JWS is an RS256 signature by the holder of a key.
+ *
+ * `alg` is checked here rather than trusted from the header, because a verifier
+ * that took the algorithm from the token it is verifying is the classic JWS
+ * confusion: `alg: "none"` would then verify against anything.
+ *
+ * @param {string} jws A compact JWS.
+ * @param {string} publicKeyPem The public half of the key it should be under.
+ * @returns {boolean} Whether it verifies.
+ */
+export const verifiesUnder = (jws, publicKeyPem) => {
+  const decoded = decodeJws(jws);
+  if (decoded === null || decoded.header.alg !== "RS256") {
+    return false;
+  }
+  const verifier = createVerify("RSA-SHA256");
+  verifier.update(decoded.signingInput);
+  try {
+    return verifier.verify(publicKeyPem, decoded.signature);
+  } catch {
+    // A key the verifier cannot read is a failure to verify, not a crash in the
+    // gate.
+    return false;
+  }
+};
+
+/**
+ * The credential a request carries, as the `Authorization` header presents it.
+ *
+ * @param {CannedRequest} [request] A recorded request, or nothing where the
+ *   request being asked about never arrived.
+ * @returns {string | null} What follows `Bearer `, or `null` where there is no
+ *   bearer credential at all.
+ */
+export const bearerToken = (request) => {
+  const authorization = request?.headers.authorization;
+  // Node's parser folds a repeated `authorization` into an array; the client
+  // sends one, and a request carrying two has no single credential to read.
+  if (!authorization || Array.isArray(authorization)) {
+    return null;
+  }
+  const space = authorization.indexOf(" ");
+  return space !== -1 &&
+    authorization.slice(0, space).toLowerCase() === "bearer"
+    ? authorization.slice(space + 1)
+    : null;
+};
 
 /**
  * One `pull_request` delivery, signed the way GitHub signs one: an HMAC over
