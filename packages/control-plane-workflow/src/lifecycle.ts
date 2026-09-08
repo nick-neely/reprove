@@ -163,6 +163,10 @@ interface WokenTo {
  * status and is why this is not simply a string: a World that answered nothing
  * has told the watchdog nothing about the pass, and the observation set has a
  * member for exactly that.
+ *
+ * Unexported, like the step that produces it: it crosses no package boundary,
+ * and `observationFor` below - the only other thing that names it - is not on
+ * the entry point either.
  */
 interface PassDisposition {
   readonly status: string | null;
@@ -401,6 +405,13 @@ async function cancelPass(hostedWorkflowRunId: string): Promise<void> {
  * throwing: the World's status vocabulary belongs to a dependency, and a
  * lifecycle's job is to schedule rather than to assert. Saying "its state could
  * not be read" about a status this loop does not understand is true.
+ *
+ * **Exported for `lifecycle.test.ts` beside it, and for nothing else.** The
+ * package's entry point does not re-export it: it takes a type this module
+ * keeps to itself, and the mapping is the loop's own business rather than
+ * something a consumer composes with. The module-level export is what lets the
+ * one part of the liveness branch that can be enumerated exhaustively be
+ * enumerated without a World and a database.
  *
  * @param pass What the pass's durable run said, or `null` where the Run records
  *   no pass at all.
