@@ -5315,6 +5315,8 @@ export type { AcceptanceOutcome, AcceptedRunStatus, ResultRejection, SubmittedRe
 export { WORKER_RESULT_STATUS } from "./worker/acceptance-outcome.js";
 export type { ClaimOutcome, ClaimRefusal, HostedClaimRequest, } from "./worker/claim-outcome.js";
 export { WORKER_CLAIM_STATUS } from "./worker/claim-outcome.js";
+export type { MintedWorkerCredential } from "./worker/credential.js";
+export { mintWorkerCredential } from "./worker/credential.js";
 export { WORKER_PROTOCOL_SUPPORT } from "./worker/compatibility.js";
 export declare const packageName: "@reprove/control-plane";
 export { availableModels, availableReasoningEfforts, DEFAULT_CODEX_REASONING_EFFORT, DEFAULT_CODEX_MODEL, MODEL_CATALOGUE, } from "./models.js";
@@ -6347,6 +6349,11 @@ export interface PresentedWorkerCredential {
 export declare const hashWorkerSecret: (secret: string) => string;
 /**
  * Mints one credential for an Owner.
+ *
+ * The secret is 32 bytes from a CSPRNG and exists in exactly one place, which
+ * is the return value: nothing here writes it anywhere, and only `secretHash`
+ * is ever meant to reach a database. A caller that persists `credential` or
+ * `secret` has stored a bearer token in the clear.
  *
  * @param ownerId GitHub's durable numeric Owner id, which is the tenant key.
  * @returns The credential to hand over, its secret, and what to store.

@@ -38,6 +38,18 @@
  * There is no enrollment endpoint here. ADR 0016 asserts Enrollment absent from
  * Phase 0, so minting exists for the fixtures and the dashboard flow that will
  * own it, and the credential format is what #54 fixes.
+ *
+ * **Of the two functions below, only `mintWorkerCredential` is exported from
+ * the package.** Its second caller has arrived: ADR 0016's acceptance scenario
+ * drives the Worker endpoints over real HTTP and therefore has to present a
+ * real credential, and the alternative was for a verification script to respell
+ * `rpw1.<ownerId>.<secret>` and `sha256:<hex>` for itself - two copies of a
+ * format that #54 is about to change, one of them outside the package that owns
+ * it. `hashWorkerSecret` stays internal for the opposite reason: nothing needs
+ * to hash a secret it did not mint here, and a published hash over a
+ * caller-supplied string is an invitation to store one derived from something a
+ * person chose, which is the exact case the argument below says this digest is
+ * not defending.
  */
 import { createHash, randomBytes } from "node:crypto";
 
@@ -94,6 +106,11 @@ export const hashWorkerSecret = (secret: string): string =>
 
 /**
  * Mints one credential for an Owner.
+ *
+ * The secret is 32 bytes from a CSPRNG and exists in exactly one place, which
+ * is the return value: nothing here writes it anywhere, and only `secretHash`
+ * is ever meant to reach a database. A caller that persists `credential` or
+ * `secret` has stored a bearer token in the clear.
  *
  * @param ownerId GitHub's durable numeric Owner id, which is the tenant key.
  * @returns The credential to hand over, its secret, and what to store.

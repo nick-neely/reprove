@@ -88,6 +88,8 @@ export type {
   HostedClaimRequest,
 } from "./worker/claim-outcome.js";
 export { WORKER_CLAIM_STATUS } from "./worker/claim-outcome.js";
+export type { MintedWorkerCredential } from "./worker/credential.js";
+export { mintWorkerCredential } from "./worker/credential.js";
 export { WORKER_PROTOCOL_SUPPORT } from "./worker/compatibility.js";
 
 export const packageName = "@reprove/control-plane" as const;

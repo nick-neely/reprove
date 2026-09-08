@@ -707,7 +707,15 @@ the protocol entirely.
 
 There is **no enrollment endpoint**, and that is ADR 0016's assertion rather than an omission: Phase 0
 has no Enrollment. `mintWorkerCredential` exists for the fixtures and for the dashboard flow that will
-own it, and what #54 fixes is the credential format and the verification predicate.
+own it, and what #54 fixes is the credential format and the verification predicate. It is **exported**
+for the first of those two callers: the Phase 0 acceptance scenario has to present a real credential
+at the Worker endpoints, and the alternative was for a verification script to respell
+`rpw1.<ownerId>.<secret>` and `sha256:<hex>` for itself - two copies of a format that is about to
+change, one of them outside the package that owns it. Only the digest ever reaches SQL, and a caller
+that stores a `secretHash` it did not mint here is holding the wrong shape rather than a weaker one.
+`hashWorkerSecret` stays unexported, because nothing needs to hash a secret it did not mint, and an
+exported hash over a caller-supplied string is an invitation to store one derived from something a
+person chose.
 
 ## Acceptance
 
