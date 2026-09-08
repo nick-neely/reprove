@@ -401,6 +401,18 @@ async function cancelPass(hostedWorkflowRunId: string): Promise<void> {
  * `workflow_terminal_without_result` names, and it is why the status is read
  * rather than the pass's return value.
  *
+ * **Which is also where a hosted pass's structured Failure ends up, today.**
+ * Phase 0 has no transition for a Failure or a Refusal from Worker core, so
+ * `@reprove/worker-hosted` returns either as the pass's own value and writes
+ * nothing; the durable run then ends `completed`, and this mapping closes the
+ * Run `failed(worker_lost)` with `workflow_terminal_without_result`, keeping
+ * none of the reason, phase or detail the pass returned. Reading the return
+ * value would not fix it - there would still be no failure reason to write
+ * (`RUN_FAILURE_REASONS` has one member) - so it is recorded here as a gap
+ * rather than patched at the watchdog. It is unreachable in the shipped Phase 0
+ * composition, whose Worker core is a fixture that produces a Result or throws,
+ * and `spine.test.ts` pins it.
+ *
  * An unrecognized status maps to `workflow_state_unavailable` rather than
  * throwing: the World's status vocabulary belongs to a dependency, and a
  * lifecycle's job is to schedule rather than to assert. Saying "its state could

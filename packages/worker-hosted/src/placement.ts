@@ -32,10 +32,10 @@
  * 0015](../../../docs/adr/0015-execution-ownership-and-worker-liveness.md) is
  * explicit that a *structured* Failure keeps its own specific reason and is
  * never collapsed into `worker_lost`, so `sandbox_teardown_incomplete` leaves
- * here as itself. `worker_lost` is the fallback for an execution that ended
- * without any acceptable terminal report, and an uncaught throw is exactly
- * that: Reprove's own code was on the stack, so it does not wait out a
- * ten-minute deadline for a crash it witnessed.
+ * *this function* as itself rather than as a loss report. `worker_lost` is the
+ * fallback for an execution that ended without any acceptable terminal report,
+ * and an uncaught throw is exactly that: Reprove's own code was on the stack,
+ * so it does not wait out a ten-minute deadline for a crash it witnessed.
  *
  * **What this deliberately does not do.** It does not decide anything about the
  * Run: every outcome above is a call to the control plane, which owns the
@@ -46,6 +46,24 @@
  * leaves a hosted Worker's internal Failure signalled rather than submitted -
  * so both are returned to the caller as the pass's own terminal value and
  * nothing is written against the Run for them.
+ *
+ * **And what that costs the Run, stated rather than implied.** Because nothing
+ * is written, the Run stays inside Acceptance's eligibility window with its
+ * execution deadline still running, and the lifecycle's watchdog is what closes
+ * it: the pass's durable run ended normally, so the watchdog reads it
+ * `completed` and terminalizes the Run `failed(worker_lost)` with observation
+ * `workflow_terminal_without_result`. The Failure's `reason`, `phase` and
+ * `detail` - and a Refusal's reason - survive only as this function's return
+ * value and reach no column. ADR 0015 names `reportHostedFailure` as the
+ * transition that would carry them and no such transition exists yet:
+ * `RUN_FAILURE_REASONS` has the single member `worker_lost`, so there is no
+ * reason code for a Worker-reported Failure to land in, and giving it one is
+ * its own change rather than this composition's. **It is unreachable in the
+ * shipped Phase 0 composition** - `createPhase0WorkerCore` composes the fixture
+ * Result or throws, and can produce neither outcome - and it becomes reachable
+ * with the first real Worker core. `spine.test.ts` in
+ * `@reprove/control-plane-workflow` pins the behaviour end to end, so the gap
+ * is measured rather than remembered.
  */
 import type { Result } from "@reprove/protocol/v1";
 import type {
@@ -166,11 +184,21 @@ export type HostedPassOutcome =
    * retried and nothing is written: the Run has already been decided.
    */
   | { readonly kind: "rejected"; readonly reason: string }
-  /** Worker core refused to execute. Nothing ran and nothing is written. */
+  /**
+   * Worker core refused to execute. Nothing ran and nothing is written - so
+   * the Run is left for the watchdog, which closes it `failed(worker_lost)` /
+   * `workflow_terminal_without_result` at its execution deadline and keeps no
+   * trace of this reason. See the module header; ADR 0013 makes a Refusal
+   * unreachable in Phase 0.
+   */
   | { readonly kind: "refused"; readonly reason: string }
   /**
-   * Execution began and produced no acceptable Result. It keeps its own
-   * specific reason and is never collapsed into `worker_lost`.
+   * Execution began and produced no acceptable Result. The reason, phase and
+   * detail travel here and nowhere else: no transition carries a structured
+   * Failure yet, so the Run is closed by the watchdog at its execution
+   * deadline as `failed(worker_lost)` with observation
+   * `workflow_terminal_without_result`, discarding all three. The shipped
+   * Phase 0 core cannot produce this outcome. See the module header.
    */
   | {
       readonly kind: "failed";
@@ -246,6 +274,13 @@ export const runHostedPlacement = async (
     return { detail, kind: "lost", terminalized: reported.terminalized };
   }
 
+  // Neither of the next two branches calls a port, and that is the whole of
+  // what Phase 0 can do with them: there is no transition for a Refusal or a
+  // structured Failure. The consequence is not neutral and is not hidden - the
+  // Run is left inside Acceptance's window, and the watchdog closes it
+  // `failed(worker_lost)` / `workflow_terminal_without_result` at the execution
+  // deadline, keeping none of the reason, phase or detail returned here. The
+  // shipped Phase 0 core reaches neither branch; a real core will.
   if (outcome.kind === "refusal") {
     return { kind: "refused", reason: outcome.refusal.reason };
   }

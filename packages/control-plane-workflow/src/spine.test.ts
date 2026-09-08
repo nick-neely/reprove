@@ -41,6 +41,7 @@ import { protocolVersion } from "@reprove/protocol/v1";
 import type {
   HostedDispatchOptions,
   HostedDispatchOutcome,
+  HostedPassOutcome,
 } from "@reprove/worker-hosted";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { getRun, start } from "workflow/api";
@@ -62,6 +63,8 @@ import type { LifecycleOutcome } from "./lifecycle.js";
 import { runLifecycle } from "./lifecycle.js";
 import type { PassOutcome } from "./pass.js";
 import {
+  failedPass,
+  PASS_FAILURE,
   silentPass,
   throwingPass,
   unfinishedPass,
@@ -928,6 +931,45 @@ describe("the durable spine", () => {
         kind: "worker_lost",
         observation: "workflow_terminal_without_result",
       });
+    });
+
+    it("loses a structured Failure's reason, because no transition carries one", async () => {
+      // The gap, measured rather than remembered. Worker core failed, the
+      // placement returned the Failure as the pass's own value, and it wrote
+      // nothing - Phase 0 has no transition for a structured Failure, and
+      // `RUN_FAILURE_REASONS` has no member but `worker_lost` for one to land
+      // in. So the Run is left inside Acceptance's window, and the watchdog
+      // reads a pass that ended `completed` and closes it as an execution that
+      // reported nothing. The reason, the phase and the detail survive only in
+      // the durable run's return value, which nothing reads.
+      //
+      // Unreachable in the shipped composition: `createPhase0WorkerCore`
+      // produces the fixture Result or throws. The first real Worker core makes
+      // it reachable, and closing it means a transition and the reason codes it
+      // writes. This case is here so that change has something to break.
+      const { hostedWorkflowRunId, runId } = await withRecordedPass(() =>
+        start(failedPass, [])
+      );
+      await expect(
+        getRun<HostedPassOutcome>(hostedWorkflowRunId).returnValue
+      ).resolves.toStrictEqual(PASS_FAILURE);
+
+      const lifecycle = await dispatch(runId);
+      await controlPlane.lifecycle.record(ACME, runId, lifecycle.workflowRunId);
+
+      // Strictly equal, because what this case is about is the fields that are
+      // *not* there: the whole of what the terminal transition wrote is a
+      // `worker_lost` Failure observed as a pass that ended without a Result,
+      // and neither `sandbox_teardown_incomplete` nor `teardown` appears in it.
+      await expect(lifecycle.outcome).resolves.toStrictEqual({
+        cancelledPass: hostedWorkflowRunId,
+        kind: "worker_lost",
+        lostFrom: "executing",
+        observation: "workflow_terminal_without_result",
+      });
+      await expect(
+        controlPlane.lifecycle.schedule(ACME, runId)
+      ).resolves.toMatchObject({ hostedWorkflowRunId, status: "failed" });
     });
 
     it("names a pass that failed where no in-process detector could see it", async () => {

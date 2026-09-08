@@ -154,8 +154,15 @@ describe("the hosted placement", () => {
   it("keeps a structured Failure's own reason and never reports it as worker_lost", async () => {
     // ADR 0015: a structured Failure from Worker core "keeps its own specific
     // reason, so `sandbox_teardown_incomplete` is never collapsed into
-    // `worker_lost`". Nothing about this pass is lost - it ended, and it said
-    // how.
+    // `worker_lost`". What that buys at this seam is that no loss is reported:
+    // the pass ended, and it said how.
+    //
+    // What it does not buy is a Run that records any of it. No transition
+    // carries a structured Failure yet, so the Run is left inside Acceptance's
+    // window and its watchdog closes it `failed(worker_lost)` /
+    // `workflow_terminal_without_result` at the execution deadline. That is
+    // pinned end to end in `spine.test.ts` in `@reprove/control-plane-workflow`
+    // rather than only described here.
     const plane = recordingPorts(accepted);
 
     await expect(
@@ -184,7 +191,9 @@ describe("the hosted placement", () => {
 
   it("reports a Refusal as itself, absorbing nothing into the Run", async () => {
     // A Refusal is a decision not to execute. It is not a Result, so Acceptance
-    // never sees it, and nothing executed, so no execution was lost.
+    // never sees it, and nothing executed, so no execution was lost. It is also
+    // written nowhere, so the Run it declined is left for the watchdog on the
+    // same terms as a Failure above - ADR 0013 makes it unreachable in Phase 0.
     const plane = recordingPorts(accepted);
 
     await expect(

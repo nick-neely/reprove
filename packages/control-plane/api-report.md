@@ -1421,9 +1421,22 @@ export type RunCancellationReason = (typeof RUN_CANCELLATION_REASONS)[number];
  * It is the fallback for an execution that ended without a more specific
  * acceptable terminal report reaching the control plane. An uncaught throw
  * qualifies even though Reprove witnessed it, because a crash is not an
- * acceptable terminal report. A structured Failure from `worker-core` does
- * **not**: that path keeps its own specific reason, so
+ * acceptable terminal report. A structured Failure from `worker-core` should
+ * **not**: ADR 0015 has that path keep its own specific reason, so
  * `sandbox_teardown_incomplete` is never collapsed into this.
+ *
+ * **That last sentence is the intent and not yet the behaviour, and the gap is
+ * recorded rather than assumed away.** The transition ADR 0015 names for it,
+ * `reportHostedFailure`, does not exist, and this list has no member it could
+ * write. So a hosted pass that ends in a structured Failure or a Refusal writes
+ * nothing at all: it returns the reason to its caller and leaves the Run inside
+ * Acceptance's window, where the watchdog closes it `worker_lost` with
+ * observation `workflow_terminal_without_result` at the execution deadline,
+ * discarding the reason, phase and detail. It is unreachable in the shipped
+ * Phase 0 composition, whose Worker core is `@reprove/worker-hosted`'s fixture
+ * and produces a Result or throws; the first real core makes it reachable, and
+ * closing it means a transition and the reason codes it writes, which is a
+ * change of its own.
  */
 export declare const RUN_FAILURE_REASONS: readonly ["worker_lost"];
 export type RunFailureReason = (typeof RUN_FAILURE_REASONS)[number];
@@ -1468,6 +1481,14 @@ export type ExecutionLostDetector = (typeof EXECUTION_LOST_DETECTORS)[number];
  * id is recorded it reads that durable run's state and names what it found. The
  * four `workflow_*` members arrived with their reader in the hosted placement
  * (#57); they were declared ahead of it because they are ADR 0015's fixed set.
+ *
+ * **`workflow_terminal_without_result` covers more than a silent pass.** It is
+ * also what a pass that ended in a structured Failure or a Refusal reads as,
+ * because neither has a transition to write itself with (see
+ * `RUN_FAILURE_REASONS` above): the pass returns its reason to its caller, the
+ * durable run ends `completed`, and this is the only thing the watchdog can
+ * see. So this observation means "it ended and no Result was submitted" and
+ * never "it ended and said nothing about why".
  *
  * **`workflow_state_unavailable` is one answer for every way reading can
  * fail** - a World that is down, a run id it has never heard of, a status this

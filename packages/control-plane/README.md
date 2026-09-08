@@ -456,8 +456,18 @@ all. With no pass recorded, or one still running past the deadline, `deadline_el
 honest answer and stays.
 
 The transition absorbs no Result, so Acceptance remains the only path by which a Result enters a
-Run, and it is not where a hosted Worker's *structured* Failure goes - that keeps its own specific
-reason, so `sandbox_teardown_incomplete` is never collapsed into `worker_lost`.
+Run, and it is not where a hosted Worker's *structured* Failure is meant to go - ADR 0015 has that
+keep its own specific reason, so `sandbox_teardown_incomplete` is never collapsed into
+`worker_lost`.
+
+**That is the intent, and not yet the behaviour.** The transition ADR 0015 names for it,
+`reportHostedFailure`, does not exist, and `RUN_FAILURE_REASONS` has no member it could write. So a
+hosted pass that ends in a structured Failure or a Refusal writes nothing: it returns the reason to
+its caller, its durable run ends `completed`, and the watchdog closes the Run `failed(worker_lost)`
+with `workflow_terminal_without_result` at the execution deadline, discarding the reason, phase and
+detail. It is unreachable in the shipped Phase 0 composition, whose Worker core produces a fixture
+Result or throws, and it becomes reachable with the first real core. Closing it means a transition
+plus the reason codes it writes, which is a change of its own rather than a line in the watchdog.
 
 **It decides; it does not reclaim.** The database write is the correctness boundary and cancelling
 a still-running pass is best-effort clean-up that follows a transition that won; cancelling first
