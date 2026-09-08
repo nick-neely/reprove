@@ -1,0 +1,249 @@
+/**
+ * What a hosted Worker does with one Run: drive Worker core, and report what
+ * came back through the ports the composition handed it.
+ *
+ * ```text
+ * core.execute(input)
+ *   result   -> acceptResult          the same Acceptance a self-hosted Worker
+ *                                     reaches over HTTP, with no HTTP hop
+ *   refusal  -> reported, unabsorbed  a decision not to execute
+ *   failure  -> reported, unabsorbed  execution began and produced no Result
+ *   threw    -> reportExecutionLost   the in-process `hosted_prompt` detector
+ * ```
+ *
+ * **Placement is composition, not behaviour** ([ADR
+ * 0001](../../../docs/adr/0001-one-worker-concept.md), [ADR
+ * 0010](../../../docs/adr/0010-package-graph-and-open-core-boundary.md)). The
+ * Run reaching Worker core here reaches the same `execute` a self-hosted daemon
+ * calls, through the same authorization sequence, and produces the same
+ * `WorkerOutcome`. What differs is the transport out: this composition holds
+ * the control plane in the same process, so its ports are function calls where
+ * the self-hosted lifecycle's are authenticated HTTP requests.
+ *
+ * **The ports are named over `@reprove/protocol` values and plain strings.**
+ * `@reprove/control-plane` satisfies them structurally, and this package
+ * depends on it nowhere: ADR 0010's matrix gives this package `worker-core`,
+ * `protocol` and `workflow`, and a type import from the control plane would be
+ * an edge the matrix does not carry. It also keeps the unit tests below honest
+ * - they compose the placement over in-memory doubles, and a double is the same
+ * shape the deployment passes rather than a weaker one.
+ *
+ * **A thrown Pass is the only thing that reaches `reportExecutionLost`.** [ADR
+ * 0015](../../../docs/adr/0015-execution-ownership-and-worker-liveness.md) is
+ * explicit that a *structured* Failure keeps its own specific reason and is
+ * never collapsed into `worker_lost`, so `sandbox_teardown_incomplete` leaves
+ * here as itself. `worker_lost` is the fallback for an execution that ended
+ * without any acceptable terminal report, and an uncaught throw is exactly
+ * that: Reprove's own code was on the stack, so it does not wait out a
+ * ten-minute deadline for a crash it witnessed.
+ *
+ * **What this deliberately does not do.** It does not decide anything about the
+ * Run: every outcome above is a call to the control plane, which owns the
+ * conditional statement and may refuse it. It does not retry: one pass is one
+ * attempt, and a Run that needs another is a Run the control plane creates. It
+ * does not submit a Refusal or a Failure anywhere, because Phase 0 has no
+ * transition for either - ADR 0013 makes a Refusal unreachable and ADR 0014
+ * leaves a hosted Worker's internal Failure signalled rather than submitted -
+ * so both are returned to the caller as the pass's own terminal value and
+ * nothing is written against the Run for them.
+ */
+import type { Result } from "@reprove/protocol/v1";
+import type {
+  FailurePhase,
+  FailureReason,
+  RunInput,
+  WorkerCore,
+  WorkerOutcome,
+} from "@reprove/worker-core";
+
+/**
+ * The execution ownership one claim created, as the placement carries it.
+ *
+ * The token is the whole of the execution's identity to the control plane
+ * (ADR 0015): it is what Acceptance recognizes a submission by and what the
+ * in-process detector presents as evidence, and it is placement-neutral, so
+ * nothing here is a hosted-specific ownership story.
+ */
+export interface HostedExecution {
+  readonly ownerId: number;
+  readonly runId: string;
+  readonly executionToken: string;
+}
+
+/** One Result, as the control plane's Acceptance is told about it. */
+export interface HostedSubmission extends HostedExecution {
+  readonly result: Result;
+}
+
+/**
+ * What Acceptance answered, narrowed to what the placement acts on: it accepted
+ * the Result, or it named why it would not.
+ *
+ * `reason` is a plain string rather than the control plane's own union, for the
+ * reason the module header gives. The names are the control plane's and are not
+ * restated here, because a second copy of a closed set is a set that can drift.
+ */
+export type HostedAcceptance =
+  | {
+      readonly kind: "accepted";
+      readonly runStatus: "completed" | "incomplete";
+    }
+  | { readonly kind: "malformed"; readonly reason: string }
+  | { readonly kind: "rejected"; readonly reason: string };
+
+/**
+ * The in-process detector's report, as ADR 0015 shapes it: the detector, what
+ * it saw, and the token that proves which execution it saw it in.
+ */
+export interface HostedExecutionLoss {
+  readonly ownerId: number;
+  readonly runId: string;
+  readonly detector: "hosted_prompt";
+  readonly observation: "uncaught_throw";
+  readonly evidence: {
+    readonly kind: "execution";
+    readonly executionToken: string;
+  };
+}
+
+/** Whether the terminal transition was written by this report. */
+export interface HostedLossOutcome {
+  readonly terminalized: boolean;
+}
+
+/** The control plane, as the hosted placement reaches it. */
+export interface HostedPlacementPorts {
+  /**
+   * ADR 0006's Acceptance, reached in-process because a hosted deployment
+   * composes both halves. It is the same function the authenticated endpoint
+   * reaches, not a second one beside it.
+   */
+  readonly acceptResult: (
+    submission: HostedSubmission
+  ) => Promise<HostedAcceptance>;
+  /**
+   * ADR 0015's terminal transition, reached by the `hosted_prompt` detector.
+   * It absorbs no Result, so Acceptance stays the only path by which one
+   * enters a Run.
+   */
+  readonly reportExecutionLost: (
+    loss: HostedExecutionLoss
+  ) => Promise<HostedLossOutcome>;
+}
+
+/** One pass of the hosted placement, as the composition assembles it. */
+export interface HostedPlacementRequest {
+  /**
+   * Worker core, already composed. It is an argument rather than something
+   * built here because ADR 0010 keeps `@reprove/adapters` and
+   * `@reprove/sandbox-container` out of this package: what composes a real core
+   * is the deployment, and what Phase 0 composes is the fixture in `./core.js`.
+   */
+  readonly core: WorkerCore;
+  /** The Run as Worker core receives it. */
+  readonly input: RunInput;
+  /** Who this pass is, to the control plane. */
+  readonly execution: HostedExecution;
+  readonly ports: HostedPlacementPorts;
+}
+
+/**
+ * How one hosted pass ended.
+ *
+ * Five members rather than three, because Worker core's three outcomes are not
+ * the whole answer: a Result still has to survive Acceptance, and a pass that
+ * threw was not an outcome at all.
+ */
+export type HostedPassOutcome =
+  /** A Result was produced and Acceptance absorbed it. The Run is terminal. */
+  | {
+      readonly kind: "accepted";
+      readonly runStatus: "completed" | "incomplete";
+    }
+  /**
+   * A Result was produced and Acceptance would not take it - the Run ended
+   * while the pass ran, or the token is no longer its current one. Nothing is
+   * retried and nothing is written: the Run has already been decided.
+   */
+  | { readonly kind: "rejected"; readonly reason: string }
+  /** Worker core refused to execute. Nothing ran and nothing is written. */
+  | { readonly kind: "refused"; readonly reason: string }
+  /**
+   * Execution began and produced no acceptable Result. It keeps its own
+   * specific reason and is never collapsed into `worker_lost`.
+   */
+  | {
+      readonly kind: "failed";
+      readonly reason: FailureReason;
+      readonly phase: FailurePhase;
+      readonly detail: string;
+    }
+  /**
+   * The Pass threw past Worker core, and the in-process detector reported it.
+   * `terminalized` is the control plane's answer, not this pass's claim.
+   */
+  | {
+      readonly kind: "lost";
+      readonly terminalized: boolean;
+      readonly detail: string;
+    };
+
+/**
+ * Runs one Run through Worker core and reports what came back.
+ *
+ * The `try` covers `core.execute` and nothing else, deliberately. A throw from
+ * a port is not a Pass that crashed - it is the control plane being unreachable
+ * for a moment - and reporting the execution lost on it would end a Run whose
+ * pass is still running perfectly well. Letting it propagate is the correct
+ * answer instead: the caller is a durable step, and the platform's own retry is
+ * what a transient failure needs.
+ *
+ * @param request Worker core, the Run, the execution's identity and the ports.
+ * @returns How the pass ended, as the terminal value of the durable run.
+ */
+export const runHostedPlacement = async (
+  request: HostedPlacementRequest
+): Promise<HostedPassOutcome> => {
+  const { core, execution, input, ports } = request;
+
+  let outcome: WorkerOutcome;
+  try {
+    outcome = await core.execute(input);
+  } catch (error) {
+    // The `hosted_prompt` detector. Reprove's own code is on the stack, so the
+    // report carries the token that proves which execution threw rather than
+    // waiting for a deadline to notice the silence.
+    const detail = error instanceof Error ? error.message : String(error);
+    const reported = await ports.reportExecutionLost({
+      detector: "hosted_prompt",
+      evidence: { executionToken: execution.executionToken, kind: "execution" },
+      observation: "uncaught_throw",
+      ownerId: execution.ownerId,
+      runId: execution.runId,
+    });
+    return { detail, kind: "lost", terminalized: reported.terminalized };
+  }
+
+  if (outcome.kind === "refusal") {
+    return { kind: "refused", reason: outcome.refusal.reason };
+  }
+  if (outcome.kind === "failure") {
+    return {
+      detail: outcome.failure.detail,
+      kind: "failed",
+      phase: outcome.failure.phase,
+      reason: outcome.failure.reason,
+    };
+  }
+
+  const accepted = await ports.acceptResult({
+    executionToken: execution.executionToken,
+    ownerId: execution.ownerId,
+    result: outcome.result,
+    runId: execution.runId,
+  });
+  if (accepted.kind === "accepted") {
+    return { kind: "accepted", runStatus: accepted.runStatus };
+  }
+  return { kind: "rejected", reason: accepted.reason };
+};
