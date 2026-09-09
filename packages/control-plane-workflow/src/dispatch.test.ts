@@ -9,8 +9,10 @@
  * whole path against a real World and a real database is `spine.test.ts`'s, and
  * it reaches the shipped entry point for the happy case. What neither can reach
  * is the self-hosted branch - no test can uninstall a package from the
- * workspace it is running in - so that branch is measured here, over the
- * composition this module takes as an argument.
+ * workspace it is running in. So the two properties that are this module's own
+ * - that branch, and which functions it puts behind the ports it hands the
+ * ordering - are both measured here, over the composition it takes as an
+ * argument.
  */
 import type { ClaimOutcome } from "@reprove/control-plane";
 import type {

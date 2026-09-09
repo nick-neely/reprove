@@ -206,11 +206,13 @@ eligibility window. A scenario that skipped it would not exercise what #39 inher
 > `tools/verify-packages.mjs`, which type-checks and runtime-imports every subpath of the packed
 > artifact - and the symbol was a property of a shipped **parameter type**, so it could not be
 > relocated out of `dispatchHostedRun`'s signature in any case. Removal was the alternative this
-> section already named, and the case no longer needs the branch, so it was taken.
+> section already named, and the case no longer needs the branch, so it was taken. The option's
+> identifier survives in this file only in #58's amendment above, as history: nothing in
+> `packages`, `apps`, `tools` or the rest of `docs` names it.
 
 **Self-hosted silence is kept alongside it, at no cost.** A self-hosted Worker claims over the
 authenticated endpoint and goes quiet; nothing in Phase 0 moves it to `executing`, because there is
-no progress message. Same terminal state, different cause, no injection. The **pair** is what shows
+no progress message. Same terminal state, different cause. The **pair** is what shows
 the eligibility window is placement-neutral rather than a hosted special case.
 
 ## Exactly-once is proven concurrently or not at all
@@ -273,10 +275,11 @@ Asserted absent, because Phase 1 owns them:
   that would be better behind a private surface - `reportHostedFailure` being the first.
 
   > **Amended by [#87](https://github.com/nick-neely/reprove/issues/87):** this cost is gone. The
-  > branch was removed rather than hidden, for the reasons the amendment above gives, so the list of
-  > costs the scenario carries is two rather than three. `reportHostedFailure` is not one of them:
-  > it was never built, and ADR 0014 records that its surface is
-  > [#83](https://github.com/nick-neely/reprove/issues/83)'s to decide.
+  > branch was removed rather than hidden, for the reasons the amendment above gives. Two of the
+  > three costs this section counted were never costs at all: `reportHostedFailure` was never built,
+  > and ADR 0014 records that its surface is
+  > [#83](https://github.com/nick-neely/reprove/issues/83)'s to decide. **The environment-readable
+  > Run windows in the next bullet are the sole remaining one.**
 - **The two Run windows are readable from the environment, and that is the third such cost.**
   Added by [#58](https://github.com/nick-neely/reprove/issues/58): "with only the two durations
   moved" needed somewhere to move them from, and a scenario that watched the real durable sleep
@@ -291,6 +294,11 @@ Asserted absent, because Phase 1 owns them:
   discovered: a very short `REPROVE_RUN_CLAIMABLE_FOR_MS` in a real deployment narrows the window in
   which `runLifecycle`'s unrecorded-lifecycle grace can leave a Run with nothing to close it, from
   minutes to seconds.
+
+  > **Amended by [#87](https://github.com/nick-neely/reprove/issues/87):** "the third such cost" was
+  > counted against a list of three that turned out to hold one. The injection point above is
+  > removed and `reportHostedFailure` was never built, so this is the **only** cost the scenario
+  > carries. Nothing else about this bullet changes.
 - **`worker_lost` is still never observed against a real Worker.** All three of ADR 0015's detectors
   remain exercised against fixtures.
 
