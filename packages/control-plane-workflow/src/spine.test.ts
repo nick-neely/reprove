@@ -39,8 +39,8 @@ import {
 import type { Result } from "@reprove/protocol/v1";
 import { protocolVersion } from "@reprove/protocol/v1";
 import type {
-  HostedDispatchOptions,
   HostedDispatchOutcome,
+  HostedDispatchPorts,
   HostedPassOutcome,
 } from "@reprove/worker-hosted";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -358,14 +358,19 @@ const shortLivenessPlane = async (): Promise<ControlPlane> =>
  * watchdog to close. A pass that has not answered yet is the ordinary shape in
  * production and the impossible one for a fixture, and the watchdog reads
  * exactly one thing about a pass: the status its durable run carries. So the
- * ordering, the injection point, the claim and the `markExecuting` write are
- * all the real ones, and only what `start()` starts is the case's.
+ * ordering, the claim and the `markExecuting` write are all the real ones, and
+ * only what `start()` starts is the case's.
+ *
+ * The write is overridable for the one case that needs it not to land, which is
+ * ADR 0016's abandoned Run: a port that never returns is the crash between
+ * `start()` and the write, and it leaves the row that case is about.
  */
 const dispatchStandIn = async (
   plane: ControlPlane,
   runId: string,
   startPass: () => Promise<{ runId: string }>,
-  options: HostedDispatchOptions = {}
+  markExecuting: HostedDispatchPorts["markExecuting"] = (execution) =>
+    plane.markExecuting(execution)
 ): Promise<HostedDispatchOutcome> => {
   const placement = await composeHostedPlacement(
     () => import("@reprove/worker-hosted")
@@ -376,15 +381,14 @@ const dispatchStandIn = async (
   return await placement.dispatchHostedRun(
     {
       claimRun: (request) => plane.claimRun(request),
-      markExecuting: (execution) => plane.markExecuting(execution),
+      markExecuting,
       startPass: async () => {
         const run = await startPass();
         started.push(run.runId);
         return { hostedWorkflowRunId: run.runId };
       },
     },
-    { ownerId: ACME, runId },
-    options
+    { ownerId: ACME, runId }
   );
 };
 
@@ -807,20 +811,20 @@ describe("the durable spine", () => {
       });
     });
 
-    it("leaves a Run claimed with no pass recorded when dispatch dies before recording one", async () => {
-      // ADR 0016's mandatory abandoned case, reached the only way it can be
-      // reached: the injection point between `start()` and `markExecuting`. The
-      // pass is genuinely running and nothing anywhere records it.
+    it("leaves a Run claimed with no pass recorded when the write never lands", async () => {
+      // ADR 0016's mandatory abandoned case, through the shipped ordering over
+      // the real claim: a `markExecuting` port that never returns is the crash
+      // between `start()` and the write. The pass is genuinely running - it is
+      // a real durable run started here - and the row records none, which is
+      // the whole of what the window is.
       const short = await shortLivenessPlane();
       let runId = "";
       try {
         runId = await queuedRunThrough(short);
         await expect(
-          dispatchStandIn(short, runId, () => start(unfinishedPass, []), {
-            interruptBeforeRecordingPass: () => {
-              throw new Error("the dispatching process died");
-            },
-          })
+          dispatchStandIn(short, runId, () => start(unfinishedPass, []), () =>
+            Promise.reject(new Error("the dispatching process died"))
+          )
         ).rejects.toThrow("the dispatching process died");
       } finally {
         await short.close();
