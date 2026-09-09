@@ -56,26 +56,11 @@ which is [ADR 0016](../../docs/adr/0016-phase-0-acceptance-scenario.md)'s mandat
 
 The order is not negotiable. Claiming last would start a pass against a Run nobody owns; recording before starting would name a durable run that does not exist, and the lifecycle would later try to cancel an id the World has never heard of. Every other order trades an inert orphan - a pass that runs and changes nothing, because the Run it would submit to has closed - for a Run owned by no execution or pointing at no pass.
 
-### The injection point, which is a paid cost
+### How the abandoned case is reached
 
-`HostedDispatchOptions.interruptBeforeRecordingPass` is the one test-only branch in shipped orchestration, and ADR 0016 records the price rather than hiding it:
+The window is a fact about the **Run row**, not about a particular way of crashing: the claim landed, `start()` returned, and no pass id was ever written. So a `markExecuting` port that never returns reaches it exactly. `dispatch.test.ts` here does that over in-memory ports and asserts the claim and the start happened and the write did not; `spine.test.ts` in `@reprove/control-plane-workflow` does it against the real control plane and a real durable pass, and reads back the `claimed`/null-pass row this ordering leaves.
 
-> The crash is inside Reprove's own dispatch path, between `start()` and `markExecuting`, so no misbehaving Worker can reach it: the scenario needs an injection point at the composition seam, which is a test-only branch inside shipped orchestration.
-
-and, under what that ADR deliberately does not claim:
-
-> The injection point is a known impurity. A test-only branch in shipped orchestration is a real cost, accepted for one case.
-
-It is paid because the window it reaches is the reason ADR 0015 widened the terminal transition from `executing` to the whole eligibility window: a Phase 0 exit that could not reach it would not exercise what [#39](https://github.com/nick-neely/reprove/issues/39) inherited. It is shaped to make misuse loud rather than convenient:
-
-```text
-an option, not an environment variable  a deployment cannot switch it on
-undefined by default                    the shipped composition passes nothing
-returns `never`                         it may only throw; nothing forks on a
-                                        value it returned
-```
-
-`dispatch.test.ts` fixes the default behaviour, and `pass.test.ts` in `@reprove/control-plane-workflow` asserts that no shipped module of the composition that drives this ever assigns it.
+There used to be an injection point on a `HostedDispatchOptions` parameter here, called between `start()` and the write. [ADR 0016](../../docs/adr/0016-phase-0-acceptance-scenario.md) accepted it as a named cost - a test-only branch inside shipped orchestration - and named removal as the alternative. [#87](https://github.com/nick-neely/reprove/issues/87) took the alternative: the port double produces the same row and the same rejection, so the branch bought nothing the seam did not already give.
 
 ## The Phase 0 Worker core is a fixture, and says so
 

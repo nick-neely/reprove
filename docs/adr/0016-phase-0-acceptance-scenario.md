@@ -189,6 +189,25 @@ eligibility window. A scenario that skipped it would not exercise what #39 inher
 > test-only branch is still in shipped orchestration - and the scenario's claim is narrowed
 > accordingly rather than the branch being removed.
 
+> **Amended by [#87](https://github.com/nick-neely/reprove/issues/87):** the cost is no longer paid,
+> because it turned out not to buy anything. The injection point named just above is **removed**,
+> along with the `HostedDispatchOptions` type declaring it and the parameter that carried it through
+> `@reprove/control-plane-workflow`'s `dispatchThrough` and `dispatchHostedPass`.
+> The window this section describes is a fact about the **Run row** - claimed, token assigned,
+> `hosted_workflow_run_id` null, a durable pass genuinely running behind it - and `markExecuting` is
+> already a port. A double for that port which never returns is the crash between `start()` and the
+> write: it leaves the same row, the dispatch call rejects the same way, and every test that used the
+> injection point already supplied all three ports as doubles. So `spine.test.ts` keeps the half this
+> section says is its - the real claim, a real durable pass, the real `claimed`/null-pass row and the
+> real terminal transition - with no test-only branch in shipped orchestration.
+>
+> Two ways of *hiding* the branch were offered and rejected. A `/testing` subpath and an internal
+> `exports` entry both fail for the same reason: any key in `exports` is proven public by
+> `tools/verify-packages.mjs`, which type-checks and runtime-imports every subpath of the packed
+> artifact - and the symbol was a property of a shipped **parameter type**, so it could not be
+> relocated out of `dispatchHostedRun`'s signature in any case. Removal was the alternative this
+> section already named, and the case no longer needs the branch, so it was taken.
+
 **Self-hosted silence is kept alongside it, at no cost.** A self-hosted Worker claims over the
 authenticated endpoint and goes quiet; nothing in Phase 0 moves it to `executing`, because there is
 no progress message. Same terminal state, different cause, no injection. The **pair** is what shows
@@ -252,6 +271,12 @@ Asserted absent, because Phase 1 owns them:
 - **The injection point is a known impurity.** A test-only branch in shipped orchestration is a real
   cost, accepted for one case, and it is the second thing ADR 0014's orchestration package carries
   that would be better behind a private surface - `reportHostedFailure` being the first.
+
+  > **Amended by [#87](https://github.com/nick-neely/reprove/issues/87):** this cost is gone. The
+  > branch was removed rather than hidden, for the reasons the amendment above gives, so the list of
+  > costs the scenario carries is two rather than three. `reportHostedFailure` is not one of them:
+  > it was never built, and ADR 0014 records that its surface is
+  > [#83](https://github.com/nick-neely/reprove/issues/83)'s to decide.
 - **The two Run windows are readable from the environment, and that is the third such cost.**
   Added by [#58](https://github.com/nick-neely/reprove/issues/58): "with only the two durations
   moved" needed somewhere to move them from, and a scenario that watched the real durable sleep

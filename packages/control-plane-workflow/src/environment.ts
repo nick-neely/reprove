@@ -82,8 +82,7 @@ export const ENVIRONMENT = {
    * open, not what runs inside it, and both are already bounded and validated
    * by `normalizeRunProfile`.
    *
-   * They exist as a **paid verification affordance**, in the same register as
-   * the dispatch path's test-only injection point, and ADR 0016 is what buys
+   * They exist as a **paid verification affordance**, and ADR 0016 is what buys
    * them. The Phase 0 exit has to observe a Run "terminalized by liveness
    * alone", which means running the real lifecycle loop, the real durable sleep
    * and the real conditional UPDATE against a deadline that actually arrives -

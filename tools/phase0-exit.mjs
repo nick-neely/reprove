@@ -1372,13 +1372,14 @@ const walkConcurrency = async (c, run, token) => {
  * called from an uncompiled script (the Workflow client transform stamps a
  * workflow's id at build time, and this process never runs that transform).
  * `packages/control-plane-workflow/src/spine.test.ts` reaches that half through
- * the real dispatch path and its `interruptBeforeRecordingPass` injection
- * point, and it runs inside this same required check.
+ * the real dispatch path over a `markExecuting` port that never returns, which
+ * is the crash between `start()` and the write, and it runs inside this same
+ * required check.
  *
  * **The self-hosted case is kept beside it at no cost**: a Worker claims over
  * the authenticated endpoint and goes quiet. Same terminal state, different
- * cause, no injection. The pair is what shows the eligibility window is
- * placement-neutral rather than a hosted special case.
+ * cause. The pair is what shows the eligibility window is placement-neutral
+ * rather than a hosted special case.
  *
  * @param {object} c The scenario's context.
  * @param {readonly {label: string, run: {id: string, workflowRunId: string},

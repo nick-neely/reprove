@@ -822,8 +822,11 @@ describe("the durable spine", () => {
       try {
         runId = await queuedRunThrough(short);
         await expect(
-          dispatchStandIn(short, runId, () => start(unfinishedPass, []), () =>
-            Promise.reject(new Error("the dispatching process died"))
+          dispatchStandIn(
+            short,
+            runId,
+            () => start(unfinishedPass, []),
+            () => Promise.reject(new Error("the dispatching process died"))
           )
         ).rejects.toThrow("the dispatching process died");
       } finally {

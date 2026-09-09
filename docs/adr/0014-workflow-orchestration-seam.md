@@ -171,6 +171,14 @@ message, so [#35](https://github.com/nick-neely/reprove/issues/35)'s verdict sta
 unreachable: it is an exported function, and making the property real requires a private
 surface on the orchestration package. Recorded as a known limitation rather than a guarantee.
 
+> **Amended by [#87](https://github.com/nick-neely/reprove/issues/87):** `reportHostedFailure`
+> was never built. No function of that name exists in any package; every mention of it is prose
+> recording the transition this paragraph names as absent, and `RUN_FAILURE_REASONS` has no
+> member it could write. So there is nothing here to put behind a private surface, and the
+> paragraph's "known limitation" is really an unimplemented one. Its shape, its reason code and
+> its caller are [#83](https://github.com/nick-neely/reprove/issues/83)'s to invent, and whether
+> it is exposed at all is decided there rather than here.
+
 ## A CI gate protects execution, not artifact shape
 
 The build behaviour this seam depends on is undocumented and version-specific: one bad import
