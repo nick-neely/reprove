@@ -84,7 +84,6 @@ export type { Phase0WorkerCoreOptions } from "./core.js";
 export { dispatchHostedRun } from "./dispatch.js";
 export type {
   HostedClaim,
-  HostedDispatchOptions,
   HostedDispatchOutcome,
   HostedDispatchPorts,
   HostedDispatchRequest,

@@ -103,46 +103,6 @@ export interface HostedDispatchPorts {
 }
 
 /**
- * The one test-only branch in shipped orchestration, and the cost of it.
- *
- * ADR 0016 states the cost outright: *"The crash is inside Reprove's own
- * dispatch path, between `start()` and `markExecuting`, so no misbehaving
- * Worker can reach it: the scenario needs an injection point at the composition
- * seam, which is a test-only branch inside shipped orchestration."* And, under
- * what the ADR deliberately does not claim: *"The injection point is a known
- * impurity. A test-only branch in shipped orchestration is a real cost,
- * accepted for one case."*
- *
- * It is paid rather than avoided because the window it reaches is the reason
- * ADR 0015 widened the terminal transition from `executing` to the whole of
- * Acceptance's eligibility window. A Phase 0 exit that could not reach it would
- * not exercise what [#39](https://github.com/nick-neely/reprove/issues/39)
- * inherited.
- *
- * It is shaped to make misuse loud rather than convenient:
- *
- * ```text
- * an option, not an environment variable  a deployment cannot switch it on
- * undefined by default                    the shipped composition passes nothing
- * returns `never`                         it may only throw; it cannot alter a
- *                                         value, so no execution path forks on
- *                                         what it returns
- * ```
- *
- * `dispatch.test.ts` fixes what the default does - nothing - and `pass.test.ts`
- * in `@reprove/control-plane-workflow` asserts that no shipped module of the
- * composition that drives this ever assigns it.
- */
-export interface HostedDispatchOptions {
-  /**
-   * Called after `start()` has returned and before the pass id is recorded, so
-   * that a test can end the process there. Left unset in every composition
-   * Reprove ships.
-   */
-  readonly interruptBeforeRecordingPass?: () => never | Promise<never>;
-}
-
-/**
  * How one dispatch ended.
  *
  * **A `dispatched` outcome carries the execution token, so it must not be
@@ -180,13 +140,11 @@ export type HostedDispatchOutcome =
  *
  * @param ports The control plane's claim and transition, and the pass start.
  * @param request The Run to dispatch.
- * @param options The test-only injection point. Nothing Reprove ships sets it.
  * @returns What the dispatch concluded.
  */
 export const dispatchHostedRun = async (
   ports: HostedDispatchPorts,
-  request: HostedDispatchRequest,
-  options: HostedDispatchOptions = {}
+  request: HostedDispatchRequest
 ): Promise<HostedDispatchOutcome> => {
   const claimed = await ports.claimRun(request);
   if (claimed.kind !== "granted") {
@@ -201,11 +159,6 @@ export const dispatchHostedRun = async (
 
   const { executionToken } = claimed.grant;
   const started = await ports.startPass(claimed.grant);
-
-  // ADR 0016's paid cost. Between `start()` and the write, which is the only
-  // place a caller can be when the orphan is created.
-  await options.interruptBeforeRecordingPass?.();
-
   const recorded = await ports.markExecuting({
     executionToken,
     hostedWorkflowRunId: started.hostedWorkflowRunId,
