@@ -114,8 +114,9 @@ describe("hosted dispatch", () => {
 
   it("leaves a started pass unrecorded when the write never lands", async () => {
     // ADR 0016's mandatory abandoned case, and the window this ordering exists
-    // to make survivable. A `markExecuting` that never returns is the crash
-    // between `start()` and the write: whether the dispatching process died or
+    // to make survivable. A `markExecuting` that rejects before its durable
+    // write lands is the crash between `start()` and the write: whether the
+    // dispatching process died or
     // the statement did, the Run row is the same one - claimed, token assigned,
     // no pass id - and that row is the whole of what the window is.
     const composed = recordingPorts(granted);

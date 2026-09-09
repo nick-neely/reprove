@@ -195,8 +195,9 @@ eligibility window. A scenario that skipped it would not exercise what #39 inher
 > `@reprove/control-plane-workflow`'s `dispatchThrough` and `dispatchHostedPass`.
 > The window this section describes is a fact about the **Run row** - claimed, token assigned,
 > `hosted_workflow_run_id` null, a durable pass genuinely running behind it - and `markExecuting` is
-> already a port. A double for that port which never returns is the crash between `start()` and the
-> write: it leaves the same row, the dispatch call rejects the same way, and every test that used the
+> already a port. A double for that port which rejects before its durable write lands is the crash
+> between `start()` and the write: it leaves the same row, the dispatch call rejects the same way,
+> and every test that used the
 > injection point already supplied all three ports as doubles. So `spine.test.ts` keeps the half this
 > section says is its - the real claim, a real durable pass, the real `claimed`/null-pass row and the
 > real terminal transition - with no test-only branch in shipped orchestration.

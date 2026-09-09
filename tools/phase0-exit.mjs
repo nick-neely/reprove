@@ -1372,9 +1372,9 @@ const walkConcurrency = async (c, run, token) => {
  * called from an uncompiled script (the Workflow client transform stamps a
  * workflow's id at build time, and this process never runs that transform).
  * `packages/control-plane-workflow/src/spine.test.ts` reaches that half through
- * the real dispatch path over a `markExecuting` port that never returns, which
- * is the crash between `start()` and the write, and it runs inside this same
- * required check.
+ * the real dispatch path over a `markExecuting` port that rejects before its
+ * durable write lands, which is the crash between `start()` and the write, and
+ * it runs inside this same required check.
  *
  * **The self-hosted case is kept beside it at no cost**: a Worker claims over
  * the authenticated endpoint and goes quiet. Same terminal state, different

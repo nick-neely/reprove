@@ -362,8 +362,9 @@ const shortLivenessPlane = async (): Promise<ControlPlane> =>
  * only what `start()` starts is the case's.
  *
  * The write is overridable for the one case that needs it not to land, which is
- * ADR 0016's abandoned Run: a port that never returns is the crash between
- * `start()` and the write, and it leaves the row that case is about.
+ * ADR 0016's abandoned Run: a port that rejects before its durable write lands
+ * is the crash between `start()` and the write, and it leaves the row that case
+ * is about.
  */
 const dispatchStandIn = async (
   plane: ControlPlane,
@@ -813,8 +814,9 @@ describe("the durable spine", () => {
 
     it("leaves a Run claimed with no pass recorded when the write never lands", async () => {
       // ADR 0016's mandatory abandoned case, through the shipped ordering over
-      // the real claim: a `markExecuting` port that never returns is the crash
-      // between `start()` and the write. The pass is genuinely running - it is
+      // the real claim: a `markExecuting` port that rejects before its durable
+      // write lands is the crash between `start()` and the write. The pass is
+      // genuinely running - it is
       // a real durable run started here - and the row records none, which is
       // the whole of what the window is.
       const short = await shortLivenessPlane();
