@@ -27,6 +27,23 @@ Reprove's own configuration is read in one place, and it is not this app:
 | `REPROVE_GITHUB_APP_ID` | GitHub's numeric App id, which is the App JWT's issuer. |
 | `REPROVE_GITHUB_PRIVATE_KEY` | The App's PEM private key, with `\n` accepted as the escaped form so one value works in a `.env` file and in a secret store alike. |
 | `REPROVE_GITHUB_API_URL` | Optional. GitHub's REST root, for a GitHub Enterprise Server deployment or a build gate standing a canned GitHub up on loopback. Unset means `https://api.github.com`. It must be `https:`, or `http:` on loopback: every request under it carries an App credential, so a cleartext root off the machine is refused at boot rather than sent a token. |
+| `REPROVE_RUN_CLAIMABLE_FOR_MS` | Optional. How long a created Run stays claimable, in milliseconds. Unset means the injected profile's own five minutes. |
+| `REPROVE_RUN_LIVENESS_FOR_MS` | Optional. How long a claimed execution stays live without renewed evidence, in milliseconds. Unset means the injected profile's own ten minutes. |
+
+The two duration overrides are the **only** fields of
+[ADR 0013](../../docs/adr/0013-github-ingress-and-run-creation-idempotency.md)'s injected run
+profile a deployment may name, and that is a line rather than an accident: the profile is passed by
+name precisely so a harness, a model or a placement cannot be read from an environment variable and
+turn a Phase 0 fixture into product selection policy. A duration changes how long a window is open,
+not what runs inside it. They exist as a **verification affordance** that
+[ADR 0016](../../docs/adr/0016-phase-0-acceptance-scenario.md) pays for: its acceptance scenario has
+to watch a Run be "terminalized by liveness alone" through the real lifecycle loop, the real durable
+sleep and the real conditional UPDATE, against a deadline that actually arrives inside a CI budget.
+A fake clock would disagree with the durable schedule it is meant to be testing, because Workflow's
+`sleep` runs on wall time. Either is refused at boot unless it is a positive whole number of
+milliseconds whose deadline is an instant a `Date` holds. There is no maximum below that one: a
+window a deployment deliberately made long simply detects late, which is what naming a long one
+asks for.
 
 The App id and the private key are what
 [ADR 0013](../../docs/adr/0013-github-ingress-and-run-creation-idempotency.md)'s canonical fetch

@@ -21,6 +21,11 @@
  * here: `createControlPlane()` already names the missing field in the error it
  * throws, and a second refusal in front of it would be a second spelling of the
  * same rule.
+ *
+ * The two Run-window durations are the exception, and they are the exception
+ * because nothing downstream could name what went wrong: the profile they
+ * override is injected by name, so a refusal from `normalizeRunProfile` would
+ * name a field in a package rather than the variable a deployment set.
  */
 import type {
   ControlPlaneConfig,
@@ -56,6 +61,49 @@ export const ENVIRONMENT = {
    * sending a token to it.
    */
   githubApiUrl: "REPROVE_GITHUB_API_URL",
+  /**
+   * Optional. How long a created Run stays claimable, in milliseconds. Unset
+   * means the injected profile's own value, which is
+   * `PHASE_0_CLAIMABLE_FOR_MS`.
+   *
+   * See {@link livenessForMs} for why the two windows are separate variables.
+   */
+  claimableForMs: "REPROVE_RUN_CLAIMABLE_FOR_MS",
+  /**
+   * Optional. How long a claimed execution stays live without renewed
+   * evidence, in milliseconds. Unset means the injected profile's own value,
+   * which is `PHASE_0_LIVENESS_FOR_MS`.
+   *
+   * **These two are the only fields of the profile a deployment may name, and
+   * that is a line rather than an accident.** ADR 0013 injects the profile by
+   * name precisely so that a harness, a model or a placement read from an
+   * environment variable cannot turn a Phase 0 fixture into product selection
+   * policy. A duration is not a selection: it changes how long a window is
+   * open, not what runs inside it, and both are already bounded and validated
+   * by `normalizeRunProfile`.
+   *
+   * They exist as a **paid verification affordance**, in the same register as
+   * the dispatch path's test-only injection point, and ADR 0016 is what buys
+   * them. The Phase 0 exit has to observe a Run "terminalized by liveness
+   * alone", which means running the real lifecycle loop, the real durable sleep
+   * and the real conditional UPDATE against a deadline that actually arrives -
+   * and the shipped durations are five and ten minutes, against a CI job
+   * budgeted at thirty for everything.
+   *
+   * Three alternatives were rejected. An injectable clock disagrees with the
+   * durable schedule it is supposed to be testing, because Workflow's own
+   * `sleep` runs on wall time. Moving `execution_expires_at` earlier in the
+   * database does not wake anything: the lifecycle sleeps toward the deadline
+   * it read and only re-reads on wake. Calling the terminal transition directly
+   * proves the predicate while proving nothing about the loop that fires it,
+   * which is the whole of what this case exists to prove.
+   *
+   * They are independent on purpose. A short claim window races Run creation,
+   * which takes a per-pull-request advisory lock and fetches canonical state
+   * before the Run exists to be claimed, so a scenario watching the **liveness**
+   * window shortens that one and leaves the other generous.
+   */
+  livenessForMs: "REPROVE_RUN_LIVENESS_FOR_MS",
 } as const;
 
 /** An environment, as `process.env` is shaped. */
@@ -81,6 +129,85 @@ export interface CompositionOptions {
 
 const ESCAPED_NEWLINE = String.raw`\n`;
 
+/**
+ * A whole number of milliseconds, with no other spelling of one admitted.
+ *
+ * The shape test in front of the coercion is what makes `Number()` safe to
+ * reach for, which is the same argument `parseWorkerCredential`'s locator makes:
+ * on its own it reads `0x1f4`, `1e3`, `1.5`, whitespace and the empty string as
+ * numbers, and none of those is a duration anybody meant to write. A leading
+ * zero is refused with them rather than quietly accepted.
+ */
+const WHOLE_MILLISECONDS = /^[1-9]\d*$/u;
+
+/**
+ * Whether a duration names a deadline that exists.
+ *
+ * Both windows are applied the same way - `claimableUntil = now +
+ * claimableForMs` in run creation, `executionExpiresAt = claimedAt +
+ * livenessForMs` in the claim - and both of those are a `Date`. Past the range
+ * ECMA-262 gives `Date`, that sum is `Invalid Date`, which is not refused
+ * anywhere downstream: `normalizeRunProfile` asks only that the **duration** be
+ * finite and positive, and the first thing to notice is the claim that fails
+ * trying to write a `NaN` timestamp, naming neither the variable nor the value.
+ *
+ * There is no maximum below that one. A liveness window of a year detects a
+ * lost execution owner a year late, which is exactly what a deployment that
+ * names one is asking for; a product limit invented here would be selection
+ * policy, which ADR 0013 keeps out of anything read from the environment.
+ *
+ * @param milliseconds The duration a deployment named.
+ * @returns Whether a deadline that far ahead is a representable instant.
+ */
+const isReachableDeadline = (milliseconds: number): boolean =>
+  !Number.isNaN(new Date(Date.now() + milliseconds).getTime());
+
+/**
+ * One duration override, or the profile's own value where none was set.
+ *
+ * Unlike every other value here, an unusable one is **refused rather than
+ * passed through**. The rule above - absent values pass through, because
+ * `createControlPlane()` names the missing field - does not reach this case:
+ * the profile is injected by name, so `normalizeRunProfile` would name
+ * `Phase0RunProfile.livenessForMs` for something no code set, and send a reader
+ * looking at a literal in a package instead of at their own deployment.
+ *
+ * @param env The environment being read.
+ * @param variable Which variable carries the override.
+ * @param fallback The injected profile's own duration.
+ * @returns The duration to use.
+ * @throws {TypeError} Naming the variable, when it is set to anything but a
+ *   positive whole number of milliseconds a deadline can be placed at.
+ */
+const durationOverride = (
+  env: Environment,
+  variable: string,
+  fallback: number
+): number => {
+  const raw = env[variable];
+  // Absent and empty both mean "the profile's own", because a platform that
+  // writes every declared variable writes an empty string for the ones with no
+  // value, and refusing that would refuse a deployment that set nothing.
+  if (raw === undefined || raw === "") {
+    return fallback;
+  }
+  // The safe-integer half matters as much as the shape: a duration past 2^53
+  // passes the pattern, survives `normalizeRunProfile`'s "finite and positive",
+  // and lands as a deadline arithmetic can no longer move.
+  if (!(WHOLE_MILLISECONDS.test(raw) && Number.isSafeInteger(Number(raw)))) {
+    throw new TypeError(
+      `${variable} is ${JSON.stringify(raw)}, which is not a positive whole number of milliseconds`
+    );
+  }
+  const milliseconds = Number(raw);
+  if (!isReachableDeadline(milliseconds)) {
+    throw new TypeError(
+      `${variable} is ${JSON.stringify(raw)}, which puts its deadline past the last instant a Date holds`
+    );
+  }
+  return milliseconds;
+};
+
 const reportToStderr = (error: Error): void => {
   // The pool discards the failed client itself, so there is nothing to do but
   // observe, and `@reprove/control-plane` holds no logger.
@@ -100,6 +227,19 @@ export const configFromEnvironment = (
   env: Environment,
   options: CompositionOptions
 ): ControlPlaneConfig => {
+  const runProfile: Phase0RunProfile = {
+    ...options.runProfile,
+    claimableForMs: durationOverride(
+      env,
+      ENVIRONMENT.claimableForMs,
+      options.runProfile.claimableForMs
+    ),
+    livenessForMs: durationOverride(
+      env,
+      ENVIRONMENT.livenessForMs,
+      options.runProfile.livenessForMs
+    ),
+  };
   const github: ControlPlaneConfig["github"] = {
     webhookSecret: env[ENVIRONMENT.webhookSecret] ?? "",
     appId: env[ENVIRONMENT.appId] ?? "",
@@ -107,7 +247,7 @@ export const configFromEnvironment = (
       ESCAPED_NEWLINE,
       "\n"
     ),
-    runProfile: options.runProfile,
+    runProfile,
   };
   // Absent and empty both mean GitHub's own root, so the default is not spelled
   // a second time here.

@@ -173,6 +173,11 @@ export {};
  * here: `createControlPlane()` already names the missing field in the error it
  * throws, and a second refusal in front of it would be a second spelling of the
  * same rule.
+ *
+ * The two Run-window durations are the exception, and they are the exception
+ * because nothing downstream could name what went wrong: the profile they
+ * override is injected by name, so a refusal from `normalizeRunProfile` would
+ * name a field in a package rather than the variable a deployment set.
  */
 import type { ControlPlaneConfig, KickProcessing, Phase0RunProfile } from "@reprove/control-plane";
 /**
@@ -203,6 +208,49 @@ export declare const ENVIRONMENT: {
      * sending a token to it.
      */
     readonly githubApiUrl: "REPROVE_GITHUB_API_URL";
+    /**
+     * Optional. How long a created Run stays claimable, in milliseconds. Unset
+     * means the injected profile's own value, which is
+     * `PHASE_0_CLAIMABLE_FOR_MS`.
+     *
+     * See {@link livenessForMs} for why the two windows are separate variables.
+     */
+    readonly claimableForMs: "REPROVE_RUN_CLAIMABLE_FOR_MS";
+    /**
+     * Optional. How long a claimed execution stays live without renewed
+     * evidence, in milliseconds. Unset means the injected profile's own value,
+     * which is `PHASE_0_LIVENESS_FOR_MS`.
+     *
+     * **These two are the only fields of the profile a deployment may name, and
+     * that is a line rather than an accident.** ADR 0013 injects the profile by
+     * name precisely so that a harness, a model or a placement read from an
+     * environment variable cannot turn a Phase 0 fixture into product selection
+     * policy. A duration is not a selection: it changes how long a window is
+     * open, not what runs inside it, and both are already bounded and validated
+     * by `normalizeRunProfile`.
+     *
+     * They exist as a **paid verification affordance**, in the same register as
+     * the dispatch path's test-only injection point, and ADR 0016 is what buys
+     * them. The Phase 0 exit has to observe a Run "terminalized by liveness
+     * alone", which means running the real lifecycle loop, the real durable sleep
+     * and the real conditional UPDATE against a deadline that actually arrives -
+     * and the shipped durations are five and ten minutes, against a CI job
+     * budgeted at thirty for everything.
+     *
+     * Three alternatives were rejected. An injectable clock disagrees with the
+     * durable schedule it is supposed to be testing, because Workflow's own
+     * `sleep` runs on wall time. Moving `execution_expires_at` earlier in the
+     * database does not wake anything: the lifecycle sleeps toward the deadline
+     * it read and only re-reads on wake. Calling the terminal transition directly
+     * proves the predicate while proving nothing about the loop that fires it,
+     * which is the whole of what this case exists to prove.
+     *
+     * They are independent on purpose. A short claim window races Run creation,
+     * which takes a per-pull-request advisory lock and fetches canonical state
+     * before the Run exists to be claimed, so a scenario watching the **liveness**
+     * window shortens that one and leaves the other generous.
+     */
+    readonly livenessForMs: "REPROVE_RUN_LIVENESS_FOR_MS";
 };
 /** An environment, as `process.env` is shaped. */
 export type Environment = Readonly<Record<string, string | undefined>>;

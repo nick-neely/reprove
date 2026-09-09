@@ -84,6 +84,117 @@ describe("the deployment's configuration, read from the environment", () => {
     expect(config).not.toHaveProperty("kick");
   });
 
+  it("leaves both Run windows at the injected profile's own durations", () => {
+    const config = configFromEnvironment(complete, { runProfile: PROFILE });
+
+    expect(config.github.runProfile).toStrictEqual(PROFILE);
+  });
+
+  it("shortens either window on its own, so a short claim window is never forced", () => {
+    // The two are independent because a short `claimableFor` races the
+    // scenario's own setup: Run creation takes the per-pull-request advisory
+    // lock and fetches canonical state first, so a claim window measured in
+    // seconds can close before anything gets to claim. The window under
+    // observation is the liveness one.
+    const config = configFromEnvironment(
+      { ...complete, [ENVIRONMENT.livenessForMs]: "8000" },
+      { runProfile: PROFILE }
+    );
+
+    expect(config.github.runProfile).toStrictEqual({
+      ...PROFILE,
+      livenessForMs: 8000,
+    });
+  });
+
+  it("takes both durations when a deployment names both", () => {
+    const config = configFromEnvironment(
+      {
+        ...complete,
+        [ENVIRONMENT.claimableForMs]: "60000",
+        [ENVIRONMENT.livenessForMs]: "8000",
+      },
+      { runProfile: PROFILE }
+    );
+
+    expect(config.github.runProfile).toMatchObject({
+      claimableForMs: 60_000,
+      livenessForMs: 8000,
+    });
+  });
+
+  it("refuses a duration that is not a positive whole number of milliseconds", () => {
+    // Refused here rather than left to `normalizeRunProfile`, which would name
+    // a profile field: the profile is injected by name, so the only thing that
+    // could have set this is the variable, and naming the field would send a
+    // reader looking at code instead of at their deployment.
+    for (const wrong of [
+      "0",
+      "-1",
+      "abc",
+      "1e3",
+      "1.5",
+      " 8000 ",
+      "08000",
+      // Past 2^53, where a deadline is one arithmetic can no longer move.
+      "99999999999999999999",
+    ]) {
+      expect(() =>
+        configFromEnvironment(
+          { ...complete, [ENVIRONMENT.livenessForMs]: wrong },
+          { runProfile: PROFILE }
+        )
+      ).toThrow(ENVIRONMENT.livenessForMs);
+    }
+  });
+
+  it("refuses a whole duration whose deadline is not an instant", () => {
+    // Both windows are applied as `new Date(now + milliseconds)`. A whole
+    // number of milliseconds inside `Number.MAX_SAFE_INTEGER` can still push
+    // that past the range `Date` represents, and `Invalid Date` reaches the
+    // claim rather than this parse, where nothing left names the variable.
+    for (const variable of [
+      ENVIRONMENT.claimableForMs,
+      ENVIRONMENT.livenessForMs,
+    ]) {
+      expect(() =>
+        configFromEnvironment(
+          { ...complete, [variable]: String(Number.MAX_SAFE_INTEGER) },
+          { runProfile: PROFILE }
+        )
+      ).toThrow(variable);
+    }
+  });
+
+  it("takes a long window a deployment really named, because none is too long", () => {
+    // A liveness window of a year detects nothing sooner, which is what a
+    // deployment that names one is asking for. There is no product maximum for
+    // this parse to hold, and one invented here would be selection policy the
+    // injected profile deliberately keeps out of the environment.
+    const year = 365 * 24 * 60 * 60 * 1000;
+    const config = configFromEnvironment(
+      { ...complete, [ENVIRONMENT.livenessForMs]: String(year) },
+      { runProfile: PROFILE }
+    );
+
+    expect(config.github.runProfile.livenessForMs).toBe(year);
+  });
+
+  it("treats an empty override as one nobody set", () => {
+    // A deployment platform that writes every declared variable writes an empty
+    // string for the ones with no value, and that must not be a refusal.
+    const config = configFromEnvironment(
+      {
+        ...complete,
+        [ENVIRONMENT.claimableForMs]: "",
+        [ENVIRONMENT.livenessForMs]: "",
+      },
+      { runProfile: PROFILE }
+    );
+
+    expect(config.github.runProfile).toStrictEqual(PROFILE);
+  });
+
   it("reports an idle connection failure to standard error by default", () => {
     const write = vi.spyOn(process.stderr, "write").mockReturnValue(true);
     try {

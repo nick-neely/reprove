@@ -66,6 +66,7 @@ export {
 } from "./github/manifest.js";
 export type { KickProcessing } from "./github/webhook.js";
 export { WEBHOOK_STATUS } from "./github/webhook.js";
+export type { ExecutionLostDetail, RunRecord } from "./run/record.js";
 export type {
   ExecutionLoss,
   ExecutionLossEvidence,
@@ -87,6 +88,8 @@ export type {
   HostedClaimRequest,
 } from "./worker/claim-outcome.js";
 export { WORKER_CLAIM_STATUS } from "./worker/claim-outcome.js";
+export type { MintedWorkerCredential } from "./worker/credential.js";
+export { mintWorkerCredential } from "./worker/credential.js";
 export { WORKER_PROTOCOL_SUPPORT } from "./worker/compatibility.js";
 
 export const packageName = "@reprove/control-plane" as const;

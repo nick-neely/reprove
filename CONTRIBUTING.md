@@ -59,7 +59,7 @@ are fixture data, so tests need no paid credentials. See
 
 `verify:workflow` is the **real-builder gate**
 [ADR 0014](docs/adr/0014-workflow-orchestration-seam.md) mandates, and it is the
-slowest layer at roughly two to three minutes. The build behaviour the
+slowest layer at roughly three to four minutes. The build behaviour the
 orchestration seam depends on is undocumented and version-specific: a helper
 hoisted to module scope and called from a workflow body drags its whole
 transitive graph into the workflow bundle, which runs in a VM with no `require`,
@@ -67,9 +67,35 @@ so every workflow in the application breaks at runtime with an error naming an
 innocent one - while the build stays green. So the gate builds `apps/control-plane`
 from clean, asserts the workflow bundle imports nothing but the workflow runtime
 and that the output traces carry what the steps need, then starts the built
-application and posts a signed delivery to it against a canned GitHub on
-loopback. Absence of an expected artifact or trace is a failure rather than a
+application. Absence of an expected artifact or trace is a failure rather than a
 note, and it asserts **no bundle size** or other property of today's output.
+
+Its **payload** is the Phase 0 acceptance scenario
+([ADR 0016](docs/adr/0016-phase-0-acceptance-scenario.md)), in
+`tools/phase0-exit.mjs`: a spine - signed delivery, Run creation, lifecycle
+scheduling, claim - with nine forks off it, through the same seam, against the
+same database, in one harness. It drives the webhook and both Worker endpoints
+over real HTTP against the application that was just built, reads the `run` row
+back through `withOwner()` on the pooled runtime role, and asserts what Phase 1
+owns is absent. Only GitHub's own API is substituted and only at the transport,
+so signature verification runs for real on real bytes and the App JWT is signed
+and verified against a key generated for the run. It is the gate's payload
+rather than a sibling of it - the Phase 0 exit is one fact and gets one signal -
+so its assertions land in the same `ok`/`FAIL` list under the same exit code,
+and no third required check appears. It sets two environment variables the
+application supports for exactly this purpose,
+`REPROVE_RUN_CLAIMABLE_FOR_MS` and `REPROVE_RUN_LIVENESS_FOR_MS`, so the real
+lifecycle loop, the real durable sleep and the real conditional UPDATE run
+against a deadline that arrives inside a CI budget. Roughly a minute of the
+gate's time is that wait, and it is polled rather than slept through.
+
+Two pieces of state the scenario needs are arranged with `psql` as the
+superuser rather than driven, and each stands in for something Phase 0
+deliberately does not have: a `worker` row and its credential stand in for
+Enrollment, and a Run's placement is flipped because Phase 0 exposes no
+configuration surface for one. Everything else - the delivery, Run creation, the
+advisory lock, the lifecycle, the claim, Acceptance and the watchdog - is the
+built application.
 
 It needs **Docker itself**, not only a database reachable over TCP: it creates
 and reads a database of its own through `psql` inside the stack's own container,
