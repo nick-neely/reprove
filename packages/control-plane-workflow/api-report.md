@@ -69,7 +69,7 @@ export declare const controlPlane: () => Promise<ControlPlane>;
  * plane.claimRun                      execution ownership, the same conditional
  *                                     UPDATE the Worker endpoint reaches
  * start(hostedPass, [grant, owner])   the pass is now genuinely running
- * -- the window ADR 0016 pays to reach --
+ * -- the window ADR 0016's abandoned case is about --
  * plane.markExecuting                 claimed -> executing, pass id recorded
  * ```
  *
@@ -98,7 +98,7 @@ export declare const controlPlane: () => Promise<ControlPlane>;
  * write, and every outcome name below are `@reprove/worker-hosted`'s.
  */
 import type { ControlPlane } from "@reprove/control-plane";
-import type { HostedDispatchOptions, HostedDispatchOutcome, HostedPlacement } from "@reprove/worker-hosted";
+import type { HostedDispatchOutcome, HostedPlacement } from "@reprove/worker-hosted";
 import type { HostedNotComposed } from "./pass.js";
 /** How one hosted dispatch ended, or that this deployment composes none. */
 export type DispatchOutcome = HostedDispatchOutcome | HostedNotComposed;
@@ -128,22 +128,18 @@ interface HostedComposition {
  *   through.
  * @param ownerId The Owner the Run belongs to.
  * @param runId The Run to dispatch.
- * @param options ADR 0016's test-only injection point, forwarded unchanged.
  * @returns What the dispatch concluded, or that no hosted placement is composed.
  */
-export declare const dispatchThrough: (composition: HostedComposition, ownerId: number, runId: string, options: HostedDispatchOptions) => Promise<DispatchOutcome>;
+export declare const dispatchThrough: (composition: HostedComposition, ownerId: number, runId: string) => Promise<DispatchOutcome>;
 /**
  * Claims a Run for this deployment's hosted placement and starts its pass.
  *
  * @param ownerId The Owner the Run belongs to.
  * @param runId The Run to dispatch. Hosted dispatch always names its Run,
  *   because polling is the half of the protocol hosted never exercises.
- * @param options ADR 0016's test-only injection point, forwarded unchanged.
- *   Nothing in this package sets it, which `pass.test.ts` asserts by reading
- *   this package's own shipped source.
  * @returns What the dispatch concluded, or that no hosted placement is composed.
  */
-export declare const dispatchHostedPass: (ownerId: number, runId: string, options?: HostedDispatchOptions) => Promise<DispatchOutcome>;
+export declare const dispatchHostedPass: (ownerId: number, runId: string) => Promise<DispatchOutcome>;
 export {};
 ```
 
@@ -229,8 +225,7 @@ export declare const ENVIRONMENT: {
      * open, not what runs inside it, and both are already bounded and validated
      * by `normalizeRunProfile`.
      *
-     * They exist as a **paid verification affordance**, in the same register as
-     * the dispatch path's test-only injection point, and ADR 0016 is what buys
+     * They exist as a **paid verification affordance**, and ADR 0016 is what buys
      * them. The Phase 0 exit has to observe a Run "terminalized by liveness
      * alone", which means running the real lifecycle loop, the real durable sleep
      * and the real conditional UPDATE against a deadline that actually arrives -

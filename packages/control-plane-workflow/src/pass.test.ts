@@ -7,9 +7,6 @@
  * `spine.test.ts`'s subject, against the real World and the real control plane,
  * and how `dispatchHostedPass` wires one is `dispatch.test.ts`'s.
  */
-import { readdirSync, readFileSync } from "node:fs";
-import path from "node:path";
-
 import { describe, expect, it } from "vitest";
 
 import { composeHostedPlacement } from "./placement.js";
@@ -84,27 +81,5 @@ describe("the hosted composition seam", () => {
       phase0RunInput: expect.any(Function),
       runHostedPlacement: expect.any(Function),
     });
-  });
-
-  it("sets ADR 0016's injection point in no shipped module of this package", () => {
-    // The impurity ADR 0016 accepted is one *option*, and this is what holds it
-    // to that: `dispatch.ts` declares the parameter and forwards it unchanged,
-    // because the scenario has to reach the window through the shipped
-    // ordering, and nothing this package ships ever assigns it. A test and the
-    // gate that drives the scenario are the only callers that may.
-    const source = path.join(import.meta.dirname);
-    const shipped = readdirSync(source).filter(
-      (file) => file.endsWith(".ts") && !file.includes(".test")
-    );
-    const assigning = shipped.filter((file) =>
-      /interruptBeforeRecordingPass\s*:/u.test(
-        readFileSync(path.join(source, file), "utf-8")
-      )
-    );
-
-    expect(assigning).toStrictEqual([]);
-    // And the scan is looking at the right thing: the module that takes the
-    // option and hands it on is one of the files it read.
-    expect(shipped).toContain("dispatch.ts");
   });
 });

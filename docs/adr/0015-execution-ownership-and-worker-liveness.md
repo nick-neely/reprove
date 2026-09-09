@@ -242,3 +242,10 @@ valid liveness evidence, this execution becomes ineligible."
   composition seam, because no misbehaving Worker can reach a crash inside Reprove's own dispatch
   path - and keeps a self-hosted Worker going silent alongside it, since two placements reaching one
   transition is what shows the window is placement-neutral.
+
+  > **Amended by [#87](https://github.com/nick-neely/reprove/issues/87):** the injection point this
+  > bullet describes as accepted was **removed**. The second case is reached through the same
+  > shipped ordering over a `markExecuting` port double that rejects, which leaves the identical Run
+  > row - `claimed`, token assigned, no pass id - because that row is what the window is. The
+  > discharge stands unchanged; only how the case is reached moved. See
+  > [ADR 0016](0016-phase-0-acceptance-scenario.md)'s amendment on the hosted `start()` orphan.

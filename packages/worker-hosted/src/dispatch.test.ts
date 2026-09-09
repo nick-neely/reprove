@@ -112,38 +112,26 @@ describe("hosted dispatch", () => {
     });
   });
 
-  describe("the injection point ADR 0016 pays for", () => {
-    it("leaves a started pass unrecorded, which is the orphan window itself", async () => {
-      // The only way to reach the window from outside the process, and the
-      // reason the option exists at all: the crash is inside Reprove's own
-      // dispatch path, so no misbehaving Worker can produce this state.
-      const composed = recordingPorts(granted);
+  it("leaves a started pass unrecorded when the write never lands", async () => {
+    // ADR 0016's mandatory abandoned case, and the window this ordering exists
+    // to make survivable. A `markExecuting` that rejects before its durable
+    // write lands is the crash between `start()` and the write: whether the
+    // dispatching process died or
+    // the statement did, the Run row is the same one - claimed, token assigned,
+    // no pass id - and that row is the whole of what the window is.
+    const composed = recordingPorts(granted);
+    const ports: HostedDispatchPorts = {
+      ...composed.ports,
+      markExecuting: () =>
+        Promise.reject(new Error("the dispatching process died")),
+    };
 
-      await expect(
-        dispatchHostedRun(composed.ports, REQUEST, {
-          interruptBeforeRecordingPass: () => {
-            throw new Error("the dispatching process died");
-          },
-        })
-      ).rejects.toThrow("the dispatching process died");
-      // The pass is running. Nothing recorded it, and nothing ever will: this
-      // dispatch is gone. `claimableUntil` writes only over `queued`, so
-      // execution liveness is the only thing left that can end the Run.
-      expect(composed.calls).toStrictEqual(["claimRun", "startPass"]);
-    });
-
-    it("is unset by default, so the shipped path records the pass", async () => {
-      // The default is the whole of the mitigation: a composition that passes
-      // no options reaches the write, and there is no other way to skip it.
-      const composed = recordingPorts(granted);
-
-      await dispatchHostedRun(composed.ports, REQUEST, {});
-
-      expect(composed.calls).toStrictEqual([
-        "claimRun",
-        "startPass",
-        `markExecuting:${PASS}`,
-      ]);
-    });
+    await expect(dispatchHostedRun(ports, REQUEST)).rejects.toThrow(
+      "the dispatching process died"
+    );
+    // The pass is running. Nothing recorded it, and nothing ever will: this
+    // dispatch is gone. `claimableUntil` writes only over `queued`, so
+    // execution liveness is the only thing left that can end the Run.
+    expect(composed.calls).toStrictEqual(["claimRun", "startPass"]);
   });
 });
