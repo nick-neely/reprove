@@ -693,6 +693,18 @@ export type LifecycleOutcome =
     readonly kind: "unknown_run";
 };
 /**
+ * The whole of that grace, which is what anything reasoning about it needs:
+ * neither constant above means much on its own.
+ *
+ * **Exported for `spine.test.ts` beside it, and for nothing else.** The
+ * package's entry point does not re-export it. The one case that lands a record
+ * while a lifecycle is still waiting has to land it inside this window, and a
+ * test holding its own copy of the number would drift from it silently: a
+ * shorter grace would make that case fail as though the loop had changed, and a
+ * longer one would leave it proving less than its name says.
+ */
+export declare const RECORD_GRACE_TOTAL_MS: number;
+/**
  * What the watchdog saw, as one of ADR 0015's observations.
  *
  * ```text

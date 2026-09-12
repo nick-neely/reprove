@@ -61,7 +61,7 @@ import {
 import type { IngressConclusion } from "./ingress.js";
 import { ingressDelivery } from "./ingress.js";
 import type { LifecycleOutcome } from "./lifecycle.js";
-import { runLifecycle } from "./lifecycle.js";
+import { RECORD_GRACE_TOTAL_MS, runLifecycle } from "./lifecycle.js";
 import type { PassOutcome } from "./pass.js";
 import {
   failedPass,
@@ -88,9 +88,9 @@ const ACME = 1001;
 const SHORT_WINDOW_MS = 2000;
 
 /**
- * How far past a closed claim window one case lands a late record: inside the
- * ten-second grace an unrecorded lifecycle spends before it would record
- * itself, with margin at both ends for a slow runner.
+ * How far past a closed claim window one case lands a late record: inside
+ * `RECORD_GRACE_TOTAL_MS`, the grace an unrecorded lifecycle spends before it
+ * would record itself, with margin at both ends for a slow runner.
  */
 const LATE_RECORD_MS = 3000;
 
@@ -654,10 +654,19 @@ describe("the durable spine", () => {
       throw new Error("the Run this case created is not visible");
     }
     // Measured from the deadline the row carries rather than from here, so a
-    // slow setup eats the margin instead of the property.
+    // stall short of the grace still lands the record inside it. A stall past
+    // the grace cannot be salvaged that way - the lifecycle has recorded itself
+    // by then and the write below would lose the column - so it is detected
+    // rather than left to fail as though the loop had changed.
     await setTimeout(
       schedule.claimableUntil.getTime() + LATE_RECORD_MS - Date.now()
     );
+    const pastDeadline = Date.now() - schedule.claimableUntil.getTime();
+    if (pastDeadline >= RECORD_GRACE_TOTAL_MS) {
+      throw new Error(
+        `this runner reached the late record ${pastDeadline - RECORD_GRACE_TOTAL_MS}ms past the end of the ${RECORD_GRACE_TOTAL_MS}ms grace, so the lifecycle has already recorded itself and the write below cannot win the column. That is this harness stalling, not the loop.`
+      );
+    }
     await expect(
       controlPlane.lifecycle.record(ACME, runId, lateRecord)
     ).resolves.toBeTruthy();

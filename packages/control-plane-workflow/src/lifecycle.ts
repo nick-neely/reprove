@@ -271,6 +271,19 @@ const RECORD_GRACE_MS = 2000;
 const RECORD_GRACE_WAKES = 5;
 
 /**
+ * The whole of that grace, which is what anything reasoning about it needs:
+ * neither constant above means much on its own.
+ *
+ * **Exported for `spine.test.ts` beside it, and for nothing else.** The
+ * package's entry point does not re-export it. The one case that lands a record
+ * while a lifecycle is still waiting has to land it inside this window, and a
+ * test holding its own copy of the number would drift from it silently: a
+ * shorter grace would make that case fail as though the loop had changed, and a
+ * longer one would leave it proving less than its name says.
+ */
+export const RECORD_GRACE_TOTAL_MS = RECORD_GRACE_MS * RECORD_GRACE_WAKES;
+
+/**
  * How long the loop waits before re-reading after a conditional write matched
  * nothing.
  *
