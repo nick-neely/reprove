@@ -25,6 +25,8 @@
  * giving each case a repository id of its own. Rows accumulate there between
  * runs and `pnpm db:down` is what clears them.
  */
+import { setTimeout } from "node:timers/promises";
+
 import type {
   ControlPlane,
   DeliveryToProcess,
@@ -84,6 +86,13 @@ const ACME = 1001;
 
 /** A short window, so a case can watch it close. */
 const SHORT_WINDOW_MS = 2000;
+
+/**
+ * How far past a closed claim window one case lands a late record: inside the
+ * ten-second grace an unrecorded lifecycle spends before it would record
+ * itself, with margin at both ends for a slow runner.
+ */
+const LATE_RECORD_MS = 3000;
 
 /**
  * Each case gets a repository of its own, so nothing one case does to a pull
@@ -614,6 +623,56 @@ describe("the durable spine", () => {
     ).resolves.toMatchObject({
       status: "unscheduled",
       workflowRunId: recorded.workflowRunId,
+    });
+  });
+
+  it("yields to a record that lands during the grace, and ends as the orphan", async () => {
+    // The grace is not only a wait; a record that arrives inside it is
+    // honoured. This lifecycle is past its deadline with the column empty, so
+    // it is counting down the wakes before it would record itself. Another id
+    // lands three seconds in, and the next wake reads that id and returns
+    // above every write - the Run is left exactly as it was.
+    //
+    // That is the reachable half of the `IS NULL` race. The other half - a
+    // writer landing between the last read and `recordSelf`, a gap one step
+    // boundary wide - has no deterministic seam short of a test-only branch in
+    // shipped orchestration, which #87 has just removed. It is left to the two
+    // things that make it harmless: the write is `IS NULL`-guarded, so a late
+    // writer takes the column outright, and the loop acts on the re-read
+    // rather than on its own write, so the lifecycle that lost reports
+    // `orphaned` on the next wake exactly as this one does.
+    const { runId } = await shortWindowRun();
+    // A lifecycle id nobody started. Nothing but the record below can write to
+    // this Run, so "no transition was attempted" is unambiguous; the column is
+    // `text` and the loop only ever compares it, so a synthetic id serves
+    // where a second real lifecycle would add a durable run that must not run.
+    const lateRecord = "wrun_late_record";
+
+    const orphan = await dispatch(runId);
+    const schedule = await controlPlane.lifecycle.schedule(ACME, runId);
+    if (schedule === null) {
+      throw new Error("the Run this case created is not visible");
+    }
+    // Measured from the deadline the row carries rather than from here, so a
+    // slow setup eats the margin instead of the property.
+    await setTimeout(
+      schedule.claimableUntil.getTime() + LATE_RECORD_MS - Date.now()
+    );
+    await expect(
+      controlPlane.lifecycle.record(ACME, runId, lateRecord)
+    ).resolves.toBeTruthy();
+
+    await expect(orphan.outcome).resolves.toStrictEqual({
+      kind: "orphaned",
+      recordedLifecycle: lateRecord,
+    });
+    // Still `queued`, and the id is the late writer's: the orphan returned
+    // above `expireUnclaimed`, and it never recorded itself either.
+    await expect(
+      controlPlane.lifecycle.schedule(ACME, runId)
+    ).resolves.toMatchObject({
+      status: "queued",
+      workflowRunId: lateRecord,
     });
   });
 
