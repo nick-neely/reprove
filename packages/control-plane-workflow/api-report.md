@@ -430,9 +430,14 @@ export interface DispatchedLifecycle {
     /** The lifecycle this Run now records, or `null` where another already did. */
     readonly workflowRunId: string | null;
     /**
-     * A lifecycle this step started and then cancelled, because the Run already
-     * recorded another by the time this one was written. That is ADR 0014's
-     * orphan being made inert on the spot rather than at its deadline.
+     * A lifecycle this step started and then cancelled, because the Run named
+     * another one by the time this one was written. That is ADR 0014's orphan
+     * being made inert on the spot rather than at its deadline.
+     *
+     * The Run naming *this* one is not that: a lifecycle records itself once its
+     * deadline and the record grace have both passed with the column empty
+     * ([#85](https://github.com/nick-neely/reprove/issues/85)), and cancelling it
+     * would kill the lifecycle the Run records.
      */
     readonly cancelledLifecycle: string | null;
 }
@@ -442,6 +447,44 @@ export interface IngressConclusion {
     readonly dispatched: DispatchedLifecycle | null;
     readonly notified: readonly Notified[];
 }
+/**
+ * What a dispatch does about the run it started, once its own `record` has
+ * matched nothing.
+ *
+ * **The Run row arbitrates, so the loser is whoever the row does not name.**
+ * A failed `record` used to be read as "somebody else won", which was true
+ * while `dispatchLifecycle` was the only writer of that column. It is not: a
+ * lifecycle whose deadline and record grace have both passed with the column
+ * empty records itself, because nothing else could ever close its windows
+ * ([#85](https://github.com/nick-neely/reprove/issues/85)). Cancelling on the
+ * failed write alone would then cancel the lifecycle the Run records, leaving
+ * the Run pointing at a cancelled durable run with both windows still open and
+ * every platform retry repeating the cancellation - worse than the state the
+ * self-record fixed.
+ *
+ * So the row is read and compared, and the three answers are the three this
+ * takes. An id that is not this one is ADR 0014's orphan, made inert on the
+ * spot rather than at its deadline; no id at all is a Run this Owner cannot
+ * see, where a durable run nobody will ever record must not be left sleeping.
+ *
+ * **Exported for `ingress.test.ts` beside it, and for nothing else** - the
+ * package's entry point does not re-export it. It is separated from the step
+ * because the step's own path cannot be reached from a test: `record` runs one
+ * round trip after `start()`, and the only other writer has by then been past
+ * its deadline for the whole grace, so producing that interleaving would take
+ * a test-only branch inside shipped orchestration.
+ *
+ * @param mine The lifecycle this dispatch started.
+ * @param recorded The lifecycle the Run names now, read as
+ *   `schedule?.workflowRunId ?? null`. After a failed `record`, `null` there is
+ *   a Run this Owner cannot see and never a visible row whose column is still
+ *   empty: `recordLifecycle` and `readSchedule` run under the one `run_tenant`
+ *   policy - `FOR ALL`, with `USING` and `WITH CHECK` both on `owner_id` - and
+ *   the record never touches `owner_id`, so every row the read can see is a row
+ *   the write could have matched.
+ * @returns What the dispatch concluded, and what it must cancel to be true.
+ */
+export declare const concludeDispatch: (mine: string, recorded: string | null) => DispatchedLifecycle;
 /**
  * Moves one committed delivery onto the durable spine.
  *
@@ -505,6 +548,18 @@ export declare const startDelivery: (delivery: DeliveryToProcess) => void;
  * Run at `claimed` with a live, unrecorded pass - the hole this loop's second
  * branch exists to close. The cost is one pending `sleep` per lost race, an
  * un-cancelled job that fires later as an early-return no-op.
+ *
+ * **A lifecycle the Run names nobody for records itself.** Both transitions
+ * carry the recorded lifecycle in their predicate, so a Run that reaches a
+ * deadline with that column empty has no writer either window will accept, and
+ * no deadline can end it - only the prompt detector's token or a supersession
+ * can, and neither is guaranteed to arrive
+ * ([#85](https://github.com/nick-neely/reprove/issues/85)).
+ * After a bounded grace for a record still in flight, the loop writes its own
+ * id through the control plane's first-writer-wins statement and re-reads. The
+ * row still arbitrates - a lifecycle that loses that write reads somebody
+ * else's id on the next wake and ends as the orphan it turned out to be - so
+ * this adds no transition and no predicate.
  *
  * **Everything this workflow body reaches is inlined into the workflow bundle,
  * and that bundle runs in a VM with no `require`.** So the body calls the
@@ -611,20 +666,44 @@ export type LifecycleOutcome =
  * this is a state the schema cannot reach. It is reported rather than thrown
  * on because a lifecycle's job is to schedule, not to assert: a Run in a
  * shape nothing can produce is something to look at, not something to end.
+ *
+ * It is returned **above** the self-record branch, so a Run in that shape
+ * with no recorded lifecycle either is reported rather than recorded. That
+ * ordering is deliberate: with no deadline there is no window to close, and
+ * an id written to close nothing would buy the Run nothing.
  */
  | {
     readonly kind: "claimed";
     readonly status: string;
 }
-/** Another lifecycle is the recorded one, or none was recorded in time. */
+/**
+ * Another lifecycle is the one the Run records, so this one wrote nothing.
+ *
+ * Always an id, never an absence: a lifecycle that finds the column empty
+ * past its deadline records itself rather than reporting orphanhood, so the
+ * only way to arrive here is to read somebody else's id
+ * ([#85](https://github.com/nick-neely/reprove/issues/85)).
+ */
  | {
     readonly kind: "orphaned";
-    readonly recordedLifecycle: string | null;
+    readonly recordedLifecycle: string;
 }
 /** No such Run is visible to this Owner. */
  | {
     readonly kind: "unknown_run";
 };
+/**
+ * The whole of that grace, which is what anything reasoning about it needs:
+ * neither constant above means much on its own.
+ *
+ * **Exported for `spine.test.ts` beside it, and for nothing else.** The
+ * package's entry point does not re-export it. The one case that lands a record
+ * while a lifecycle is still waiting has to land it inside this window, and a
+ * test holding its own copy of the number would drift from it silently: a
+ * shorter grace would make that case fail as though the loop had changed, and a
+ * longer one would leave it proving less than its name says.
+ */
+export declare const RECORD_GRACE_TOTAL_MS: number;
 /**
  * What the watchdog saw, as one of ADR 0015's observations.
  *

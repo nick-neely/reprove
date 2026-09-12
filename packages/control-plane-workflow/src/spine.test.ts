@@ -25,6 +25,8 @@
  * giving each case a repository id of its own. Rows accumulate there between
  * runs and `pnpm db:down` is what clears them.
  */
+import { setTimeout } from "node:timers/promises";
+
 import type {
   ControlPlane,
   DeliveryToProcess,
@@ -59,7 +61,7 @@ import {
 import type { IngressConclusion } from "./ingress.js";
 import { ingressDelivery } from "./ingress.js";
 import type { LifecycleOutcome } from "./lifecycle.js";
-import { runLifecycle } from "./lifecycle.js";
+import { RECORD_GRACE_TOTAL_MS, runLifecycle } from "./lifecycle.js";
 import type { PassOutcome } from "./pass.js";
 import {
   failedPass,
@@ -84,6 +86,13 @@ const ACME = 1001;
 
 /** A short window, so a case can watch it close. */
 const SHORT_WINDOW_MS = 2000;
+
+/**
+ * How far past a closed claim window one case lands a late record: inside
+ * `RECORD_GRACE_TOTAL_MS`, the grace an unrecorded lifecycle spends before it
+ * would record itself, with margin at both ends for a slow runner.
+ */
+const LATE_RECORD_MS = 3000;
 
 /**
  * Each case gets a repository of its own, so nothing one case does to a pull
@@ -617,22 +626,87 @@ describe("the durable spine", () => {
     });
   });
 
-  it("lets a lifecycle nobody recorded end at its deadline without touching the Run", async () => {
-    // The dispatch step crashed between `start()` and recording. Its retry
-    // will start and record another; this one may write nothing.
+  it("yields to a record that lands during the grace, and ends as the orphan", async () => {
+    // The grace is not only a wait; a record that arrives inside it is
+    // honoured. This lifecycle is past its deadline with the column empty, so
+    // it is counting down the wakes before it would record itself. Another id
+    // lands three seconds in, and the next wake reads that id and returns
+    // above every write - the Run is left exactly as it was.
+    //
+    // That is the reachable half of the `IS NULL` race. The other half - a
+    // writer landing between the last read and `recordSelf`, a gap one step
+    // boundary wide - has no deterministic seam short of a test-only branch in
+    // shipped orchestration, which #87 has just removed. It is left to the two
+    // things that make it harmless: the write is `IS NULL`-guarded, so a late
+    // writer takes the column outright, and the loop acts on the re-read
+    // rather than on its own write, so the lifecycle that lost reports
+    // `orphaned` on the next wake exactly as this one does.
+    const { runId } = await shortWindowRun();
+    // A lifecycle id nobody started. Nothing but the record below can write to
+    // this Run, so "no transition was attempted" is unambiguous; the column is
+    // `text` and the loop only ever compares it, so a synthetic id serves
+    // where a second real lifecycle would add a durable run that must not run.
+    const lateRecord = "wrun_late_record";
+
+    const orphan = await dispatch(runId);
+    const schedule = await controlPlane.lifecycle.schedule(ACME, runId);
+    if (schedule === null) {
+      throw new Error("the Run this case created is not visible");
+    }
+    // Measured from the deadline the row carries rather than from here, so a
+    // stall short of the grace still lands the record inside it. A stall past
+    // the grace cannot be salvaged that way - the lifecycle has recorded itself
+    // by then and the write below would lose the column - so it is detected
+    // rather than left to fail as though the loop had changed.
+    await setTimeout(
+      schedule.claimableUntil.getTime() + LATE_RECORD_MS - Date.now()
+    );
+    const pastDeadline = Date.now() - schedule.claimableUntil.getTime();
+    if (pastDeadline >= RECORD_GRACE_TOTAL_MS) {
+      throw new Error(
+        `this runner reached the late record ${pastDeadline - RECORD_GRACE_TOTAL_MS}ms past the end of the ${RECORD_GRACE_TOTAL_MS}ms grace, so the lifecycle has already recorded itself and the write below cannot win the column. That is this harness stalling, not the loop.`
+      );
+    }
+    await expect(
+      controlPlane.lifecycle.record(ACME, runId, lateRecord)
+    ).resolves.toBeTruthy();
+
+    await expect(orphan.outcome).resolves.toStrictEqual({
+      kind: "orphaned",
+      recordedLifecycle: lateRecord,
+    });
+    // Still `queued`, and the id is the late writer's: the orphan returned
+    // above `expireUnclaimed`, and it never recorded itself either.
+    await expect(
+      controlPlane.lifecycle.schedule(ACME, runId)
+    ).resolves.toMatchObject({
+      status: "queued",
+      workflowRunId: lateRecord,
+    });
+  });
+
+  it("records itself after the grace when nobody recorded it, and closes the unclaimed window", async () => {
+    // The dispatch step's `start()` succeeded and its `record` never landed, so
+    // the deadline passes over a Run that names no lifecycle at all. Both
+    // transitions carry `workflow_run_id = <the writer>`, so no lifecycle could
+    // close either window from there and the Run would stay `queued` past its
+    // deadline until a later delivery superseded or cancelled it, and neither
+    // is guaranteed to arrive. This one is alive, so once the grace has proved
+    // that no record is coming it writes its own through the same
+    // first-writer-wins statement, and the next wake closes the window it was
+    // already watching.
     const { runId } = await shortWindowRun();
 
     const unrecorded = await dispatch(runId);
 
     await expect(unrecorded.outcome).resolves.toStrictEqual({
-      kind: "orphaned",
-      recordedLifecycle: null,
+      kind: "unscheduled",
     });
     await expect(
       controlPlane.lifecycle.schedule(ACME, runId)
     ).resolves.toMatchObject({
-      status: "queued",
-      workflowRunId: null,
+      status: "unscheduled",
+      workflowRunId: unrecorded.workflowRunId,
     });
   });
 
@@ -673,6 +747,37 @@ describe("the durable spine", () => {
     expect(started.filter((id) => id === lifecycle.workflowRunId)).toHaveLength(
       1
     );
+  });
+
+  it("records itself after the grace when nobody recorded it, and ends the claimed Run", async () => {
+    // The same Run as the case above, with the one difference that makes it the
+    // hole ADR 0015 exists to close: nothing records a lifecycle, so the Run is
+    // claimed, Result-eligible, and carries no writer either transition could
+    // name. `claimableUntil` cannot touch it - it writes only over `queued` -
+    // and no deadline could either, so it would stay eligible until the prompt
+    // detector's token or a later delivery reached it, and neither is
+    // guaranteed to arrive. The grace passes, this lifecycle records itself,
+    // and the liveness branch it was already in closes the window on the next
+    // wake.
+    const { runId } = await shortLivenessRun();
+
+    const unrecorded = await dispatch(runId);
+
+    await expect(unrecorded.outcome).resolves.toStrictEqual({
+      // Nothing recorded a lifecycle, so nothing recorded a pass either: there
+      // is nothing to cancel and nothing the watchdog can say beyond the
+      // deadline having passed.
+      cancelledPass: null,
+      kind: "worker_lost",
+      lostFrom: "claimed",
+      observation: "deadline_elapsed",
+    });
+    await expect(
+      controlPlane.lifecycle.schedule(ACME, runId)
+    ).resolves.toMatchObject({
+      status: "failed",
+      workflowRunId: unrecorded.workflowRunId,
+    });
   });
 
   it("leaves an orphaned lifecycle inert over the executing window too", async () => {
