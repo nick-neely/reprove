@@ -681,9 +681,11 @@ describe("the durable spine", () => {
     // the deadline passes over a Run that names no lifecycle at all. Both
     // transitions carry `workflow_run_id = <the writer>`, so no lifecycle could
     // close either window from there and the Run would stay `queued` past its
-    // deadline forever. This one is alive, so once the grace has proved that no
-    // record is coming it writes its own through the same first-writer-wins
-    // statement, and the next wake closes the window it was already watching.
+    // deadline until a later delivery superseded or cancelled it, and neither
+    // is guaranteed to arrive. This one is alive, so once the grace has proved
+    // that no record is coming it writes its own through the same
+    // first-writer-wins statement, and the next wake closes the window it was
+    // already watching.
     const { runId } = await shortWindowRun();
 
     const unrecorded = await dispatch(runId);
@@ -743,9 +745,11 @@ describe("the durable spine", () => {
     // hole ADR 0015 exists to close: nothing records a lifecycle, so the Run is
     // claimed, Result-eligible, and carries no writer either transition could
     // name. `claimableUntil` cannot touch it - it writes only over `queued` -
-    // and neither could any lifecycle, so it would stay eligible forever. The
-    // grace passes, this lifecycle records itself, and the liveness branch it
-    // was already in closes the window on the next wake.
+    // and no deadline could either, so it would stay eligible until the prompt
+    // detector's token or a later delivery reached it, and neither is
+    // guaranteed to arrive. The grace passes, this lifecycle records itself,
+    // and the liveness branch it was already in closes the window on the next
+    // wake.
     const { runId } = await shortLivenessRun();
 
     const unrecorded = await dispatch(runId);
