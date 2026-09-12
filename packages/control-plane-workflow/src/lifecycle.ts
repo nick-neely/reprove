@@ -33,6 +33,18 @@
  * branch exists to close. The cost is one pending `sleep` per lost race, an
  * un-cancelled job that fires later as an early-return no-op.
  *
+ * **A lifecycle the Run names nobody for records itself.** Both transitions
+ * carry the recorded lifecycle in their predicate, so a Run that reaches a
+ * deadline with that column empty has no writer either window will accept, and
+ * no deadline can end it - only the prompt detector's token or a supersession
+ * can, and neither is guaranteed to arrive
+ * ([#85](https://github.com/nick-neely/reprove/issues/85)).
+ * After a bounded grace for a record still in flight, the loop writes its own
+ * id through the control plane's first-writer-wins statement and re-reads. The
+ * row still arbitrates - a lifecycle that loses that write reads somebody
+ * else's id on the next wake and ends as the orphan it turned out to be - so
+ * this adds no transition and no predicate.
+ *
  * **Everything this workflow body reaches is inlined into the workflow bundle,
  * and that bundle runs in a VM with no `require`.** So the body calls the
  * runtime's own primitives and the steps below, and nothing else; the control
@@ -206,10 +218,22 @@ export type LifecycleOutcome =
    * this is a state the schema cannot reach. It is reported rather than thrown
    * on because a lifecycle's job is to schedule, not to assert: a Run in a
    * shape nothing can produce is something to look at, not something to end.
+   *
+   * It is returned **above** the self-record branch, so a Run in that shape
+   * with no recorded lifecycle either is reported rather than recorded. That
+   * ordering is deliberate: with no deadline there is no window to close, and
+   * an id written to close nothing would buy the Run nothing.
    */
   | { readonly kind: "claimed"; readonly status: string }
-  /** Another lifecycle is the recorded one, or none was recorded in time. */
-  | { readonly kind: "orphaned"; readonly recordedLifecycle: string | null }
+  /**
+   * Another lifecycle is the one the Run records, so this one wrote nothing.
+   *
+   * Always an id, never an absence: a lifecycle that finds the column empty
+   * past its deadline records itself rather than reporting orphanhood, so the
+   * only way to arrive here is to read somebody else's id
+   * ([#85](https://github.com/nick-neely/reprove/issues/85)).
+   */
+  | { readonly kind: "orphaned"; readonly recordedLifecycle: string }
   /** No such Run is visible to this Owner. */
   | { readonly kind: "unknown_run" };
 
@@ -217,24 +241,31 @@ const UNCLAIMED = "queued";
 const LEFT_UNCLAIMED = new Set(["claimed", "executing"]);
 
 /**
- * How long a lifecycle keeps looking for its own id on the Run once the
- * deadline has passed and nothing is recorded there.
+ * How long a lifecycle leaves the Run's lifecycle column to a record that may
+ * still be in flight, once the deadline has passed with nothing written there.
  *
- * That state has two causes and they want opposite answers. Either the step
- * that started this lifecycle crashed before recording it, in which case this
- * run is an orphan and must end; or the record is simply still in flight,
- * because `dispatchLifecycle` starts before it records and this run's first
- * wake beat that write. Ending immediately is right for the first and wrong
- * for the second: the record then commits against a lifecycle that has already
- * returned, and nothing is left to close the unclaimed window, so the Run
- * stays `queued` past its deadline forever.
+ * That state has two causes and the loop cannot tell them apart from inside:
+ * either the step that started this lifecycle crashed before recording it, or
+ * the record is simply still on its way, because `dispatchLifecycle` starts
+ * before it records and this run's wake beat that write. The grace separates
+ * them without asking - a write that is coming lands inside it, and one that
+ * never comes has been given every chance to.
  *
- * The two are indistinguishable from inside the loop, so it waits. The wait is
- * bounded rather than open, because a genuine orphan must not linger: a
- * crashed dispatch is retried by the platform and records the lifecycle it
- * starts then, which this one would only collide with. Ten seconds is many
- * times one database round trip and a small fraction of the five-minute Phase 0
- * deadline, which is the whole span it has to cover.
+ * **Then the lifecycle records itself, whichever it was**, because nothing
+ * else can. Both transitions carry `workflow_run_id = <the writer>`, so a Run
+ * past a deadline that names no lifecycle has no writer either window will
+ * accept: it stays `queued` past `claimableUntil`, or `claimed` and
+ * Result-eligible, until something that is not a deadline ends it - the prompt
+ * detector's token, or a supersession - and neither is guaranteed to arrive
+ * ([#85](https://github.com/nick-neely/reprove/issues/85)). Returning without
+ * writing left exactly that, because the predicate a return was supposed to
+ * spare would have matched nothing anyway.
+ *
+ * Waiting first is what keeps the ordinary case ordinary: a dispatcher whose
+ * `record` loses to the lifecycle it just started has to read the Run back to
+ * learn that it lost nothing. Ten seconds is many times one database round
+ * trip and a small fraction of the shorter of the two Phase 0 windows, the
+ * five-minute claim window; the grace covers both.
  */
 const RECORD_GRACE_MS = 2000;
 const RECORD_GRACE_WAKES = 5;
@@ -244,12 +275,14 @@ const RECORD_GRACE_WAKES = 5;
  * nothing.
  *
  * It is not a backoff for a race the loop expects to lose repeatedly: every
- * cause of a lost write moves the Run out of the window it was writing over, so
- * the next read returns. It is there so that **a future conjunct cannot turn
- * that argument into a tight loop** - a predicate that can fail while the Run
- * stays put would otherwise spin against the database, once per step, at
- * whatever the platform charges for one. Short enough that a genuine race costs
- * a fraction of a second, which is the only case that reaches it today.
+ * cause of a lost write leaves the next read with an answer that returns. A
+ * lost transition means the Run moved out of the window it was writing over,
+ * and a lost self-record means the column now names somebody else. It is there
+ * so that **a future conjunct cannot turn that argument into a tight loop** - a
+ * predicate that can fail while the Run stays put would otherwise spin against
+ * the database, once per step, at whatever the platform charges for one. Short
+ * enough that the genuine races above cost a fraction of a second, which is all
+ * that reaches it today.
  */
 const LOST_RACE_MS = 500;
 
@@ -289,6 +322,36 @@ async function readRun(
           },
     workflowRunId: schedule.workflowRunId,
   };
+}
+
+/**
+ * Writes this lifecycle's own id onto the Run, once the grace has passed with
+ * the column still empty.
+ *
+ * It is the same first-writer-wins statement `dispatchLifecycle` performs,
+ * reached from the other side: `IS NULL`-guarded in the control plane, so it
+ * neither overwrites a recorded lifecycle nor re-asserts one, and the Run row
+ * goes on arbitrating exactly as ADR 0014 has it. What makes it safe to call at
+ * all is who is calling: a run that is alive, is past its own deadline, and has
+ * watched the column stay empty for the whole grace, `RECORD_GRACE_WAKES` wakes
+ * of `RECORD_GRACE_MS`.
+ *
+ * **The body acts on the re-read rather than on this answer**, which is the
+ * loop's rule everywhere. `true` shows up as `mine` on the next wake and closes
+ * whichever window is open; `false` shows up as somebody else's id and returns
+ * `orphaned`, or as `mine` again where the platform is re-running a step that
+ * already wrote, which at-least-once step execution allows and the re-read
+ * absorbs like any other answer. The boolean is returned only so the caller can
+ * tell a write that landed here from one that did not, without a second read.
+ */
+async function recordSelf(
+  ownerId: number,
+  runId: string,
+  workflowRunId: string
+): Promise<boolean> {
+  "use step";
+  const plane = await controlPlane();
+  return await plane.lifecycle.record(ownerId, runId, workflowRunId);
 }
 
 /**
@@ -478,7 +541,14 @@ export async function runLifecycle(
   const hook = createHook<LifecycleSignal>({
     token: lifecycleToken(runId, mine),
   });
-  /** Wakes spent waiting for this lifecycle's own id to appear on the Run. */
+  /**
+   * Wakes spent waiting for this lifecycle's own id to appear on the Run.
+   *
+   * Counted per lifecycle rather than per window, so a run that spent part of
+   * the grace on the claim window gets only the remainder on the liveness one.
+   * That is the right way round: the wakes already spent are evidence that no
+   * record is coming, and being claimed does not make one more likely.
+   */
   let unrecordedWakes = 0;
   let notified: Promise<Woke> | null = (async (): Promise<Woke> => {
     await hook;
@@ -529,12 +599,28 @@ export async function runLifecycle(
 
       if (woken.workflowRunId === null) {
         // The deadline has passed and nothing records a lifecycle for this Run.
-        // Wait out the record, then give up: see `RECORD_GRACE_MS`.
-        if (unrecordedWakes >= RECORD_GRACE_WAKES) {
-          return { kind: "orphaned", recordedLifecycle: null };
+        // A record may still be on its way, so leave the column to it first:
+        // see `RECORD_GRACE_MS`.
+        if (unrecordedWakes < RECORD_GRACE_WAKES) {
+          unrecordedWakes += 1;
+          await sleep(RECORD_GRACE_MS);
+          continue;
         }
-        unrecordedWakes += 1;
-        await sleep(RECORD_GRACE_MS);
+        // None is coming, and no deadline can close this window: both
+        // transitions name the recorded lifecycle in their predicate and there
+        // is none, so returning here would leave the Run waiting on something
+        // that is not a deadline - the prompt detector's token, or a
+        // supersession - and neither is guaranteed to arrive. This run is
+        // alive, so it writes its own id and lets the next wake act on what the
+        // row says, as every wake does.
+        const recorded = await recordSelf(ownerId, runId, mine);
+        if (!recorded) {
+          // Either another lifecycle wrote between the read above and this
+          // write - the lost race `LOST_RACE_MS` bounds - or this step already
+          // wrote and the platform is re-running it, which at-least-once step
+          // execution allows. The next read names the winner either way.
+          await sleep(LOST_RACE_MS);
+        }
         continue;
       }
 

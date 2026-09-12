@@ -109,6 +109,18 @@ Therefore **every write a lifecycle performs is conditional on it being the life
 records.** An orphan wakes at its deadline, matches nothing, and ends. The Reprove row is the
 arbiter: the first writer of the lifecycle id wins, and the loser cancels its own run.
 
+> **Amended by [#85](https://github.com/nick-neely/reprove/issues/85):** the guard on every
+> *transition* is unchanged, and so is the arbiter. The one write it never covered is the
+> first-writer-wins `record` this section defines, which is guarded by `IS NULL` instead - and a
+> lifecycle now performs that write too. Two things this paragraph leaves implicit change with it.
+> A Run whose column is still empty has no writer either transition will accept, so a lifecycle
+> that reached its deadline unrecorded closed nothing by ending - it now records itself through
+> that same first-writer-wins write, after a bounded grace for a record still in flight. And **the
+> loser is whoever the row does not name**, which the dispatcher establishes by reading the row
+> rather than by inferring it from its own failed write: a lifecycle that recorded itself is the
+> winner, and cancelling it would leave the Run naming a cancelled durable run with both windows
+> still open.
+
 ## `claimableUntil` bounds the unclaimed window and nothing else
 
 It bounds when a Run may be **claimed**. It writes exactly one transition, `unscheduled`,

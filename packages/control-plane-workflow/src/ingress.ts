@@ -72,9 +72,14 @@ export interface DispatchedLifecycle {
   /** The lifecycle this Run now records, or `null` where another already did. */
   readonly workflowRunId: string | null;
   /**
-   * A lifecycle this step started and then cancelled, because the Run already
-   * recorded another by the time this one was written. That is ADR 0014's
-   * orphan being made inert on the spot rather than at its deadline.
+   * A lifecycle this step started and then cancelled, because the Run named
+   * another one by the time this one was written. That is ADR 0014's orphan
+   * being made inert on the spot rather than at its deadline.
+   *
+   * The Run naming *this* one is not that: a lifecycle records itself once its
+   * deadline and the record grace have both passed with the column empty
+   * ([#85](https://github.com/nick-neely/reprove/issues/85)), and cancelling it
+   * would kill the lifecycle the Run records.
    */
   readonly cancelledLifecycle: string | null;
 }
@@ -128,11 +133,64 @@ async function processDelivery(
 processDelivery.maxRetries = RE_DRIVE.maxRetries;
 
 /**
+ * What a dispatch does about the run it started, once its own `record` has
+ * matched nothing.
+ *
+ * **The Run row arbitrates, so the loser is whoever the row does not name.**
+ * A failed `record` used to be read as "somebody else won", which was true
+ * while `dispatchLifecycle` was the only writer of that column. It is not: a
+ * lifecycle whose deadline and record grace have both passed with the column
+ * empty records itself, because nothing else could ever close its windows
+ * ([#85](https://github.com/nick-neely/reprove/issues/85)). Cancelling on the
+ * failed write alone would then cancel the lifecycle the Run records, leaving
+ * the Run pointing at a cancelled durable run with both windows still open and
+ * every platform retry repeating the cancellation - worse than the state the
+ * self-record fixed.
+ *
+ * So the row is read and compared, and the three answers are the three this
+ * takes. An id that is not this one is ADR 0014's orphan, made inert on the
+ * spot rather than at its deadline; no id at all is a Run this Owner cannot
+ * see, where a durable run nobody will ever record must not be left sleeping.
+ *
+ * **Exported for `ingress.test.ts` beside it, and for nothing else** - the
+ * package's entry point does not re-export it. It is separated from the step
+ * because the step's own path cannot be reached from a test: `record` runs one
+ * round trip after `start()`, and the only other writer has by then been past
+ * its deadline for the whole grace, so producing that interleaving would take
+ * a test-only branch inside shipped orchestration.
+ *
+ * @param mine The lifecycle this dispatch started.
+ * @param recorded The lifecycle the Run names now, read as
+ *   `schedule?.workflowRunId ?? null`. After a failed `record`, `null` there is
+ *   a Run this Owner cannot see and never a visible row whose column is still
+ *   empty: `recordLifecycle` and `readSchedule` run under the one `run_tenant`
+ *   policy - `FOR ALL`, with `USING` and `WITH CHECK` both on `owner_id` - and
+ *   the record never touches `owner_id`, so every row the read can see is a row
+ *   the write could have matched.
+ * @returns What the dispatch concluded, and what it must cancel to be true.
+ */
+export const concludeDispatch = (
+  mine: string,
+  recorded: string | null
+): DispatchedLifecycle =>
+  recorded === mine
+    ? { workflowRunId: mine, cancelledLifecycle: null }
+    : { workflowRunId: null, cancelledLifecycle: mine };
+
+/**
  * Starts the Run's lifecycle and records it, in that order, because `start()`
  * cannot be made idempotent: the window between the two cannot be closed, and
  * a crash inside it orphans a durable run that no conditional update can find.
  * The Run row arbitrates instead - first writer of the lifecycle id wins - and
  * the loser cancels its own run.
+ *
+ * Which the loser is takes a read rather than the failed write, for the reason
+ * `concludeDispatch` gives. That read is on the exceptional path only, so the
+ * ordinary dispatch is the same two round trips it always was, and it is
+ * race-free however long it trails the write it follows: `workflow_run_id` has
+ * exactly one writer statement and nothing ever clears it, so a `record` that
+ * matched nothing is a permanent fact about who won rather than a snapshot that
+ * could go stale between the two.
  */
 async function dispatchLifecycle(
   ownerId: number,
@@ -146,11 +204,18 @@ async function dispatchLifecycle(
     runId,
     lifecycle.runId
   );
-  if (!recorded) {
-    await lifecycle.cancel();
-    return { workflowRunId: null, cancelledLifecycle: lifecycle.runId };
+  if (recorded) {
+    return { workflowRunId: lifecycle.runId, cancelledLifecycle: null };
   }
-  return { workflowRunId: lifecycle.runId, cancelledLifecycle: null };
+  const schedule = await plane.lifecycle.schedule(ownerId, runId);
+  const dispatched = concludeDispatch(
+    lifecycle.runId,
+    schedule?.workflowRunId ?? null
+  );
+  if (dispatched.cancelledLifecycle !== null) {
+    await lifecycle.cancel();
+  }
+  return dispatched;
 }
 
 /**

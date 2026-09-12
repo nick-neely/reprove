@@ -231,7 +231,7 @@ const evidenceHolds = (evidence: ExecutionLossEvidence) =>
         // nothing here instead of being terminalized on a comparison that is
         // neither true nor false.
         lte(schema.run.executionExpiresAt, evidence.now),
-        // ADR 0014's ownership guard, which every lifecycle-side mutation
+        // ADR 0014's ownership guard, which every lifecycle-side transition
         // keeps. An orphan wakes at the same deadline and stays inert.
         eq(schema.run.workflowRunId, evidence.workflowRunId)
       )

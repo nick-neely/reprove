@@ -139,6 +139,18 @@ sweeper was rejected because ADR 0014 discharged ADR 0013's re-drive specificall
 job system appears beside the one ADR 0006 settled. Every lifecycle-side mutation keeps ADR 0014's
 ownership guard: an orphan lifecycle stays inert.
 
+> **Amended by [#85](https://github.com/nick-neely/reprove/issues/85):** the guard on every
+> *transition* is kept and an orphan is still inert; the one write it never covered is ADR 0014's
+> own first-writer-wins `record`, which a lifecycle now performs too. What neither covers is a Run
+> **no** lifecycle is recorded against, which leaves the `claimed` hole above open in exactly the
+> shape this section closes it in: the watchdog's evidence names the recorded lifecycle and there
+> is none to name, so no deadline can end the Run. It stays Result-eligible until one of the other
+> two detectors above happens to reach it - the prompt detector presents a token rather than a
+> lifecycle - or a supersession ends it, and neither is guaranteed to arrive. So a lifecycle that
+> finds that column empty a bounded grace past the deadline records itself, through ADR 0014's
+> first-writer-wins write, and closes the window from inside the ownership guard rather than
+> around it. It remains one durable run per Run.
+
 The cost is one additional pending `sleep` per lost race - an un-cancelled `graphile_worker` job
 that fires later as an early-return no-op. Additive, not compounding, and measured in the
 [Workflow SDK build-constraints research](../research/workflow-sdk-build-constraints.md).

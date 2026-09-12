@@ -300,6 +300,13 @@ Asserted absent, because Phase 1 owns them:
   > counted against a list of three that turned out to hold one. The injection point above is
   > removed and `reportHostedFailure` was never built, so this is the **only** cost the scenario
   > carries. Nothing else about this bullet changes.
+
+  > **Amended by [#85](https://github.com/nick-neely/reprove/issues/85):** the hazard named at the
+  > end is closed rather than narrowed. A lifecycle that reaches a deadline the Run records no
+  > lifecycle for records itself and then closes the window, so a short
+  > `REPROVE_RUN_CLAIMABLE_FOR_MS` costs a Run the grace's ten seconds rather than leaving it with
+  > no deadline that can end it. The rest of the bullet - that the two durations are the only
+  > fields of `Phase0RunProfile` a deployment may name, and why - is unchanged.
 - **`worker_lost` is still never observed against a real Worker.** All three of ADR 0015's detectors
   remain exercised against fixtures.
 
