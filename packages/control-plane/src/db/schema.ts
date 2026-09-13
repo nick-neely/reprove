@@ -780,26 +780,15 @@ export const account = pgTable(
     /** The provider-side GitHub identity, kept as Better Auth data. */
     accountId: text("account_id").notNull(),
     /**
-     * Retired in place, and nullable is the whole of what this column now is.
+     * Unused compatibility column, intentionally retained as nullable (#98).
+     * Better Auth 1.7.0 through 1.7.2 used it as part of the account key;
+     * 1.7.3 restored `(providerId, accountId)` and stopped writing it.
      *
-     * Better Auth 1.7.0 through 1.7.2 keyed an account on `(issuer, accountId)`
-     * and 0002 adopted that key. 1.7.3 restored the 1.6 key, dropped `issuer`
-     * from the model, and began rejecting authentication requests when the
-     * Drizzle schema carries a **required** column it never writes - so
-     * `notNull()` here is what would break every sign-in, not the column.
-     *
-     * It stays because ADR 0008 rolls a destructive change out as expand and
-     * backfill, then contract and drop, so that a one-release rollback stays
-     * possible. Dropping it in the release that stops writing it is both
-     * phases at once: migrations are applied by an explicit deployment command
-     * and the runtime refuses to serve a database behind it, so there is no
-     * ordering in which an instance still on 1.7.2 survives the column's
-     * absence. Nullable is also exactly what Better Auth's own upgrade guide
-     * prescribes for Postgres; only its SQLite path drops the column, because
-     * SQLite cannot alter one.
-     *
-     * Nothing writes it as of 1.7.3, and `composition.test.ts` measures that
-     * rather than assuming it. The contract migration that drops it is #98.
+     * Migration 0011 removed NOT NULL and replaced the old unique index.
+     * That is sufficient for compatibility: dropping the column is optional
+     * cleanup, and retaining it avoids breaking older application queries.
+     * `composition.test.ts` verifies new sign-ins leave it null.
+     * https://better-auth.com/docs/guides/1-7-upgrade-guide
      */
     issuer: text("issuer"),
     // Ciphertext under `account.encryptOAuthTokens = true`; Better Auth stores
