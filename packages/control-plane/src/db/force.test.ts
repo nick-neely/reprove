@@ -51,7 +51,7 @@ describe("the committed migration history", () => {
       ["0001_force_row_level_security", "generator"],
       // Better Auth's `account` model gained `issuer`, `id_token` and
       // `password`; the tables were already classified, so the generator had
-      // nothing to append after it.
+      // nothing to append after it. 0011 begins retiring `issuer`.
       ["0002_better_auth_account_model", "drizzle"],
       // ADR 0013's Run spec, completed at creation: the two spec columns that
       // were missing, `claimable_until` tightened to NOT NULL, and the
@@ -87,6 +87,13 @@ describe("the committed migration history", () => {
       // column and no classification change, so the generator had nothing to
       // append after this one either.
       ["0010_run_hosted_pass", "drizzle"],
+      // Better Auth 1.7.3 restored the 1.6 account key, so the unique index
+      // over `(issuer, account_id)` goes, `(provider_id, account_id)` carries
+      // one instead, and `issuer` is relaxed rather than dropped: the expand
+      // half of ADR 0008's expand-then-contract, with #98 as the contract.
+      // `account` is a non-tenant table and its classification is untouched, so
+      // the generator had nothing to append after this one either.
+      ["0011_better_auth_provider_account_key", "drizzle"],
     ]);
   });
 

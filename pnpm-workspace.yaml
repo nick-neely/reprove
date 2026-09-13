@@ -7,9 +7,9 @@ packages:
 # Shared versions live in the default catalog so one bump moves every workspace.
 # The Harness catalog pins core to the exact version required by its bridge.
 catalog:
-  "@types/node": ^26.4.0
+  "@types/node": ^26.4.1
   typescript: ^7.0.2
-  vitest: ^4.1.11
+  vitest: ^5.0.0
   zod: ^4.5.4
 
 # The Workflow family moves together, and it is pinned rather than ranged: the

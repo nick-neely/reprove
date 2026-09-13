@@ -78,57 +78,63 @@ const readTenantContext = async (): Promise<string | null> => {
 // Ordered, and the order is load-bearing: the leak leaves the single server
 // connection dirty, so the clean case has to be measured first. A test that
 // scrubbed the connection in between would be scrubbing away the thing under
-// test.
-describe.sequential("one server connection, handed to client after client", () => {
-  beforeAll(async () => {
-    database = await createTestDatabase(PINNED_DATABASE);
-    await bootstrap({
-      connectionString: adminUrl(PINNED_DATABASE),
-      runtimePassword: RUNTIME_PASSWORD,
-    });
-    await migrate({ connectionString: adminUrl(PINNED_DATABASE) });
-  });
-
-  afterAll(async () => {
-    await database?.drop();
-  });
-
-  it("leaves no tenant context behind after withOwner", async () => {
-    const runtime = await createRuntimeDb({
-      connectionString: runtimeUrl(PINNED_DATABASE),
-      poolSize: 1,
-    });
-    try {
-      await runtime.withOwner(OWNER, async (tx) => {
-        const { rows } = await tx.execute<{ owner: string | null }>(
-          `select ${OWNER_CONTEXT} as owner`
-        );
-        // Inside the transaction the context is set, so the next assertion is
-        // about it being released rather than about it never existing.
-        expect(rows[0]?.owner).toBe(String(OWNER));
+// test. `concurrent: false` rather than the default, and rather than Vitest 4's
+// `describe.sequential`, which Vitest 5 removed: stated, the ordering survives
+// concurrency being turned on above this suite.
+describe(
+  "one server connection, handed to client after client",
+  { concurrent: false },
+  () => {
+    beforeAll(async () => {
+      database = await createTestDatabase(PINNED_DATABASE);
+      await bootstrap({
+        connectionString: adminUrl(PINNED_DATABASE),
+        runtimePassword: RUNTIME_PASSWORD,
       });
-    } finally {
-      await runtime.close();
-    }
+      await migrate({ connectionString: adminUrl(PINNED_DATABASE) });
+    });
 
-    // `set_config(..., is_local => true)` is scoped to the transaction and
-    // cannot outlive it, so the next client to be handed this exact server
-    // connection sees nothing.
-    await expect(readTenantContext()).resolves.toBeNull();
-  });
+    afterAll(async () => {
+      await database?.drop();
+    });
 
-  it("carries a bare SET to whoever gets that connection next", async () => {
-    const leaker = new Client(runtimeUrl(PINNED_DATABASE));
-    await leaker.connect();
-    // No transaction, no `LOCAL`: exactly the statement ADR 0008 originally
-    // specified, and the one the ADR was corrected away from.
-    await leaker.query(`set app.owner_id = '${SMUGGLED_OWNER}'`);
-    await leaker.end();
+    it("leaves no tenant context behind after withOwner", async () => {
+      const runtime = await createRuntimeDb({
+        connectionString: runtimeUrl(PINNED_DATABASE),
+        poolSize: 1,
+      });
+      try {
+        await runtime.withOwner(OWNER, async (tx) => {
+          const { rows } = await tx.execute<{ owner: string | null }>(
+            `select ${OWNER_CONTEXT} as owner`
+          );
+          // Inside the transaction the context is set, so the next assertion is
+          // about it being released rather than about it never existing.
+          expect(rows[0]?.owner).toBe(String(OWNER));
+        });
+      } finally {
+        await runtime.close();
+      }
 
-    // A different client, which set nothing, on a connection it never touched.
-    await expect(readTenantContext()).resolves.toBe(SMUGGLED_OWNER);
-  });
-});
+      // `set_config(..., is_local => true)` is scoped to the transaction and
+      // cannot outlive it, so the next client to be handed this exact server
+      // connection sees nothing.
+      await expect(readTenantContext()).resolves.toBeNull();
+    });
+
+    it("carries a bare SET to whoever gets that connection next", async () => {
+      const leaker = new Client(runtimeUrl(PINNED_DATABASE));
+      await leaker.connect();
+      // No transaction, no `LOCAL`: exactly the statement ADR 0008 originally
+      // specified, and the one the ADR was corrected away from.
+      await leaker.query(`set app.owner_id = '${SMUGGLED_OWNER}'`);
+      await leaker.end();
+
+      // A different client, which set nothing, on a connection it never touched.
+      await expect(readTenantContext()).resolves.toBe(SMUGGLED_OWNER);
+    });
+  }
+);
 
 /**
  * Three ways a connection arrives at `app.owner_id = ''`, which is not the same
