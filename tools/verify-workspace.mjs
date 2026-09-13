@@ -984,10 +984,10 @@ const checkPublishability = (spec, manifest, add) => {
         `"${spec.name}" must declare "sideEffects": false.`
       );
     }
-    if (manifest.engines?.node !== ">=22") {
+    if (manifest.engines?.node !== ">=24") {
       add(
         "publishability",
-        `"${spec.name}" must declare "engines": { "node": ">=22" }.`
+        `"${spec.name}" must declare "engines": { "node": ">=24" }.`
       );
     }
   } else {

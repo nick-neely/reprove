@@ -8,13 +8,13 @@ Security problems do **not** go in a public issue - see [SECURITY.md](SECURITY.m
 
 ## Getting started
 
-The stack is TypeScript on Node 22.19 or newer (ESM), pnpm workspaces with Turborepo,
+The stack is TypeScript on Node 24 or newer (ESM), pnpm workspaces with Turborepo,
 Vitest for tests (Playwright later), and Oxlint/Oxfmt through Ultracite.
 
 A clean clone installs and proves itself in five steps:
 
 ```text
-install Node 22.19 or newer and OpenSSL 3
+install Node 24 or newer and OpenSSL 3
 corepack enable
 pnpm install --frozen-lockfile
 pnpm db:up                          Docker; see "Database" below
@@ -202,7 +202,7 @@ Two things catch people out:
   rather than executing.
 
 Continuous integration runs the same command. Two checks are required on every
-pull request: `verify`, which is the seven layers above on Ubuntu and Node 22 with
+pull request: `verify`, which is the seven layers above on Ubuntu and Node 24 with
 the database stack up, and `dependency-review`, which blocks newly introduced
 high or critical vulnerabilities in runtime and development dependencies alike.
 A new layer is sequenced inside `pnpm verify` rather than added as a third

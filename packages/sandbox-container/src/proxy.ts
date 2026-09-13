@@ -83,8 +83,10 @@ const decodeRequest = (
   }
   // Saved ChatGPT authentication uses zstd request compression. Decode before
   // policy/probe inspection and forwarding, with a separate decompressed cap.
-  // Older Node 22 hosts without zstd fail qualification rather than forwarding
-  // compressed data while pretending it was inspected as JSON.
+  // A host whose Node has no zstd fails qualification rather than forwarding
+  // compressed data while pretending it was inspected as JSON. Every Node the
+  // `engines` floor admits has it; this stays a capability check rather than a
+  // version check because it is the capability the decode needs.
   if (encoding !== "zstd" || !zlib.zstdDecompressSync) {
     throw new Error("unsupported request encoding");
   }
