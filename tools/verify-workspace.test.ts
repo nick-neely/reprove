@@ -36,6 +36,7 @@ interface Manifest {
   peerDependencies?: Record<string, string>;
   peerDependenciesMeta?: Record<string, { optional?: boolean }>;
   scripts?: Record<string, string>;
+  engines?: { node?: string };
 }
 
 const repoRoot = path.join(import.meta.dirname, "..");
@@ -282,6 +283,47 @@ describe(verifyWorkspace, () => {
 
     expect(
       broke(verifyWorkspace({ rootDir: root }), "publishability", "apps/docs")
+    ).toBeTruthy();
+  });
+
+  // Both of these pass a message fragment rather than matching the rule and
+  // workspace alone. Without it they would be satisfied by any `publishability`
+  // problem on the same workspace, so deleting the rule under test could leave
+  // them green on somebody else's failure.
+  const APP_NODE_PROBLEM = "a deployment pins the major CI runs";
+
+  it("rejects an app that drops its Node pin", () => {
+    const root = copyRepository();
+    editManifest(root, "apps/docs", (manifest) => {
+      manifest.engines = undefined;
+    });
+
+    expect(
+      broke(
+        verifyWorkspace({ rootDir: root }),
+        "publishability",
+        "apps/docs",
+        APP_NODE_PROBLEM
+      )
+    ).toBeTruthy();
+  });
+
+  it("rejects an app that declares a floor instead of a major", () => {
+    const root = copyRepository();
+    // The published packages' own spelling, which is wrong on an app: a lower
+    // bound lets the deployment platform pick a major newer than the one CI
+    // runs, which is the gap the pin closes.
+    editManifest(root, "apps/docs", (manifest) => {
+      manifest.engines = { node: ">=24" };
+    });
+
+    expect(
+      broke(
+        verifyWorkspace({ rootDir: root }),
+        "publishability",
+        "apps/docs",
+        APP_NODE_PROBLEM
+      )
     ).toBeTruthy();
   });
 
