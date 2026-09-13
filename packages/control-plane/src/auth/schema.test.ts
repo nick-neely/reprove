@@ -44,24 +44,18 @@ const ADOPTED = [
 ] as const;
 
 /**
- * Columns a Better Auth upgrade removed from its model that an expand migration
- * has relaxed and a contract migration has yet to drop.
+ * Unused columns intentionally retained for compatibility after a Better Auth
+ * upgrade. Keeping them nullable avoids a destructive migration and preserves
+ * older applications that still reference them. Removal is not required.
  *
- * ADR 0008 rolls a destructive change out as expand and backfill, then contract
- * and drop, so between those two releases an adopted table legitimately carries
- * a column Better Auth's model does not. That window is the only thing this
- * allows, and it allows it by name: anything else extra is still the failure the
- * comparison below exists to catch.
- *
- * Every entry has to be nullable, which is asserted rather than trusted. A
- * required column Better Auth never writes is what breaks a sign-in, so an entry
- * that was still `NOT NULL` would be this list hiding the actual fault.
- *
- * Emptying this is part of the contract migration, not a separate cleanup.
+ * Allow only named, nullable columns: an unexpected extra field still fails,
+ * and a required column Better Auth never writes would break sign-in.
  */
-const RETIRING: Partial<Record<(typeof ADOPTED)[number][0], string[]>> = {
-  // Better Auth 1.7.3 restored the 1.6 `(providerId, accountId)` account key and
-  // dropped `issuer`. 0011 relaxed it; #98 drops it.
+const RETAINED_COMPATIBILITY_COLUMNS: Partial<
+  Record<(typeof ADOPTED)[number][0], string[]>
+> = {
+  // 0011 relaxed issuer and restored the provider/account key. Keeping the
+  // column nullable is sufficient; #98 records the decision not to drop it.
   account: ["issuer"],
 };
 
@@ -81,14 +75,14 @@ describe("the four tables Reprove adopted from Better Auth", () => {
     "carries every field Better Auth's %s model has",
     async (model, table) => {
       const { tables } = await auth.$context;
-      const retiring = RETIRING[model] ?? [];
+      const retained = RETAINED_COMPATIBILITY_COLUMNS[model] ?? [];
       // `fieldName` is the name the adapter looks up on the Drizzle table object,
       // which is the property key rather than the SQL column name. `id` is not in
       // the field list because Better Auth handles it separately, and it is still
       // a column the adapter reads.
       const expected = [
         "id",
-        ...retiring,
+        ...retained,
         ...Object.values(tables[model]?.fields ?? {}).map(
           (field) => field.fieldName
         ),
@@ -103,13 +97,13 @@ describe("the four tables Reprove adopted from Better Auth", () => {
 
       // Set equality in both directions. A missing field breaks a write; an extra
       // one means Reprove quietly took over part of a definition it does not own,
-      // unless `RETIRING` names it as mid-contraction.
+      // unless explicitly retained for compatibility.
       expect([...nullable.keys()].toSorted()).toStrictEqual(expected);
 
-      // What makes a retiring column harmless: Better Auth rejects a *required*
+      // What makes a retained column harmless: Better Auth rejects a *required*
       // column it never writes, so the allowance above is only true while every
       // column it names is nullable.
-      for (const column of retiring) {
+      for (const column of retained) {
         expect(nullable.get(column)).toBeTruthy();
       }
     }
