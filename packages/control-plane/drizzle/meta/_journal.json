@@ -85,6 +85,13 @@
       "when": 1789257800801,
       "tag": "0011_better_auth_provider_account_key",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1789265985982,
+      "tag": "0012_drop_account_issuer",
+      "breakpoints": true
     }
   ]
 }
