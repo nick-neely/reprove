@@ -126,8 +126,8 @@ describe("one person reaching two Owners", () => {
         [USER_ID, "Mona Octocat", "octocat@example.com"]
       );
       await client.query(
-        `insert into "account" (id, user_id, provider_id, issuer, account_id)
-           values ($1, $2, 'github', 'https://github.com', $3)`,
+        `insert into "account" (id, user_id, provider_id, account_id)
+           values ($1, $2, 'github', $3)`,
         ["account_1", USER_ID, String(PERSONAL_OWNER)]
       );
     });

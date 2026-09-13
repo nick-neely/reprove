@@ -3896,8 +3896,8 @@ export declare const account: import("drizzle-orm/pg-core").PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        issuer: import("drizzle-orm/pg-core").PgColumn<{
-            name: "issuer";
+        accountId: import("drizzle-orm/pg-core").PgColumn<{
+            name: "account_id";
             tableName: "account";
             dataType: "string";
             columnType: "PgText";
@@ -3913,14 +3913,14 @@ export declare const account: import("drizzle-orm/pg-core").PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        accountId: import("drizzle-orm/pg-core").PgColumn<{
-            name: "account_id";
+        issuer: import("drizzle-orm/pg-core").PgColumn<{
+            name: "issuer";
             tableName: "account";
             dataType: "string";
             columnType: "PgText";
             data: string;
             driverParam: string;
-            notNull: true;
+            notNull: false;
             hasDefault: false;
             isPrimaryKey: false;
             isAutoincrement: false;

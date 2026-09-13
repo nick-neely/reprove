@@ -135,16 +135,21 @@ describe("Better Auth composed over Reprove's adopted tables", () => {
     const [stored] = await db.select().from(schema.account);
     const [owner] = await db.select().from(schema.user);
 
+    // Both halves of `account_provider_account_idx`, which is the row's real
+    // key: Better Auth 1.7.3 restored `(providerId, accountId)` as how it
+    // recognises an account, after 1.7.0 through 1.7.2 keyed on an `issuer`
+    // column it has since dropped from the model. Asserted rather than assumed,
+    // because a later Better Auth writing either half differently would strand
+    // every existing row behind a key that no longer matches.
     expect(stored?.providerId).toBe("github");
     expect(stored?.accountId).toBe(String(PERSON.id));
     expect(stored?.userId).toBe(owner?.id);
-    // The other half of `account_issuer_account_idx`, which is the row's real
-    // key. Better Auth 1.7.2 asks a provider for an `accountIssuer` and falls
-    // back to `local:oauth:<providerId>` when it declares none, which GitHub
-    // does not; it takes no option that would change this. Asserted rather than
-    // assumed, because a later Better Auth writing a different issuer would
-    // strand every existing row behind a key that no longer matches.
-    expect(stored?.issuer).toBe("local:oauth:github");
+    // And the retired column is genuinely unwritten rather than merely
+    // permitted. `issuer` survives 0011 as a nullable column so that a release
+    // still on 1.7.2 can be rolled back to (ADR 0008); what makes dropping it
+    // in #98 safe is this - a sign-in through the shipped composition leaves it
+    // null, so no row written from here on depends on it.
+    expect(stored?.issuer).toBeNull();
   });
 
   it("stores the OAuth tokens as ciphertext rather than plaintext", async () => {
