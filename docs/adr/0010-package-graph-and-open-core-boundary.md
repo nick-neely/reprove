@@ -360,7 +360,7 @@ Workflow Vercel World         Workflow Postgres World
 hosted + self-hosted Workers  self-hosted Workers only
 ```
 
-The self-hosted product is **your control plane, your Workers**: a standard Node 22+ process
+The self-hosted product is **your control plane, your Workers**: a standard Node 24+ process
 deployment of the Next.js app against Postgres, with no harness stack anywhere in the control-plane
 process. It has no managed hosted-Worker capability unless someone later authors a second hosted
 execution driver.

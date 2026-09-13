@@ -7,7 +7,7 @@ packages:
 # Shared versions live in the default catalog so one bump moves every workspace.
 # The Harness catalog pins core to the exact version required by its bridge.
 catalog:
-  "@types/node": ^26.4.1
+  "@types/node": ^24.13.4
   typescript: ^7.0.2
   vitest: ^5.0.0
   zod: ^4.5.4
@@ -58,11 +58,14 @@ trustPolicy: no-downgrade
 # settle into a permanent silent allowlist (issue #30).
 trustPolicyExclude:
   # `undici-types@6.21.0` is the transitive dependency of `@types/node@^22` and
-  # is the only version in its `~6.21.0` range. Earlier 6.x releases carried a
-  # provenance attestation and this one does not, which pnpm reports as a
-  # downgrade. It is a publishing gap in the upstream release, not a takeover:
-  # the package is types-only, ships no runtime code and no install script.
-  # Revisit when `@types/node@22` moves off it.
+  # is the only version in its `~6.21.0` range. Not the catalog's `@types/node`,
+  # which is the 24 line: this one arrives under `@workflow/world-postgres`,
+  # through `graphile-worker` and `graphile-config` - `pnpm why undici-types`
+  # shows both trees. Earlier 6.x releases carried a provenance attestation and
+  # this one does not, which pnpm reports as a downgrade. It is a publishing gap
+  # in the upstream release, not a takeover: the package is types-only, ships no
+  # runtime code and no install script. Revisit when that `@types/node@22` moves
+  # off it.
   # review-by: 2026-12-01
   - undici-types@6.21.0
   # `chokidar@4.0.3` is the transitive dependency of `workflow`'s CLI, which the

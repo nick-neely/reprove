@@ -64,6 +64,24 @@ const SHARED_DEV_DEPENDENCIES = new Set([
 const UNSHIPPED_FILE =
   /(?:\.test(?:-support)?\.[cm]?tsx?|(?:^|[\\/])vitest\.config\.[cm]?ts)$/u;
 
+/**
+ * The Node declaration each role makes, and they are deliberately different
+ * shapes rather than one string used twice.
+ *
+ * A published package declares a **floor**, because the statement it is making
+ * is to a consumer: this works on 24 and anything later. A range is the only
+ * honest spelling of that.
+ *
+ * An app declares the **major it was tested on**, because an app is a
+ * deployment rather than a dependency, and a lower bound hands the choice of
+ * major to the platform. Vercel resolves a range to the newest version it
+ * offers that satisfies it, so `>=24` would silently move the deployment to 26
+ * the day 26 becomes available there - while CI and `@types/node` stayed on 24,
+ * which is exactly the production-versus-tested gap the pin exists to close.
+ */
+const PUBLISHED_NODE_RANGE = ">=24";
+const APP_NODE_RANGE = "24.x";
+
 const DEFAULT_EXPORT = {
   ".": { types: "./dist/index.d.ts", default: "./dist/index.js" },
 };
@@ -984,10 +1002,10 @@ const checkPublishability = (spec, manifest, add) => {
         `"${spec.name}" must declare "sideEffects": false.`
       );
     }
-    if (manifest.engines?.node !== ">=22") {
+    if (manifest.engines?.node !== PUBLISHED_NODE_RANGE) {
       add(
         "publishability",
-        `"${spec.name}" must declare "engines": { "node": ">=22" }.`
+        `"${spec.name}" must declare "engines": { "node": "${PUBLISHED_NODE_RANGE}" }.`
       );
     }
   } else {
@@ -1001,6 +1019,12 @@ const checkPublishability = (spec, manifest, add) => {
       add(
         "publishability",
         `"${spec.name}" is an app and must not declare "publishConfig".`
+      );
+    }
+    if (manifest.engines?.node !== APP_NODE_RANGE) {
+      add(
+        "publishability",
+        `"${spec.name}" is an app and must declare "engines": { "node": "${APP_NODE_RANGE}" }; a deployment pins the major CI runs rather than declaring a floor the platform may exceed.`
       );
     }
   }
