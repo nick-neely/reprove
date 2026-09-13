@@ -3913,23 +3913,6 @@ export declare const account: import("drizzle-orm/pg-core").PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        issuer: import("drizzle-orm/pg-core").PgColumn<{
-            name: "issuer";
-            tableName: "account";
-            dataType: "string";
-            columnType: "PgText";
-            data: string;
-            driverParam: string;
-            notNull: false;
-            hasDefault: false;
-            isPrimaryKey: false;
-            isAutoincrement: false;
-            hasRuntimeDefault: false;
-            enumValues: [string, ...string[]];
-            baseColumn: never;
-            identity: undefined;
-            generated: undefined;
-        }, {}, {}>;
         accessToken: import("drizzle-orm/pg-core").PgColumn<{
             name: "access_token";
             tableName: "account";

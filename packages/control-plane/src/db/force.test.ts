@@ -90,10 +90,12 @@ describe("the committed migration history", () => {
       // Better Auth 1.7.3 restored the 1.6 account key, so the unique index
       // over `(issuer, account_id)` goes, `(provider_id, account_id)` carries
       // one instead, and `issuer` is relaxed rather than dropped: the expand
-      // half of ADR 0008's expand-then-contract, with #98 as the contract.
+      // half of ADR 0008's expand-then-contract, with 0012 as the contract.
       // `account` is a non-tenant table and its classification is untouched, so
       // the generator had nothing to append after this one either.
       ["0011_better_auth_provider_account_key", "drizzle"],
+      // The contract drops the unwritten column after the compatible release.
+      ["0012_drop_account_issuer", "drizzle"],
     ]);
   });
 

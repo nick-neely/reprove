@@ -774,34 +774,11 @@ export const account = pgTable(
      * of Better Auth's account key that is not the provider-side identity. The
      * key is `(provider_id, account_id)`, which is what the unique index below
      * carries: Better Auth 1.7.3 restored that pair as how it recognises an
-     * account, after 1.7.0 through 1.7.2 keyed on the `issuer` column below.
+     * account, after 1.7.0 through 1.7.2 keyed on the retired `issuer` column.
      */
     providerId: text("provider_id").notNull(),
     /** The provider-side GitHub identity, kept as Better Auth data. */
     accountId: text("account_id").notNull(),
-    /**
-     * Retired in place, and nullable is the whole of what this column now is.
-     *
-     * Better Auth 1.7.0 through 1.7.2 keyed an account on `(issuer, accountId)`
-     * and 0002 adopted that key. 1.7.3 restored the 1.6 key, dropped `issuer`
-     * from the model, and began rejecting authentication requests when the
-     * Drizzle schema carries a **required** column it never writes - so
-     * `notNull()` here is what would break every sign-in, not the column.
-     *
-     * It stays because ADR 0008 rolls a destructive change out as expand and
-     * backfill, then contract and drop, so that a one-release rollback stays
-     * possible. Dropping it in the release that stops writing it is both
-     * phases at once: migrations are applied by an explicit deployment command
-     * and the runtime refuses to serve a database behind it, so there is no
-     * ordering in which an instance still on 1.7.2 survives the column's
-     * absence. Nullable is also exactly what Better Auth's own upgrade guide
-     * prescribes for Postgres; only its SQLite path drops the column, because
-     * SQLite cannot alter one.
-     *
-     * Nothing writes it as of 1.7.3, and `composition.test.ts` measures that
-     * rather than assuming it. The contract migration that drops it is #98.
-     */
-    issuer: text("issuer"),
     // Ciphertext under `account.encryptOAuthTokens = true`; Better Auth stores
     // these in plaintext by default.
     accessToken: text("access_token"),

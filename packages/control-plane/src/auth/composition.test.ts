@@ -144,12 +144,6 @@ describe("Better Auth composed over Reprove's adopted tables", () => {
     expect(stored?.providerId).toBe("github");
     expect(stored?.accountId).toBe(String(PERSON.id));
     expect(stored?.userId).toBe(owner?.id);
-    // And the retired column is genuinely unwritten rather than merely
-    // permitted. `issuer` survives 0011 as a nullable column so that a release
-    // still on 1.7.2 can be rolled back to (ADR 0008); what makes dropping it
-    // in #98 safe is this - a sign-in through the shipped composition leaves it
-    // null, so no row written from here on depends on it.
-    expect(stored?.issuer).toBeNull();
   });
 
   it("stores the OAuth tokens as ciphertext rather than plaintext", async () => {
