@@ -265,6 +265,14 @@ Asserted absent, because Phase 1 owns them:
 - No progress messages and no cancellation delivery.
 - No narrative supplied to any Reviewer, so ADR 0013's inherited constraint stays inherited.
 
+> **Amended by [Map: Review a real pull request end to end through a hosted Codex Worker](https://github.com/nick-neely/reprove/issues/102):**
+> "Phase 1 owns them" overstates two entries. Enrollment and Lease renewal transport belong to the
+> self-hosted Worker lifecycle, which the PRD's roadmap gives to Phase 3, and the Phase 1 map rules
+> both out of its scope. Their tickets,
+> [Enroll a self-hosted Worker and issue its credential](https://github.com/nick-neely/reprove/issues/78)
+> and [Renew a self-hosted Worker's Lease and end its Run on expiry](https://github.com/nick-neely/reprove/issues/81),
+> stay open for that phase. Every other entry in this list is Phase 1's.
+
 ## What this deliberately does not claim
 
 - **A green gate is not a working reviewer.** It proves a delivery becomes a tenant-safe Run that is

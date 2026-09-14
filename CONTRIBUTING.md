@@ -275,9 +275,12 @@ far, and carries its open questions as child issues. Each child is labelled by
 type - `wayfinder:research`, `wayfinder:prototype`, `wayfinder:grilling` or
 `wayfinder:task` - and blocked-by edges show which are takeable now.
 
-[Map: Lock the Reprove foundation](https://github.com/nick-neely/reprove/issues/1)
-is the live one. If you want to know why something is the way it is, that map
-and [`docs/adr/`](docs/adr/) are the answer. If you disagree with a settled
+[Map: Review a real pull request end to end through a hosted Codex Worker](https://github.com/nick-neely/reprove/issues/102)
+is the live one; its work lands on the `wayfinder-phase-1` branch. The Phase 0
+maps are closed and indexed from
+[Map: Lock the Reprove foundation](https://github.com/nick-neely/reprove/issues/1).
+If you want to know why something is the way it is, those maps and
+[`docs/adr/`](docs/adr/) are the answer. If you disagree with a settled
 decision, the ADR is the thing to argue with.
 
 Map work lands on a single long-lived branch rather than a branch per ticket.
