@@ -96,6 +96,13 @@ An optional proposed change carried by a Finding. A GitHub suggestion block is o
 render a Patch, not another name for it.
 _Avoid_: suggestion, fix, diff
 
+**Limitation**:
+A fact the Reviewer declares about the environment or scope that prevented part of a review - a
+dependency that would not install, a service that was not available, a scope left out - recorded
+once on the Result. It is not a Finding's Verification and not the reason execution stopped, and
+it never by itself makes a review unfinished.
+_Avoid_: gap, coverage, caveat, skipped
+
 **Evidence**:
 The structured record of what a Reviewer executed while verifying a Finding - the command, its exit
 code and its output - captured whether the attempt settled the claim or not. A Finding cannot be
@@ -196,8 +203,9 @@ computes and advertises rather than declares: `microvm`, `container-rootless`, `
 _Avoid_: isolation level, hardening, security level
 
 **Workspace**:
-The repository checkout inside a Sandbox, pinned to a Run's base and head SHA, which a Reviewer
-may mutate only under `fix` autonomy. It is self-contained and sandbox-owned: the Worker
+The repository checkout inside a Sandbox, pinned to a Run's base and head SHA. A Reviewer may
+write scratch changes to it under `verify`, and only under `fix` may any change leave it as a
+Patch. It is self-contained and sandbox-owned: the Worker
 materializes it with every remote and host reference stripped, so it carries no authority to reach
 GitHub and nothing inside the Sandbox can fetch what the Worker did not put there.
 _Avoid_: working tree, clone, repo
@@ -253,8 +261,8 @@ _Avoid_: disable, blocklist, circuit breaker
 ### Controls
 
 **Autonomy**:
-What a Reviewer is permitted to do, as a ladder: `inspect` may read, `verify` may execute,
-`fix` may mutate the Workspace. A level is offered only where it can be enforced, so a Harness
+What a Reviewer is permitted to do, as a ladder: `inspect` may read, `verify` may execute and
+write scratch changes that never leave the Sandbox, `fix` may return changes as a Patch. A level is offered only where it can be enforced, so a Harness
 that cannot be restricted does not advertise the levels it cannot honour.
 _Avoid_: mode, review mode, permission level
 

@@ -300,3 +300,13 @@ concern dictate physical storage. And the non-isomorphism is not a matter of tas
   its keys.
 - ADR 0005's per-Pass naming handoff is discharged by declining it, and the per-phase map that
   builds a multi-Pass Strategy inherits the naming question with the reason it was deferred.
+
+## Amended by [#107](https://github.com/nick-neely/reprove/issues/107)
+
+[ADR 0020](0020-reviewer-method-under-verify.md) lets the Reviewer declare its own review
+unfinished. `stoppedBy` gains **`reviewer_stopped`**, set when the answer's `unfinished` is non-null; it is
+either `null` or a bounded, non-whitespace explanation, and there is no separate flag to contradict
+it. The trusted layer's own reasons override it when both apply. The Check table gains one row: `incomplete` + `reviewer_stopped` ->
+**`failure`**. The Result's answer gains `unfinished` and `limitations`. A Reviewer
+still running at the hard deadline produces no Result and is a Failure with `deadline_reached` as
+its detail; `deadline_reached` is not a `stoppedBy` value in Phase 1.
