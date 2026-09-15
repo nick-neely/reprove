@@ -193,10 +193,13 @@ export const reviewSection = z
      */
     autonomy: autonomy.optional(),
 
-    /** Run budget. The Adapter enforces the Pass sub-budget (ADR 0005). */
+    /** Run budget: a soft spending limit in USD (ADR 0019). The Adapter enforces the Pass sub-budget (ADR 0005). */
     budget: z.number().positive().finite().optional(),
 
-    /** How long the Run stays claimable before terminal `unscheduled`. */
+    /**
+     * Reviewer execution ceiling, not the claim window. ADR 0019: the claim
+     * window is deployment policy and never read from this file.
+     */
     deadline: z.string().regex(/^\d+[smh]$/).optional(),
 
     /** `REQUEST_CHANGES` is opt-in (ADR 0002). */

@@ -331,3 +331,14 @@ matters for audit. A breaking change would introduce one deliberately.
 - PRD §7, §30 and §31 lose their `[Undecided]` markers.
 - Anything that later wants to gate on how an Adapter works must find the domain property
   it is really reaching for, or argue with §4.
+
+## Amended by [#106](https://github.com/nick-neely/reprove/issues/106)
+
+[ADR 0019](0019-phase-1-repository-configuration-subset.md) is authoritative for which keys Phase 1
+honours; this note only records what changes in the sections above. §5 gains a fourth
+control-plane reason, `config_unsupported`, for a `review:` value naming functionality the product
+does not have, and a control-plane Refusal is persisted as its own Owner-scoped record rather than
+on a Run or the ingress ledger. §10's resolved snapshot requires `harness`, `model`, `autonomy`
+and `deadline`, with each value's provenance (`configured` or `default`) recorded beside the
+snapshot and outside `configDigest`. `deadline` bounds Reviewer execution time, not the claim
+window. Phase 1 supplies no Owner layer and adds no unused Owner parameter.

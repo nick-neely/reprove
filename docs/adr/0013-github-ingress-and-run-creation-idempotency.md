@@ -537,3 +537,16 @@ is restated rather than buried: `base.sha` is the tip **as GitHub reported it du
 and a Run's recorded base is an honest statement of what the base branch was when the delivery was
 processed. A push to the base branch fires no `pull_request` event, so a Run's base never moves
 after creation, and the merge base is still derived where `.git` already is.
+
+## Amended by [#106](https://github.com/nick-neely/reprove/issues/106)
+
+[ADR 0019](0019-phase-1-repository-configuration-subset.md) places the `.reprove.yml` reads inside
+the critical section above, pinned to the canonical `baseSha`, under one timeout that bounds the
+canonical fetch and both reads together, and names `Contents: read` as a consumer of the Phase 1
+permission migration. "None of these is `Refusal` or `Failure` vocabulary" remains true for the
+dispositions themselves; the revised explanation is that a delivery refused on configuration
+settles as `done` pointing at a Refusal record, so the conclusion lives on the record and not on
+the disposition. The dispositions gain `discarded: disabled` for `enabled: false`, and an
+automatic trigger also no-ops when a Refusal already exists at the same head and base.
+`Phase0RunProfile` is replaced by the loader, a placement constant and an environment-readable
+`DeploymentPolicy` holding the two durations.
