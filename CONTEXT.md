@@ -196,6 +196,20 @@ Run. Repository code must not cross it outward; whether a credential sits inside
 Exposure records. A Harness's own sandbox is never this boundary.
 _Avoid_: container, VM, jail
 
+**Binding**:
+The durable record that lets Reprove's broker act for one Sandbox: which Pass it serves, which
+Sandbox instance it admits, which Provider origin, methods and paths it allows, and the
+placeholder that stands in for the credential. The credential itself is never on it. A request
+the broker cannot match to a live Binding is refused; a Binding whose Pass has ended admits
+nothing.
+_Avoid_: session, credential record, proxy config
+
+**Slice**:
+One durable step's share of a hosted Pass. A Pass on a hosted Worker is a single turn driven
+across several Slices on one running Sandbox; a Slice never starts a turn of its own, and a
+Slice that cannot prove where the previous one stopped ends the Pass rather than guessing.
+_Avoid_: step, chunk, segment, leg
+
 **Isolation**:
 How strongly a Sandbox is separated from its host and from the credential, as a ladder the Worker
 computes and advertises rather than declares: `microvm`, `container-rootless`, `container`. Below

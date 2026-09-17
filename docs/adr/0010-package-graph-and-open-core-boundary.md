@@ -92,6 +92,18 @@ Permitted dependencies, which are also the CI matrix:
 > names, inlined or imported, because the builder compiles that bundle with no `external` list and a
 > workflow body that reached the placement would carry its code without naming an import at all.
 
+> **Amended by [ADR 0021](0021-hosted-composition-and-brokered-sandbox-seam.md).** A ninth
+> published package, `@reprove/sandbox-vercel`, implements the Sandbox provider over
+> `@vercel/sandbox`. Its row: may depend on `@reprove/sandbox-container`, `@vercel/sandbox`,
+> `@ai-sdk/harness` (core only); must not depend on any other `@reprove/*` package or a per-Harness
+> bridge. The `worker-hosted` row gains `adapters` and `sandbox-vercel`, because it composes the
+> real hosted core from values `control-plane-workflow` hands it; it still reads no environment and
+> still may not depend on `@ai-sdk/*` directly. "`@ai-sdk/*` appears in exactly two packages"
+> below reads as "in `adapters` and the Sandbox providers". The `harness-reach` rule generalises:
+> the app reaches any of `worker-core`, `adapters`, `sandbox-container` and `sandbox-vercel` only
+> through `worker-hosted`, and `control-plane` reaches none of them. Every new edge hangs off
+> `worker-hosted`, so the deployment table is unchanged.
+
 > **Amended by [#48](https://github.com/nick-neely/reprove/issues/48).** `zod` joins the
 > `control-plane` row. It is not a new boundary so much as a boundary that was already decided
 > elsewhere and never written into this table: [ADR
