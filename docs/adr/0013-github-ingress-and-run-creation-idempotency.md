@@ -550,3 +550,53 @@ the disposition. The dispositions gain `discarded: disabled` for `enabled: false
 automatic trigger also no-ops when a Refusal already exists at the same head and base.
 `Phase0RunProfile` is replaced by the loader, a placement constant and an environment-readable
 `DeploymentPolicy` holding the two durations.
+
+## Amended by [#108](https://github.com/nick-neely/reprove/issues/108)
+
+2026-09-21. [ADR 0022](0022-manual-review-request.md) settles the manual request this ADR named and
+never built, and four statements above change as a result.
+
+### The subscription is one explicit event and two that arrive with `Checks: write`
+
+"One explicit subscription, three unconditional arrivals" is correct under the Phase 0 grant and
+stops being correct the moment the Phase 1 permission migration lands. Write-level `Checks`
+**auto-subscribes** the App to `check_run` and `check_suite`, as the
+[write-surface research](../research/github-write-surface.md) §4.6 records: three arrivals become
+five. `check_suite.requested` fires on **every push**, not only on pull request activity, and opting
+out is a repository-admin action Reprove cannot take for an installer. The handler's explicit switch
+already tolerates this; the ledger's delivery volume on a busy repository becomes push-shaped, which
+is a sizing fact rather than a correctness one. `issue_comment` and `pull_request_review_comment`
+stay unsubscribed exactly as stated.
+
+### The trigger table gains the two re-run rows
+
+| event and action | effect |
+| --- | --- |
+| `check_run.rerequested` | one manual request, per ADR 0022 §5, after ADR 0022 §3's validation |
+| `check_suite.rerequested` | routed to the operations that suite's recorded publications represent, per ADR 0022 §7 |
+| every other `check_run` / `check_suite` action, `check_suite.requested` included | inert |
+
+`check_suite.requested` is inert despite arriving on every push: a push that concerns a pull request
+already produces a `pull_request` delivery, and the `pull_request` table above is the authority.
+
+### A canonical draft does not cancel a manual draft review
+
+"Draft pull requests are skipped by default" governs creation and, in the code, also governs
+cancellation: the canonical branch ends the live Run for any locked delivery whose pull request is
+not open or is a draft, whatever action named it. ADR 0022 §8 carves exactly one exemption, because
+a manual request is the explicit request the draft skip exists to wait for:
+
+> A canonical draft cancels the live Run **unless** the Run's `trigger` is `manual`, draft was
+> observed at the Run's creation, and the Run's head equals the canonical head. Closed always
+> cancels.
+
+A manual Run started while the pull request was ready is therefore still cancelled by a later
+conversion to draft.
+
+### The companion invariant, stated because it was only implied
+
+No action name cancels by itself, and this ADR's canonical fetch is what makes that true:
+a `closed` or `converted_to_draft` delivery on a pull request that is open and ready at lock time
+returns `unchanged`, and `synchronize` supersedes only a live Run whose head **differs** from the
+canonical head. A stale `synchronize` or `converted_to_draft` at the same head therefore leaves a
+manual draft review alone. This is recorded and tested rather than inferred from the code.

@@ -234,3 +234,36 @@ invites an implementation bug in which the claim window is set from a Reviewer k
   Worker. #110 and #113 own the enforceability of `installScripts` and `egress`.
 - `CONTEXT.md` gains no noun. "Product default" is ordinary language and Refusal already covers
   the control-plane origin.
+
+## Amended by [#108](https://github.com/nick-neely/reprove/issues/108)
+
+2026-09-21. [ADR 0022](0022-manual-review-request.md) builds the manual request §4 relies on twice,
+and two sentences there were written against a shape it does not have.
+
+### A manual request does arrive as a delivery
+
+§4 justifies the Refusal record partly on the claim that "a manual request from #108 arrives with no
+delivery at all". It does not. The manual surface is GitHub's Check re-run, which arrives as an
+ordinary signed webhook delivery and passes through ADR 0013's ingress ledger unchanged, so the
+same GUID with a terminal ledger state is still a duplicate no-op and a nonterminal one still
+resumes.
+
+The conclusion is unaffected and the remaining reasons carry it on their own: the ledger row carries
+no head and no publication state, so it cannot be the durable home a Refusal's Check is published
+from and retried against.
+
+### "Always re-evaluates" is about evaluation, not about the outcome
+
+§4's "A manual request always re-evaluates and produces a fresh Refusal or a Run" overstates the
+second half. The accurate statement is:
+
+> A manual request is never suppressed by the duplicate rules above, and whenever it reaches
+> evaluation it re-evaluates the current base configuration. **What it produces** is ADR 0022 §5's
+> order and table: a visible no-op, before any configuration is loaded, on a closed pull request or
+> a stale head; a no-op where an equivalent live Run already exists at the canonical head; and
+> `discarded: disabled` where the re-evaluated configuration says `enabled: false`.
+
+The property §4 actually needs is preserved exactly: an existing Refusal at the same head and base
+never suppresses a manual request, and a manual request is what recovers from a deployment-only
+change no digest captures. Equivalence there is ADR 0022 §6's named comparison, not whole-spec
+equality.

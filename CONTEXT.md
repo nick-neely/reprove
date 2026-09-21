@@ -27,7 +27,10 @@ decisions live in [docs/adr/](docs/adr/).
 **Run**:
 One bounded attempt to review a pull request at a fixed base and head SHA, with harness,
 model, strategy and autonomy pinned at creation. A new push or a retry produces a new Run
-rather than mutating an existing one.
+rather than mutating an existing one. Its trigger is *automatic*, derived from a pull request
+event, or *manual*, a person's or an actor's explicit request through the Check's re-run, which
+is the one trigger that may review a draft pull request, because the draft skip exists to avoid
+spending nobody asked for.
 _Avoid_: Job, ReviewJob, ReviewRun, task
 
 **Review**:
