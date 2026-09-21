@@ -59,6 +59,17 @@ GitHub title and description
   -> direct the Reviewer to read it as data using Reprove-authored instructions only
 ```
 
+> **Amended by [#110](https://github.com/nick-neely/reprove/issues/110).**
+> [ADR 0024](0024-hosted-workspace-materialization-and-snapshots.md) moves the first line of that
+> flow to the control plane. The title and description are bounded at Run creation, inside
+> ADR 0013's critical section that already fetches canonical pull request state, by **one shared
+> pure function importable by both sides**. The bounding rules, the metadata this file preserves -
+> absent versus empty, original byte counts, truncation flags - and the Refusal on failure are
+> unchanged. The Worker still validates the size limits, encodes the bytes, and recomputes the
+> digest before materializing; it no longer reads pull request content itself. The digest over the
+> bounded snapshot is carried on `RunSpec` as `narrativeDigest`, and a mismatch is a Failure rather
+> than a Refusal.
+
 This is Sandbox-local materialization, not a host bind mount, which ADR 0004 prohibits. Repository
 code may read the file because it contains no secret, but neither repository code nor the Reviewer
 execution identity may alter it.

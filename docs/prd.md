@@ -1463,6 +1463,7 @@ review:                      # Repository value beats Owner value beats Reprove 
     test: pnpm test
     typecheck: pnpm typecheck
   baseConventions: true      # ADR 0009's re-admission switch
+  installScripts: deny       # best-effort install behaviour, not a security control
   harnessOptions:
     codex:
       reasoningEffort: medium # Typed option; available levels depend on the Model
@@ -1473,7 +1474,6 @@ review:                      # Repository value beats Owner value beats Reprove 
 security:                    # meet(Reprove boundary, Owner ceiling, Repository request)
   maxExposure: account
   allowExternalProvenance: false
-  installScripts: deny
   allowHostedFallback: false
   egress: []
 ```

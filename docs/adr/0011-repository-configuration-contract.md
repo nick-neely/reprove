@@ -278,6 +278,7 @@ review:
     test: pnpm test
     typecheck: pnpm typecheck
   baseConventions: true      # ADR 0009's re-admission switch; quality control, default on
+  installScripts: deny       # best-effort install behaviour, not a security control
   harnessOptions:
     codex:
       reasoningEffort: medium # low | medium | high | xhigh | max; Model-dependent
@@ -289,7 +290,6 @@ review:
 security:
   maxExposure: account            # ladder minimum
   allowExternalProvenance: false  # ADR 0004's single opt-in
-  installScripts: deny            # boolean AND
   allowHostedFallback: false      # ADR 0006; boolean AND
   egress: []                      # set intersection when an Owner ceiling exists
 ```
@@ -342,3 +342,10 @@ on a Run or the ingress ledger. §10's resolved snapshot requires `harness`, `mo
 and `deadline`, with each value's provenance (`configured` or `default`) recorded beside the
 snapshot and outside `configDigest`. `deadline` bounds Reviewer execution time, not the claim
 window. Phase 1 supplies no Owner layer and adds no unused Owner parameter.
+
+## Amended by [#110](https://github.com/nick-neely/reprove/issues/110)
+
+[ADR 0024](0024-hosted-workspace-materialization-and-snapshots.md) moves `installScripts` out of
+`security:` and into `review:`, and the example above is updated accordingly. It is best-effort
+install behaviour under `verify` rather than an enforced restriction, so it has no narrowing
+operation and does not belong in a section defined by the meet. Its default stays `deny`.

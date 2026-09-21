@@ -220,9 +220,10 @@ computes and advertises rather than declares: `microvm`, `container-rootless`, `
 _Avoid_: isolation level, hardening, security level
 
 **Workspace**:
-The repository checkout inside a Sandbox, pinned to a Run's base and head SHA. A Reviewer may
-write scratch changes to it under `verify`, and only under `fix` may any change leave it as a
-Patch. It is self-contained and sandbox-owned: the Worker
+The repository checkout inside a Sandbox, pinned to a Run's base and head SHA. The working tree is
+the Reviewer's to write under `verify`, and only under `fix` may any change leave it as a Patch; the
+pinned history the Worker trusts is held apart from it, so nothing the Reviewer writes changes what
+trusted code reads. It is self-contained and sandbox-owned: the Worker
 materializes it with every remote and host reference stripped, so it carries no authority to reach
 GitHub and nothing inside the Sandbox can fetch what the Worker did not put there.
 _Avoid_: working tree, clone, repo

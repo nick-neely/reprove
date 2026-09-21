@@ -328,3 +328,20 @@ bound. [#115](https://github.com/nick-neely/reprove/issues/115) owns only whethe
 - `CONTEXT.md` gains no noun. The **Run** entry is sharpened so that a manual trigger is a person's
   or an actor's explicit request through the Check's re-run, and so that it is the one trigger that
   may review a draft pull request. **Requester** is deliberately not a term: the actor is provenance.
+
+## Amended by [#110](https://github.com/nick-neely/reprove/issues/110)
+
+[ADR 0024](0024-hosted-workspace-materialization-and-snapshots.md) snapshots the pull request title
+and body at Run creation and carries `narrativeDigest` on `RunSpec`, so §6's `compared` list gains
+it:
+
+```text
+compared    headSha, baseSha, provenance, placement, allowHostedFallback,
+            harness, model, strategy, autonomy, configDigest, narrativeDigest,
+            and the effective security policy after the meet, where Phase 1
+            stores it outside resolvedConfig
+```
+
+It sits outside `configDigest`, so without its own entry a re-run after the description was edited
+would be equivalent to a live Run holding the old narrative and would no-op. Editing the narrative
+changes what is reviewed, which is exactly what this comparison exists to notice.

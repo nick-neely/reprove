@@ -161,3 +161,30 @@ refusing Worker did.
   arrives cumulative or incremental, which fixes how §7's distinct increments are computed.
 - [#116](https://github.com/nick-neely/reprove/issues/116) orders the handoff: the first-step
   `markExecuting` and `acceptRefusal` land no later than the first real core.
+
+## Amended by [#110](https://github.com/nick-neely/reprove/issues/110)
+
+[ADR 0024](0024-hosted-workspace-materialization-and-snapshots.md) settles when a hosted Pass
+materializes, which moves the instruction probe and re-describes what §2 called the first drive
+Slice.
+
+### The probe runs once, after materialization
+
+The single probe per Pass is unchanged, and so is the five-minute freshness bound, which must hold
+**through turn start**. What changes is where it sits: the probe runs **after materialization**,
+immediately before the final checks and authorization, in ADR 0024 §9's closure sequence. Probing
+earlier would spend a Provider turn on a Pass that materialization may yet end, and would start the
+five-minute clock before the longest phase rather than after it.
+
+Probing early is revisited only if measurement justifies it, not on the assumption that
+materialization is slow enough to matter.
+
+### "The first drive Slice" becomes the Slices before authorization
+
+§2's "the first drive Slice, which resolves capability from the probe step's measurement within the
+five-minute bound, runs core's gates, launches and materializes, and only then authorizes" names one
+Slice for work ADR 0024 §10 drives across several: materialization runs detached in the Sandbox and
+is polled across **the Slices before authorization**, with a cursor on the execution record. The
+Refusal origins are unchanged - a Refusal before the authorization line, persisted as that Slice's
+outcome and replayed like any other - and `capability_probe_stale` stays reachable wherever the
+bound lapses before turn start.

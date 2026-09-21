@@ -227,3 +227,22 @@ sliced shape is the only shipped path, and it is committed only once that resump
   persisted as that Slice's outcome and replays like any other.
 - **§6: probe Usage is attributed to the Run**, for a refused Run as for any other, as part of an
   aggregate of distinct increments with a completeness. Unknown is never zero.
+
+## Amended by [#110](https://github.com/nick-neely/reprove/issues/110)
+
+[ADR 0024](0024-hosted-workspace-materialization-and-snapshots.md) decides the bootstrap set this
+ADR deferred, and puts materialization inside the Pass's own Sandbox.
+
+- **§7: materialization is driven like the turn.** It runs detached in the Sandbox and is polled
+  across the Slices before authorization, with a cursor on the hosted-pass execution record, under
+  the same claim-and-replay rule as a drive Slice. Its time counts against the configured
+  `deadline`.
+- **§7's ambiguity rule is unchanged and covers materialization too.** A Slice that finds the
+  previous one `started` with nothing persisted ends the Pass as a Failure, revokes the Binding and
+  initiates teardown, whether the work in question was materialization or the turn. **There is no
+  automatic restart** in Phase 1; ADR 0024 §10 records why one was rejected and keeps the Sandbox
+  name as the cleanup identity for
+  [#88](https://github.com/nick-neely/reprove/issues/88).
+- **§6's probe is re-ordered.** It is still one probe per Pass with its own Binding, budget and
+  teardown, but it runs **after** materialization rather than before the first drive Slice, in
+  ADR 0024 §9's closure sequence.

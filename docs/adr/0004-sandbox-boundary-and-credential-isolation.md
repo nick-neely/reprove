@@ -202,6 +202,15 @@ boundary itself, not merely the Run.
   information are exactly what a Reviewer needs, and re-implementing them as tools would be worse
   in every respect than shipping a repository with no remote and no credential.
 
+  > **Amended by [#110](https://github.com/nick-neely/reprove/issues/110).**
+  > [ADR 0024](0024-hosted-workspace-materialization-and-snapshots.md) replaces "host-side" with
+  > **by the Worker's identity, before the Reviewer exists**. On a hosted Worker there is no host
+  > with room for a repository, so that identity is root inside the Pass's own Sandbox, in a setup
+  > phase that runs no repository code. Submodules and LFS are not resolved in Phase 1 and are
+  > recorded as Limitations instead. The self-contained copy admits **no alternates and no
+  > hardlinks**, because the Reviewer-writable copy must not reach the objects the authoritative
+  > one depends on.
+
 - **Project commands resolve from the base ref, never the head**, because configuration a pull
   request can edit is not policy. This is hygiene and **not** a security control: under `verify`
   Autonomy the Reviewer holds a shell and can run anything the head contains. The control is the

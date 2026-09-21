@@ -267,3 +267,33 @@ The property §4 actually needs is preserved exactly: an existing Refusal at the
 never suppresses a manual request, and a manual request is what recovers from a deployment-only
 change no digest captures. Equivalence there is ADR 0022 §6's named comparison, not whole-spec
 equality.
+
+## Amended by [#110](https://github.com/nick-neely/reprove/issues/110)
+
+[ADR 0024](0024-hosted-workspace-materialization-and-snapshots.md) settles the materialization §1's
+`installScripts` row was contingent on, and the answer moves the key rather than making the row
+true.
+
+### `installScripts` leaves `security:` and becomes `review.installScripts`
+
+The key is **`review.installScripts`**, default **`deny`**, and its row leaves the `security:`
+table. `deny` configures the known package managers through root-owned system-level configuration to
+skip lifecycle scripts; it is best-effort install behaviour under `verify`, which repository
+configuration, the environment or a command-line option can override without any deliberate
+disobedience. It is therefore not part of the deployment-policy meet, takes no Owner Ceiling, and
+the Check never reports that scripts were blocked.
+
+As a `review:` key it is honoured for both values, so it is not `config_unsupported` either.
+
+### Its `policy_unenforceable` contingency is deleted
+
+The `installScripts` row's "Worker Refusal when the materialization #110 fixes cannot enforce
+`deny`" is **removed**, not restated: there is no longer an enforcement claim that could fail.
+`policy_unenforceable` keeps its full meaning for **`egress`**, where the Sandbox either enforces the
+resolved set or does not, and §1's definition of the reason is otherwise unchanged. The consequence
+line "#110 and #113 own the enforceability of `installScripts` and `egress`" is narrowed to
+`egress`.
+
+Schema, defaults, examples and digest handling in code move with the key. That is implementation
+handed off by [the Phase 1 map](https://github.com/nick-neely/reprove/issues/102), not a further
+decision.
