@@ -15,13 +15,14 @@ import { scenarios } from "./fixtures.ts";
 import { renderMarkdown } from "./markdown.ts";
 import type { Finding, Scenario } from "./types.ts";
 import { variant as variantA } from "./variant-a.ts";
-import { variant as variantB } from "./variant-b.ts";
 import { variant as variantC } from "./variant-c.ts";
+import { variant as variantD } from "./variant-d.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const outDir = path.join(here, "out");
 
-const variants = [variantA, variantB, variantC];
+/** D first: it is the default, and A and C are kept only for comparison. */
+const variants = [variantD, variantA, variantC];
 
 const esc = (s: string) =>
   s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
@@ -345,7 +346,7 @@ ul.notes p { margin:0; }
 
 const JS = `
 const params = new URLSearchParams(location.search);
-let variant = (params.get('variant') || 'A').toUpperCase();
+let variant = (params.get('variant') || 'D').toUpperCase();
 let scenario = location.hash.slice(1) || ${JSON.stringify(scenarios[0].id)};
 const blurbs = ${JSON.stringify(Object.fromEntries(variants.map((v) => [v.id, v.name + " - " + v.blurb])))};
 function apply() {
@@ -371,7 +372,7 @@ document.addEventListener('click', (e) => {
   if (a) { e.preventDefault(); scenario = a.dataset.scenario; window.scrollTo(0, 0); apply(); }
 });
 window.addEventListener('keydown', (e) => {
-  if (['a','b','c'].includes(e.key.toLowerCase()) && !e.metaKey && !e.ctrlKey) {
+  if (['a','c','d'].includes(e.key.toLowerCase()) && !e.metaKey && !e.ctrlKey) {
     variant = e.key.toUpperCase(); apply();
   }
 });
@@ -408,7 +409,7 @@ const build = () => {
 <div id="layout">
   <nav id="side">
     <h1>Scenarios</h1>
-    <p>Throwaway prototype for issue #111. Press A, B or C to switch variant.</p>
+    <p>Throwaway prototype for issue #111. D is the default; press A, C or D to switch variant.</p>
     ${nav}
   </nav>
   <main id="main">

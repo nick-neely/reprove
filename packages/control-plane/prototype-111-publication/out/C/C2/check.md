@@ -1,5 +1,5 @@
 <!-- name: Reprove config -->
-<!-- external_id: reprove.config.412.9f1c4d2 -->
+<!-- external_id: reprove.config.c2a91b6f-30d4-4e17-9c88-6b0f5e2d7a43 -->
 <!-- status: completed conclusion: failure -->
 <!-- title: invalid · .reprove.yml:9 -->
 
@@ -11,7 +11,7 @@
 | key | `review.autonmy` |
 | line | 9 |
 | applied | never - this Check reads the head, it does not apply it |
-| external_id | `reprove.config.412.9f1c4d2` |
+| external_id | `reprove.config.c2a91b6f-30d4-4e17-9c88-6b0f5e2d7a43` |
 
 ## text
 

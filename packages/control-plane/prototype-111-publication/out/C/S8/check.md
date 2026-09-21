@@ -21,7 +21,7 @@ Refused before any Run was created: config_unsupported.
 
 `review.strategy` asks for something Reprove does not have. Required: review.strategy is one of: standard. Found: review.strategy: adversarial.
 
-**Next step:** Fix line 12 of `.reprove.yml` on `1a2b3c4`, the base of this pull request, then re-run this Check.
+**Next step:** Fix `review.strategy` (line 12 of `.reprove.yml`) on `1a2b3c4`, the base of this pull request, then re-run this Check.
 
 ## No Review
 

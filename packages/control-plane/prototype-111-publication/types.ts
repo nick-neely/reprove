@@ -107,7 +107,12 @@ export type Refusal = {
   actual: string | null;
   /** Control-plane Refusals only (ADR 0019 §4). */
   keyPath?: string;
-  fileLine?: number;
+  /**
+   * Optional, because `keyPath` is what the `refusal` record stores. A line
+   * number exists only where the loader still holds the parse, so the next step
+   * names it only when the fixture has one.
+   */
+  line?: number;
 };
 
 export type RunStatus =
@@ -145,6 +150,13 @@ export type CheckSubject = {
 };
 
 export type ConfigReport = {
+  /**
+   * The config validation record this Check publishes from: Owner-scoped, keyed
+   * on repository, pull request and head SHA, holding the outcome and either
+   * the resolved values or the error. It is the third subject a `publication`
+   * row can have, beside a Run and a `refusal` record.
+   */
+  recordId: string;
   valid: boolean;
   /** Resolved `review:` values that would apply if merged. */
   effective: { key: string; value: string; note?: string }[];

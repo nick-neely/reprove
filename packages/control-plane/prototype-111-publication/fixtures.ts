@@ -276,13 +276,16 @@ const S1: Scenario = {
     {
       table: "publication",
       columns: {
-        run_id: "1f0c8a5e…55d1",
+        subject: "run 1f0c8a5e…55d1",
+        external_id: "reprove.run.1f0c8a5e-7b31-4a90-9d62-0c1e4a7b55d1",
+        check_run_id: "39 114 552 010",
+        check_suite_id: "28 660 145",
         state: "published",
+        github_review_id: "2 411 903 776",
         event: "COMMENT",
         applied_threshold: '{"severity":"medium","verification":"any"}',
         reconciled_against_run_id: "null (no prior Run published on this pull request)",
         prior_reconciliation: "null",
-        github_review_id: "2 411 903 776",
       },
     },
     {
@@ -352,11 +355,14 @@ const S2: Scenario = {
     {
       table: "publication",
       columns: {
-        run_id: "2b7e91d4…7c91",
+        subject: "run 2b7e91d4…7c91",
+        external_id: "reprove.run.2b7e91d4-0c5a-4f18-8e33-a6d0b2f47c91",
+        check_run_id: "39 114 552 044",
+        check_suite_id: "28 660 201",
         state: "published",
+        github_review_id: "2 411 904 018",
         event: "COMMENT",
         applied_threshold: '{"severity":"medium","verification":"any"}',
-        github_review_id: "2 411 904 018",
       },
     },
     { table: "finding", columns: { "(no rows)": "the Run produced no Findings" } },
@@ -445,8 +451,12 @@ const S3: Scenario = {
     {
       table: "publication",
       columns: {
-        run_id: "3c41ad88…40b5",
+        subject: "run 3c41ad88…40b5",
+        external_id: "reprove.run.3c41ad88-51e2-4a77-b0d6-9e2f7a1c40b5",
+        check_run_id: "39 114 552 087",
+        check_suite_id: "28 660 233",
         state: "published",
+        github_review_id: "2 411 904 551",
         event: "COMMENT",
         applied_threshold: '{"severity":"medium","verification":"any"}',
       },
@@ -511,15 +521,21 @@ const S4: Scenario = {
     {
       table: "publication",
       columns: {
-        "(no row)":
-          "no Review is published, so nothing is submitted. Whether a `publication` row exists at all with `state=published` and `github_review_id=null` is open - see the notes.",
+        subject: "run 4d9b02fa…33aa",
+        external_id: "reprove.run.4d9b02fa-cc17-4e55-9a84-2b7c1e6d33aa",
+        check_run_id: "39 114 552 120",
+        check_suite_id: "28 660 277",
+        state: "published",
+        github_review_id: "null - the Check was published, the Review was not",
+        event: "null",
+        applied_threshold: '{"severity":"medium","verification":"any"}',
       },
     },
     { table: "finding", columns: { "(no rows)": "the Run produced no Findings" } },
   ],
   notes: [
     "`incomplete` + budget exhaustion maps to Check `timed_out` (ADR 0007's table).",
-    "Open: `publication` is one row per Run, but this Run publishes no Review. Either the row is absent - and 'one row per Run' is really 'at most one' - or it is written with a null `github_review_id` to record the decision not to publish.",
+    "Settled in round 2: `publication` is one row per **published Check**, not per Review. The row exists, carries the Check Run id, the check suite id and the `external_id`, and leaves `github_review_id` null. That is what makes a Check with no Review retryable and routable in a suite re-run.",
   ],
 };
 
@@ -567,7 +583,18 @@ const S5: Scenario = {
     },
   ],
   state: [
-    { table: "publication", columns: { "(no row)": "no Review; the Check is the only publication" } },
+    {
+      table: "publication",
+      columns: {
+        subject: "run 5e3f77c1…b7e4",
+        external_id: "reprove.run.5e3f77c1-9a40-4b12-8d66-fe01c9a2b7e4",
+        check_run_id: "39 114 552 166",
+        check_suite_id: "28 660 302",
+        state: "published",
+        github_review_id: "null - a Run that fails publishes no Review",
+        event: "null",
+      },
+    },
     { table: "finding", columns: { "(no rows)": "no Result was accepted" } },
   ],
   notes: [
@@ -625,7 +652,18 @@ const S6: Scenario = {
     },
   ],
   state: [
-    { table: "publication", columns: { "(no row)": "no Review; the Refusal Check is the publication" } },
+    {
+      table: "publication",
+      columns: {
+        subject: "run 6a0d4b93…0f26",
+        external_id: "reprove.run.6a0d4b93-2fe8-41c7-9b55-73c8ad1e0f26",
+        check_run_id: "39 114 552 209",
+        check_suite_id: "28 660 344",
+        state: "published",
+        github_review_id: "null",
+        event: "null",
+      },
+    },
     { table: "finding", columns: { "(no rows)": "no Result" } },
     {
       table: "run",
@@ -682,7 +720,18 @@ const S7: Scenario = {
     },
   ],
   state: [
-    { table: "publication", columns: { "(no row)": "no Review" } },
+    {
+      table: "publication",
+      columns: {
+        subject: "run 7c88ef20…136b",
+        external_id: "reprove.run.7c88ef20-5a63-4d09-91ba-c4e7f0d2136b",
+        check_run_id: "39 114 552 251",
+        check_suite_id: "28 660 388",
+        state: "published",
+        github_review_id: "null",
+        event: "null",
+      },
+    },
     {
       table: "run",
       columns: {
@@ -713,7 +762,7 @@ const S8: Scenario = {
       required: "review.strategy is one of: standard",
       actual: "review.strategy: adversarial",
       keyPath: "review.strategy",
-      fileLine: 12,
+      line: 12,
     },
   },
   findings: [],
@@ -740,15 +789,24 @@ const S8: Scenario = {
         head_sha: short(PR.headSha),
         base_sha: `${short(PR.baseSha)} (the ref the file was read from)`,
         trigger: "automatic",
-        check_run_id: "39 114 552 001",
-        check_suite_id: "28 660 145",
       },
     },
-    { table: "publication", columns: { "(no row)": "publication is keyed on run_id; a Refusal has no Run" } },
+    {
+      table: "publication",
+      columns: {
+        subject: "refusal 8f2a61d0…c247",
+        external_id: "reprove.refusal.8f2a61d0-4c8b-49e3-a71f-05b3d9e8c247",
+        check_run_id: "39 114 552 001",
+        check_suite_id: "28 660 145",
+        state: "published",
+        github_review_id: "null - a Refusal has no Run and publishes no Review",
+        event: "null",
+      },
+    },
   ],
   notes: [
     "The Refusal Check's `external_id` names a `refusal` record, not a Run. A handle that could mean either is not a handle (ADR 0022 §3).",
-    "The line number comes from the parse of `.reprove.yml` at the base SHA. `keyPath` is stored; the line is not, and would have to be recomputed at publish time.",
+    "`keyPath` is what the record stores; `line` is optional and only present while the loader still holds the parse. The next step always names the key and names the line only when there is one.",
   ],
 };
 
@@ -876,8 +934,12 @@ const S9: Scenario = {
     {
       table: "publication",
       columns: {
-        run_id: "9a15c7e3…8f22",
+        subject: "run 9a15c7e3…8f22",
+        external_id: "reprove.run.9a15c7e3-6d02-4f8b-90a4-1c7e5b3d8f22",
+        check_run_id: "39 114 553 004",
+        check_suite_id: "28 660 902",
         state: "published",
+        github_review_id: "2 412 110 441",
         event: "COMMENT",
         reconciled_against_run_id: "1f0c8a5e…55d1",
         prior_reconciliation:
@@ -895,7 +957,7 @@ const S9: Scenario = {
   notes: [
     "`anchor_changed` and `not_reproduced` are internal and may never become user-facing prose (ADR 0007). No variant claims either Finding was fixed; the state panel is the only place they appear.",
     "The bucket key is `path + normalized anchored-source hash`. Severity is excluded from it, so a re-rated Finding still matches.",
-    "Open: a recurring Finding's Comment is suppressed, but the Finding is still real. Whether the Review body links the prior Comment, restates the Finding, or says nothing is the whole question A, B and C answer differently.",
+    "Settled in round 2: a recurring Finding keeps its index row, marked `still open from the previous review` and linking the prior Comment. Earlier Findings that are no longer reported get a count line and a collapsed list, with no claim either way about why.",
   ],
 };
 
@@ -965,8 +1027,12 @@ const S10: Scenario = {
     {
       table: "publication",
       columns: {
-        "(unchanged)":
-          "no row is written. The Check Run is updated in place; `github_review_id` and `submitted_at` keep their values.",
+        subject: "run 1f0c8a5e…55d1 (the existing row, unchanged)",
+        external_id: "reprove.run.1f0c8a5e-7b31-4a90-9d62-0c1e4a7b55d1",
+        check_run_id: "39 114 552 010 - the same Check Run, updated in place",
+        check_suite_id: "28 660 145",
+        github_review_id: "2 411 903 776, unchanged",
+        note: "no new row. A no-op re-run republishes the Check output and touches nothing else.",
       },
     },
     {
@@ -981,7 +1047,7 @@ const S10: Scenario = {
   notes: [
     "A rerequest resets the check *suite* to `queued` and clears its conclusion; the Check Run itself is not updated by GitHub. Whether re-asserting the old conclusion settles the suite is unverified (ADR 0022 §5) and is what this ticket has to test against real GitHub.",
     "The third case is the only one where a Run is live. The equivalent live Run finishes on its own and a re-run after it ends creates a fresh Run.",
-    "Open: none of these three changes the conclusion, so the Check's colour is identical to the one that was already there. The only signal is the summary text, which is collapsed by default in GitHub's Checks list.",
+    "Settled in round 2: the conclusion is re-asserted unchanged, so the colour cannot carry the no-op. The Check **title** carries it instead - `Re-run ignored: head is stale` - because the title is the one field GitHub shows beside the conclusion in the collapsed Checks list.",
   ],
 };
 
@@ -1023,8 +1089,11 @@ const S11: Scenario = {
     {
       table: "publication",
       columns: {
-        run_id: "c0ffee11…ccdd",
-        state: "pending",
+        subject: "run c0ffee11…ccdd",
+        external_id: "reprove.run.c0ffee11-2233-4455-6677-8899aabbccdd",
+        check_run_id: "39 114 554 771 - written as soon as GitHub answers",
+        check_suite_id: "28 661 010",
+        state: "published (the Check) / pending (the Review)",
         github_review_id: "null",
         attempts: "[]",
       },
@@ -1038,7 +1107,7 @@ const S11: Scenario = {
     },
   ],
   notes: [
-    "Open: `queued` and `executing` are both Run statuses, but GitHub's Check has `queued` and `in_progress`. The Run status `claimed` has no Check status of its own and is folded into one of the two.",
+    "Settled in round 2: `claimed` renders as Check status `queued`. A claimed Run has an owner but has not begun, and `in_progress` is reserved for `executing`, which the hosted pass writes as its own first step.",
     "A Check published at creation is what makes the re-run button exist. Without it a pull request has no manual surface at all (ADR 0022 §1).",
   ],
 };
@@ -1056,6 +1125,7 @@ const C1: Scenario = {
   review: null,
   noReviewBecause: "A config Check publishes no Review; it is a Check and nothing else.",
   config: {
+    recordId: "c1d7e402-88a6-4f31-b05c-7a2e9d641f30",
     valid: true,
     filePath: ".reprove.yml",
     effective: [
@@ -1075,7 +1145,7 @@ const C1: Scenario = {
         key: "security.maxExposure",
         requested: "account",
         effective: "scoped",
-        by: "the Reprove boundary for hosted placement, which never puts an account credential in a Sandbox",
+        by: "Reprove boundary",
       },
     ],
   },
@@ -1083,22 +1153,41 @@ const C1: Scenario = {
     {
       name: "Reprove config",
       kind: "config",
-      externalId: "reprove.config.412.9f1c4d2",
+      externalId: "reprove.config.c1d7e402-88a6-4f31-b05c-7a2e9d641f30",
       status: "completed",
       conclusion: "success",
     },
   ],
   state: [
     {
-      table: "(none)",
+      table: "config_validation",
       columns: {
-        note: "a valid head configuration creates no Run and no `refusal` row. There is no record for this Check to hang publication state on - see the notes.",
+        id: "c1d7e402…1f30",
+        owner_id: "Owner-scoped and RLS-covered, like every tenant row",
+        repository_id: "nick-neely/reprove",
+        pull_request_number: "412",
+        head_sha: short(PR.headSha),
+        outcome: "valid",
+        resolved: "the ten effective values, plus the one narrowing",
+        error: "null",
+      },
+    },
+    {
+      table: "publication",
+      columns: {
+        subject: "config_validation c1d7e402…1f30",
+        external_id: "reprove.config.c1d7e402-88a6-4f31-b05c-7a2e9d641f30",
+        check_run_id: "39 114 552 500",
+        check_suite_id: "28 660 145 - the same suite as the review Check at this head",
+        state: "published",
+        github_review_id: "null - a config Check publishes no Review",
+        event: "null",
       },
     },
   ],
   notes: [
-    "Open: ADR 0022 §3 requires every published Check's `external_id` to name a Run or a Refusal record, and this Check names neither. The fixture invents `reprove.config.<pr>.<headSha>`, which is a derived key rather than a record reference, and there is nowhere to store the Check Run id and the suite id that the same ADR also requires.",
-    "Open: ADR 0019 says Phase 1 supplies no Owner layer, so nothing can narrow a `security:` value through a ceiling. The narrowing shown here is the Reprove boundary, which is the only term in the meet that Phase 1 has.",
+    "Settled in round 2: the config Check publishes from a **config validation record**, the third subject a `publication` row can have beside a Run and a `refusal`. That gives it the `external_id`, the Check Run id and the suite id ADR 0022 §3 requires, and something for durable publication retry to target.",
+    "ADR 0019 gives Phase 1 no Owner layer, so the only term left in the meet is the Reprove boundary. The narrowing is labelled as such rather than implying a ceiling that does not exist.",
     "This Check runs even when `enabled: false`, when no Worker is online, and when the Run is Refused for an unrelated reason.",
   ],
 };
@@ -1116,6 +1205,7 @@ const C2: Scenario = {
   review: null,
   noReviewBecause: "A config Check publishes no Review.",
   config: {
+    recordId: "c2a91b6f-30d4-4e17-9c88-6b0f5e2d7a43",
     valid: false,
     filePath: ".reprove.yml",
     effective: [],
@@ -1131,22 +1221,47 @@ const C2: Scenario = {
     {
       name: "Reprove config",
       kind: "config",
-      externalId: "reprove.config.412.9f1c4d2",
+      externalId: "reprove.config.c2a91b6f-30d4-4e17-9c88-6b0f5e2d7a43",
       status: "completed",
       conclusion: "failure",
     },
   ],
   state: [
     {
-      table: "(none)",
+      table: "config_validation",
       columns: {
-        note: "the head file is prospective data and is never applied, so an invalid head produces no `refusal` row. The `refusal` table records a base-ref Refusal (S8), which is a different thing.",
+        id: "c2a91b6f…7a43",
+        repository_id: "nick-neely/reprove",
+        pull_request_number: "412",
+        head_sha: short(PR.headSha),
+        outcome: "invalid",
+        resolved: "null",
+        error: '{"keyPath":"review.autonmy","line":9,"message":"unknown key"}',
+      },
+    },
+    {
+      table: "publication",
+      columns: {
+        subject: "config_validation c2a91b6f…7a43",
+        external_id: "reprove.config.c2a91b6f-30d4-4e17-9c88-6b0f5e2d7a43",
+        check_run_id: "39 114 552 512",
+        check_suite_id: "28 660 145",
+        state: "published",
+        github_review_id: "null",
+        event: "null",
+      },
+    },
+    {
+      table: "refusal",
+      columns: {
+        "(no row)":
+          "the head file is prospective data and is never applied, so an invalid head is not a Refusal. `refusal` records a base-ref Refusal (S8), which is a different thing.",
       },
     },
   ],
   notes: [
     "The review Check for the same pull request can be green at the same time, and that is correct: mixing them would let a broken head file report failure for a Run that succeeded (ADR 0011 §8).",
-    "Open: nothing durable records this failure, so a failed publication of this Check has nothing to retry against, while ADR 0022 §1 requires durable publication retry to recover with no further pull request event.",
+    "The config validation record is what makes a failed publication of this Check recoverable with no further pull request event, which ADR 0022 §1 requires.",
   ],
 };
 

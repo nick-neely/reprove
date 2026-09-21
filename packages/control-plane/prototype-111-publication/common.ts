@@ -118,7 +118,7 @@ export const reasonAndNextStep = (
     return {
       headline: `Refused before any Run was created: ${r.reason}`,
       reason: `\`${r.keyPath}\` asks for something Reprove does not have. Required: ${r.required}. Found: ${r.actual}.`,
-      nextStep: `Fix line ${r.fileLine} of \`.reprove.yml\` on \`${shortSha(s.pullRequest.baseSha)}\`, the base of this pull request, then re-run this Check.`,
+      nextStep: `Fix \`${r.keyPath}\`${r.line ? ` (line ${r.line} of \`.reprove.yml\`)` : " in `.reprove.yml`"} on \`${shortSha(s.pullRequest.baseSha)}\`, the base of this pull request, then re-run this Check.`,
     };
   }
   const run = s.run;

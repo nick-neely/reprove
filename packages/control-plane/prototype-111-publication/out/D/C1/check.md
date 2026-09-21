@@ -1,17 +1,13 @@
 <!-- name: Reprove config -->
 <!-- external_id: reprove.config.c1d7e402-88a6-4f31-b05c-7a2e9d641f30 -->
 <!-- status: completed conclusion: success -->
-<!-- title: valid · 10 keys, 1 narrowed -->
+<!-- title: Valid: 10 keys, 1 narrowed -->
 
 ## summary
 
-| | |
-| --- | --- |
-| file | `.reprove.yml` at `9f1c4d2` |
-| verdict | valid |
-| narrowed | 1 |
-| applied | never - this reports what would apply if merged |
-| external_id | `reprove.config.c1d7e402-88a6-4f31-b05c-7a2e9d641f30` |
+**`.reprove.yml` would load.** This reports what would apply if merged, and is never applied to this pull request.
+
+**`security.maxExposure`:** requested `account`, effective `scoped` (Reprove boundary).
 
 ## text
 
@@ -35,3 +31,5 @@
 | key | requested | effective | narrowed by |
 | --- | --- | --- | --- |
 | `security.maxExposure` | `account` | `scoped` | Reprove boundary |
+
+<sub>`external_id: reprove.config.c1d7e402-88a6-4f31-b05c-7a2e9d641f30`</sub>

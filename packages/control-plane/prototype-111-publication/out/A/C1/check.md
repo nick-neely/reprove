@@ -1,5 +1,5 @@
 <!-- name: Reprove config -->
-<!-- external_id: reprove.config.412.9f1c4d2 -->
+<!-- external_id: reprove.config.c1d7e402-88a6-4f31-b05c-7a2e9d641f30 -->
 <!-- status: completed conclusion: success -->
 <!-- title: Valid; this is what would apply -->
 
@@ -22,7 +22,7 @@
 
 | narrowed | requested | effective | by |
 | --- | --- | --- | --- |
-| `security.maxExposure` | requested `account` | **effective `scoped`** | the Reprove boundary for hosted placement, which never puts an account credential in a Sandbox |
+| `security.maxExposure` | requested `account` | **effective `scoped`** | Reprove boundary |
 
 Not applied to this pull request: a pull request cannot change the configuration used to review itself.
 
