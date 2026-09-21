@@ -20,6 +20,10 @@ export default defineConfig({
     ...(core.ignorePatterns ?? []),
     // Throwaway prototype scratch, deliberately outside the workspace.
     "prototypes/**",
+    // A throwaway prototype that has to sit inside a workspace directory so the
+    // branch that answers issue #111 keeps it beside the code it renders. It is
+    // deleted with the branch and never type-checked or shipped.
+    "packages/*/prototype-*/**",
     // Adversarial-gate fixtures are content-addressed: `corpusVersion` digests
     // their exact bytes, so neither the linter nor the formatter may touch them.
     "tools/gate/corpus/**",

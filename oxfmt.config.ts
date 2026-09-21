@@ -6,6 +6,7 @@ export default defineConfig({
   ignorePatterns: [
     ...(ultracite.ignorePatterns ?? []),
     "prototypes/**",
+    "packages/*/prototype-*/**",
     // Adversarial-gate fixtures are content-addressed: `corpusVersion` digests
     // their exact bytes, so neither the linter nor the formatter may touch them.
     "tools/gate/corpus/**",

@@ -13,6 +13,7 @@
     "verify:test": "vitest run && pnpm --filter @reprove/control-plane-workflow run test",
     "verify:workflow": "node tools/verify-workflow-build.mjs",
     "verify:lint": "ultracite check .",
+    "proto:111": "node packages/control-plane/prototype-111-publication/build.ts",
     "db:up": "docker compose -f tools/db/compose.yaml up -d --wait",
     "db:down": "docker compose -f tools/db/compose.yaml down -v",
     "typecheck": "tsc --noEmit -p tsconfig.json"
