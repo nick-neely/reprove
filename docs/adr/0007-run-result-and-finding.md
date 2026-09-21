@@ -310,3 +310,14 @@ it. The trusted layer's own reasons override it when both apply. The Check table
 **`failure`**. The Result's answer gains `unfinished` and `limitations`. A Reviewer
 still running at the hard deadline produces no Result and is a Failure with `deadline_reached` as
 its detail; `deadline_reached` is not a `stoppedBy` value in Phase 1.
+
+## Amended by [#95](https://github.com/nick-neely/reprove/issues/95)
+
+The `unscheduled` row's "`claimableUntil` expired; never dispatched" is too narrow.
+[ADR 0023](0023-worker-refusal-over-a-dispatched-run.md) defines `unscheduled` as: scheduling ended
+without an accepted execution, because the claim window expired or because the control plane
+terminated scheduling after an accepted Refusal. A refused hosted Run was dispatched and still ends
+here, told apart by its non-empty accumulated Refusals. A Run whose execution owner went silent is
+not `unscheduled`; it stays `failed(worker_lost)`. "Nothing executed" in the paragraph on Failure
+vocabulary reads as "execution was never authorized": a refused Run may have spent a probe, and its
+Usage is reported.

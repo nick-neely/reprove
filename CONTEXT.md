@@ -245,20 +245,22 @@ nobody pays.
 _Avoid_: cost, spend, tokens
 
 **Refusal**:
-A decision not to execute, made before execution begins, because a requirement was not met. It
-arises in the control plane - configuration that is invalid or cannot be resolved - or in a
+A decision not to execute, made before execution is authorized, because a requirement was not met.
+It arises in the control plane - configuration that is invalid or cannot be resolved - or in a
 Worker, from a missing hard Sandbox property, an ineligible combination of Exposure, Isolation and
-Provenance, or a capability probe too stale to trust. It names the requirement that failed rather
-than degrading quietly, and it is always visible on a Check rather than a log line; the Worker
-protocol message is one way a Refusal originates, not what the word means. Narrowing a request to
-an Owner's ceiling is not a Refusal, because it moves toward the safe position rather than away
-from it.
+Provenance, or a capability probe too stale to trust. A Worker's Refusal follows dispatch and may
+have cost Usage to reach; what it never follows is authorization. It names the requirement that
+failed rather than degrading quietly, and it is always visible on a Check rather than a log line;
+the Worker protocol message is one way a Refusal originates, not what the word means. Narrowing a
+request to an Owner's ceiling is not a Refusal, because it moves toward the safe position rather
+than away from it.
 _Avoid_: rejection, denial, error
 
 **Failure**:
-The outcome of a Run or Pass that began executing and could not produce an acceptable Result. It is
-distinct from a Refusal, which happens before dispatch, and from a Review carrying no Findings,
-which is a success.
+The outcome of a Run or Pass that could not produce an acceptable Result after execution was
+authorized, or whose Worker stopped answering or could not be shown to have stopped. It is distinct
+from a Refusal, which is a decision made before execution is authorized, and from a Review carrying
+no Findings, which is a success.
 _Avoid_: error, crash, abort
 
 **Attestation**:

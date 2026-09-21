@@ -209,3 +209,21 @@ sliced shape is the only shipped path, and it is committed only once that resump
   decides the bootstrap set; [Replace the Phase 0 windows with measured
   deadlines](https://github.com/nick-neely/reprove/issues/115) receives the platform timeout
   formula and the per-request ceiling as inputs.
+
+## Amended by [#95](https://github.com/nick-neely/reprove/issues/95)
+
+[ADR 0023](0023-worker-refusal-over-a-dispatched-run.md) changes four things here.
+
+- **§8 contradicted §6 and is corrected.** The probe is its own step before the first drive Slice
+  (§6). What happens in the first drive Slice is capability resolution **from the probe step's
+  measurement** within the five-minute bound, core's gates, authorization and turn start, not the
+  probe itself.
+- **§5's `executing` requirement is met by ordering.** The pass records `executing` as its first
+  step, before the probe step, so probe admission never races `markExecuting`.
+- **§6 and §7: the probe step has a durable outcome.** The execution record gains a probe-step row
+  under the Slice claim-and-replay rule, holding the verdict, any Refusal, and the probe's Usage or
+  an explicit `unknown`. A probe found claimed with no durable outcome is §7's ambiguous case and
+  fails closed; a second paid probe is never run silently. A Refusal from the first drive Slice is
+  persisted as that Slice's outcome and replays like any other.
+- **§6: probe Usage is attributed to the Run**, for a refused Run as for any other, as part of an
+  aggregate of distinct increments with a completeness. Unknown is never zero.

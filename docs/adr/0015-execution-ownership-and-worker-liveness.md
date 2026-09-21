@@ -91,6 +91,16 @@ A Run abandoned at `claimed` still ends as `failed(worker_lost)`, not `unschedul
 Refusal. Once a claim succeeded, scheduling succeeded and execution responsibility exists, even if
 the Reviewer never started. `lostFrom: claimed | executing` records which.
 
+> **Amended by [#95](https://github.com/nick-neely/reprove/issues/95):** an accepted Refusal is the
+> one ending that returns a claimed Run to scheduling's vocabulary, because the Worker answered and
+> was not lost. [ADR 0023](0023-worker-refusal-over-a-dispatched-run.md) has the hosted pass record
+> `executing` as its own first step, so hosted dispatch is `claimRun` then `startPass` and the
+> `unrecorded` outcome is gone; `markExecuting` is idempotent only for the same token and Workflow
+> run id on a Run still live and eligible. For hosted execution `acceptRefusal` accepts from
+> `executing` alone and writes `unscheduled` in the same transaction that records the Refusal,
+> with no automatic re-offer. The `claimed` to `queued` return in the consequences below stays as
+> specified for self-hosted Workers, undecided until Phase 3.
+
 ## One transition, three detectors
 
 ```
