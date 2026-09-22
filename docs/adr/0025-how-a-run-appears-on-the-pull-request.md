@@ -235,22 +235,54 @@ them:
 - **The config validation record and its `publication` row** do not exist, and `publication` is still
   one row per Run with a non-nullable subject and no Check or suite identity (§5).
 
-## 9. Pending observation
+## 9. What the live App observed, and what it changes
 
-The prototype is markdown, so it cannot answer what only a live App can. These are the facts this
-ADR still needs, to be filled in from a scratch GitHub App before the ticket closes, and each is
-inherited directly from ADR 0022's consequences:
+The prototype is markdown, so ADR 0022's re-run half was verified on 2026-09-22 against a scratch
+App (`Checks: write`, `Pull requests: write`, `Contents: write`) installed on
+[`nick-neely/reprove-fixture`](https://github.com/nick-neely/reprove-fixture), with every delivery
+captured by the
+[live harness](https://github.com/nick-neely/reprove/tree/prototype/111-publication/packages/control-plane/prototype-111-publication/live)
+and cross-checked against GitHub's own `GET /app/hook/deliveries` log. Eleven pull requests, ten
+staged re-run situations, one human clicking.
 
-- whether re-asserting a conclusion actually settles the check suite, including while another Check in
-  that suite is still running;
-- how two Checks of the same name at one SHA display, and whether an App's Checks at one head share
-  one suite;
-- that "Re-run all checks" does deliver `check_suite.rerequested`, which the research only inferred;
-- config-only versus combined suite routing, per ADR 0022 §7;
-- two pull requests sharing one SHA, each represented and each getting at most one request.
+**Observed:**
 
-None of them changes a decision above; each of them can change an implementation detail, and none may
-be assumed.
+1. **The Re-run button on a Check's own page delivers `check_suite.rerequested`, not
+   `check_run.rerequested`.** Nine of ten clicks arrived as suite events, and "Re-run all checks"
+   on the pull request's Checks tab is the same event. The research inferred the opposite mapping.
+   A single `check_run.rerequested` arrived once, for the failed Check, a minute after its suite
+   event; a failed suite exposes a second, per-Check affordance. Both events must be handled, and
+   the suite event is the common path.
+2. **A rerequest resets the suite to `queued` while every Check Run in it stays `completed`.**
+   The rerequested payload itself still reports the suite as `completed`; only a subsequent read
+   shows `queued`. Re-asserting the same conclusion on **one** Check Run settles the suite at once,
+   including a two-Check suite where only one was re-asserted.
+3. **No Re-run affordance exists while any Check in the suite is `in_progress`.** GitHub gates the
+   button on suite completion, so ADR 0022 §6's "equivalent Run already live" no-op cannot be
+   reached from the UI while Reprove's own Check is still running at that head. It remains reachable
+   through a `pull_request` trigger and stays specified, but it is not a button anyone can press.
+4. **An App's Checks at one head share one suite**, `Reprove` and `Reprove config` alike, and the
+   suite's conclusion follows the **newest Check Run per name**: with a `failure` and a later
+   `success` both named `Reprove` at one SHA, re-asserting only the newer one settled the suite
+   `success`, and the Checks tab shows only the newer attempt.
+5. **Two pull requests at one SHA share one suite that names only the pull request open when the
+   suite was created.** `pull_requests[]` listed `[8]` and never gained `9`. A closed pull request
+   is dropped from the payload entirely (`[]`), and a stale head reports the pull request's
+   *current* head beside the suite's old `head_sha`. ADR 0022 §3's rule to never read
+   `pull_requests[]` is confirmed rather than merely cautious.
+6. **Stale head, closed pull request, and config-only suites re-run identically** and each settles
+   on a re-asserted conclusion. A config-only suite delivers the same `check_suite.rerequested` as a
+   combined one; routing by the suite's recorded publications (ADR 0022 §7) is the only thing that
+   tells them apart.
+7. **The relay lost one delivery that GitHub logged as delivered with status 200.** That was the
+   smee tunnel, not GitHub; it is why ADR 0022 §1's durable retry and ADR 0013's ledger are not
+   optional even for a manual surface.
+
+**Changed by it:** the equivalence no-op of §4 is reached only through automatic triggers, so its
+Check title is worded for that reader; `check_suite.rerequested` handling is the primary manual path
+and `check_run.rerequested` the secondary; and the pull request a re-run applies to is always
+recovered from the referenced record, with the payload's list ignored. No decision in §1 through §8
+moves.
 
 ## Consequences
 
@@ -268,7 +300,7 @@ be assumed.
 - **ADR 0019's handoffs are discharged**: §4's "Check publication identity and state" is §5's row,
   §6's "how it publishes" is §5 and §6, and §7's Usage and estimated cost are two rows of §1's facts
   table.
-- **ADR 0022's publication half is discharged except for §9's list.** `external_id` and the stored
+- **ADR 0022's publication half is discharged, and its re-run half is observed (§9).** `external_id` and the stored
   suite id are on every publication, Refusal and config Checks included; the three no-op re-run shapes
   have a surface; durable publication retry has one target per Check.
 - **ADR 0023 §7's aggregate Usage and its completeness** are rendered on the Check for a refused Run,
