@@ -181,8 +181,10 @@ published rather than when a Finding is made, so changing it never requires a ne
 ADR 0008's publication disposition gains a value:
 
 ```
-inline_comment | review_body | suppressed_threshold | suppressed_dedupe | suppressed_ignore
+inline_comment | check_annotation | suppressed_threshold | suppressed_dedupe | suppressed_ignore
 ```
+
+`review_body` was renamed `check_annotation` by [ADR 0025](0025-how-a-run-appears-on-the-pull-request.md) §2.
 
 Where both would suppress, **`suppressed_ignore` wins** as the more specific explanation.
 

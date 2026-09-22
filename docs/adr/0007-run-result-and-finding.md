@@ -188,7 +188,7 @@ discriminator can be added; title similarity must not become foundational.
 The residual case - defect A on Run 1, defect B on Run 2, one anchor, nothing changed - has a
 bounded blast radius, and this is why the framing matters: **dedupe suppresses a `Comment`,
 never a `Finding`.** The current Finding still exists, is still in Run history, and is still
-represented in the Review summary and counts.
+represented in the Review index and counts.
 
 **The prior side is internal and never claims a fix.** Two values:
 
@@ -216,10 +216,12 @@ untouched callee - exactly the class of defect a whole-repo reviewer sees and a 
 reviewer structurally cannot. GitHub cannot line-anchor a review comment on a file the diff
 never touched.
 
-Such a Finding **renders as a structured entry in the Review body** under its own heading,
-carrying `path:line`, Severity and Verification, and passes through the same Threshold and
-dedupe rules as any other Finding. It is kept clear of the prose summary so it stays
-actionable rather than buried narrative.
+Such a Finding **is published as a Check Run annotation at its exact line**, and is listed in
+the Review's index as an "outside the diff" row linking to the Check, carrying `path:line`,
+Severity and Verification. It passes through the same Threshold and dedupe rules as any other
+Finding. This amends the original decision, which rendered it as a structured entry in the
+Review body: [ADR 0025](0025-how-a-run-appears-on-the-pull-request.md) §2 moved it once the
+GitHub write-surface research showed annotations anchor anywhere a review Comment cannot.
 
 It is **not** a `Comment`, because `CONTEXT.md` defines a Comment as the line-anchored GitHub
 projection of a Finding.
@@ -286,7 +288,8 @@ concern dictate physical storage. And the non-isomorphism is not a matter of tas
 ## Consequences
 
 - `CONTEXT.md` gains the complete/partial distinction on `Result`, and an explicit statement
-  on `Comment` that a Finding GitHub cannot line-anchor is not projected as one.
+  on `Comment` that a Finding GitHub cannot line-anchor is not projected as one (it is a Check
+  Run annotation, per [ADR 0025](0025-how-a-run-appears-on-the-pull-request.md) §2).
 - **PRD §11, §17, §27, §28, §29 and §32 are resolved**, including §27's and §32's
   `[Undecided]` markers and §28's `PARTIALLY_VERIFIED`, which ADR 0002 had already replaced.
   PRD §36 loses `ReviewArtifact`. Edits land on

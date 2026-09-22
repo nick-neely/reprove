@@ -83,8 +83,9 @@ _Avoid_: verificationStatus, confidence, partially verified
 The line-anchored artifact GitHub renders. It is a projection of at most one Finding, and a
 Finding may be suppressed by thresholds or by dedupe against an earlier Run - dedupe suppresses
 a Comment, never a Finding. Line-anchoring is what the word means, so a Finding at a location
-GitHub cannot anchor - one outside the diff - is not projected as a Comment at all; it renders
-structurally in the Review body under the same thresholds.
+GitHub cannot anchor - one outside the diff - is not projected as a Comment at all; it is
+published as a Check Run annotation at its line and listed in the Review's index, under the same
+thresholds.
 _Avoid_: annotation, note
 
 **Reconciliation**:
