@@ -1,0 +1,11 @@
+{
+  "name": "reprove-proto-111-live",
+  "private": true,
+  "type": "module",
+  "description": "Throwaway live-App harness for issue #111. Outside the pnpm workspace on purpose (pnpm-workspace.yaml globs packages/* only), so these dependencies never join the ADR 0010 graph.",
+  "devDependencies": {
+    "@octokit/auth-app": "^8.1.1",
+    "@octokit/rest": "^22.0.0",
+    "smee-client": "^4.3.1"
+  }
+}
