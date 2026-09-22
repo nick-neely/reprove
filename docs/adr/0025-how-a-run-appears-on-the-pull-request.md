@@ -250,9 +250,10 @@ staged re-run situations, one human clicking.
 1. **The Re-run button on a Check's own page delivers `check_suite.rerequested`, not
    `check_run.rerequested`.** Nine of ten clicks arrived as suite events, and "Re-run all checks"
    on the pull request's Checks tab is the same event. The research inferred the opposite mapping.
-   A single `check_run.rerequested` arrived once, for the failed Check, a minute after its suite
-   event; a failed suite exposes a second, per-Check affordance. Both events must be handled, and
-   the suite event is the common path.
+   A single `check_run.rerequested` arrived once, from the per-row "Re-run" link GitHub shows
+   beside a **failed** Check only; a successful Check has no per-row link, and the header's
+   "Re-run checks" dropdown ("Re-run failed checks", "Re-run all checks") sends the suite event.
+   Both events must be handled, and the suite event is the common path.
 2. **A rerequest resets the suite to `queued` while every Check Run in it stays `completed`.**
    The rerequested payload itself still reports the suite as `completed`; only a subsequent read
    shows `queued`. Re-asserting the same conclusion on **one** Check Run settles the suite at once,
@@ -264,7 +265,8 @@ staged re-run situations, one human clicking.
 4. **An App's Checks at one head share one suite**, `Reprove` and `Reprove config` alike, and the
    suite's conclusion follows the **newest Check Run per name**: with a `failure` and a later
    `success` both named `Reprove` at one SHA, re-asserting only the newer one settled the suite
-   `success`, and the Checks tab shows only the newer attempt.
+   `success`, and the Checks tab shows only the newer attempt; the older one is reachable nowhere
+   on the surface, only by its id through the API.
 5. **Two pull requests at one SHA share one suite that names only the pull request open when the
    suite was created.** `pull_requests[]` listed `[8]` and never gained `9`. A closed pull request
    is dropped from the payload entirely (`[]`), and a stale head reports the pull request's
