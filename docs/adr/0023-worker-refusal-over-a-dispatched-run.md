@@ -188,3 +188,9 @@ is polled across **the Slices before authorization**, with a cursor on the execu
 Refusal origins are unchanged - a Refusal before the authorization line, persisted as that Slice's
 outcome and replayed like any other - and `capability_probe_stale` stays reachable wherever the
 bound lapses before turn start.
+
+## Amended by [#88](https://github.com/nick-neely/reprove/issues/88)
+
+§7 holds across teardown. When the lifecycle reaps a terminal Run's Sandboxes ([ADR 0028](0028-reaping-a-hosted-pass-sandbox.md)), any Usage the
+Pass had not reported stays `incomplete` on the aggregate, never zero. Stopping a Sandbox writes no
+Usage increment.

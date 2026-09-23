@@ -229,3 +229,10 @@ enforce proxy egress. There is no local exception.
 - ADR 0019's `egress` row is resolved by §5 and §8.
 - The Run gains an aggregate egress-denial count by bounded reason.
 - `CONTEXT.md` gains no noun. "Effective egress policy" is ordinary language.
+
+## Amended by [#88](https://github.com/nick-neely/reprove/issues/88)
+
+§3 gains a liveness rule ([ADR 0028](0028-reaping-a-hosted-pass-sandbox.md) §7). The egress route admits a request only while its Pass is live,
+the predicate the Provider Binding applies, checked on every admission; a check that cannot
+complete rejects. This cuts new Reviewer-phase egress once the Run is terminal or the authorization
+is revoked. It does not retract a request already admitted.

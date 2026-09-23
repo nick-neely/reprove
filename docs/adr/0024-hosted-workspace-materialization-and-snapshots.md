@@ -345,3 +345,14 @@ that returns a narrower grant, or a `403` or `422` that a failure-path lookup pr
 The Failure carries the per-permission comparison. That case leaves `materialization_failed`'s
 "authentication". A mint failure that the lookup does not establish as a shortfall stays
 `materialization_failed`.
+
+## Amended by [#88](https://github.com/nick-neely/reprove/issues/88)
+
+[ADR 0028](0028-reaping-a-hosted-pass-sandbox.md) changes §9 and §10.
+
+- **§9's "a sweep deletes records past their expiry" is the ADR 0008 purge job**, reaching custody
+  through `SECURITY DEFINER` functions owned by a `NOLOGIN` maintenance role (ADR 0028 §8). The
+  lifecycle's reap step first attempts revocation of a token not yet confirmed invalid and deletes
+  the record when invalidity is confirmed. Owner deletion cascades to custody.
+- **§10's cleanup identity is the `create_requested` intent row**, written before create. The
+  reaper trusts it; a negative lookup alone never confirms a Sandbox is gone.

@@ -246,3 +246,16 @@ ADR deferred, and puts materialization inside the Pass's own Sandbox.
 - **§6's probe is re-ordered.** It is still one probe per Pass with its own Binding, budget and
   teardown, but it runs **after** materialization rather than before the first drive Slice, in
   ADR 0024 §9's closure sequence.
+
+## Amended by [#88](https://github.com/nick-neely/reprove/issues/88)
+
+[ADR 0028](0028-reaping-a-hosted-pass-sandbox.md) changes §7.
+
+- **Sandboxes are created with `persistent: false`** and torn down with `stop()`, so neither a stop
+  nor the platform timeout snapshots the Workspace.
+- **Create is fenced.** The execution record gains a `create_requested` intent row per Sandbox name,
+  written under the Slice uniqueness rule before `Sandbox.create` and only while the Run is live.
+  A retry that finds intent and a recorded id reattaches only after verifying the found Sandbox has
+  that exact id; one that finds intent and no id is the ambiguous case and never creates again.
+- **Who sweeps sooner than the platform timeout** is the Run's lifecycle, on `ended` and
+  `worker_lost`, with per-Sandbox teardown states in which `stopped` needs provider evidence.

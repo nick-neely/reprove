@@ -271,3 +271,12 @@ valid liveness evidence, this execution becomes ineligible."
   > row - `claimed`, token assigned, no pass id - because that row is what the window is. The
   > discharge stands unchanged; only how the case is reached moved. See
   > [ADR 0016](0016-phase-0-acceptance-scenario.md)'s amendment on the hosted `start()` orphan.
+
+## Amended by [#88](https://github.com/nick-neely/reprove/issues/88)
+
+The deferral in "What this deliberately does not claim", that a cancelled pass is not a torn-down
+Sandbox and nothing here provides reaping, is resolved by [ADR 0028](0028-reaping-a-hosted-pass-sandbox.md). The Run's lifecycle initiates cleanup
+for every terminal Run that records a pass, with the pass's own `stop()` as the fast path and the
+platform timeout as the backstop. `sandbox_teardown_incomplete` keeps its meaning on local placement
+only; a hosted Sandbox not confirmed stopped is handed to the reaper and the outcome stands (ADR 0028
+§5).

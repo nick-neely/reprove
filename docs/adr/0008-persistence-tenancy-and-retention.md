@@ -626,3 +626,15 @@ repository source - and adds the credential Reprove does hold, rather than routi
 - **[#40](https://github.com/nick-neely/reprove/issues/40) inherits** the gap that `FORCE ROW
   LEVEL SECURITY` and the tenant classification are enforced only at boot, because Drizzle can
   express neither.
+
+## Amended by [#88](https://github.com/nick-neely/reprove/issues/88)
+
+- **The purge job gains a second duty**: deleting per-Pass custody records past their expiry
+  ([ADR 0024](0024-hosted-workspace-materialization-and-snapshots.md) §9).
+- **Its maintenance path is named.** It reaches Owner-scoped rows through `SECURITY DEFINER`
+  functions owned by a dedicated `NOLOGIN` maintenance role. Each is a fixed statement with no
+  caller-supplied predicate and returns counts only; the maintenance role holds only the policies
+  those statements need; the runtime role holds `EXECUTE` and nothing more, and the cron entry point
+  calls them over the runtime connection. Boot asserts the function set, its owner and the
+  maintenance role's policies. No new credential and no `BYPASSRLS` ([ADR 0028](0028-reaping-a-hosted-pass-sandbox.md) §8).
+- **Owner deletion's cascade includes custody records.**
