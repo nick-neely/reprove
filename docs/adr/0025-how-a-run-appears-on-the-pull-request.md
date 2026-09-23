@@ -311,3 +311,19 @@ moves.
   here.
 - The prototype is deleted with its branch. Nothing in it is production code, and no abstraction in it
   survives.
+
+## Amended by [#112](https://github.com/nick-neely/reprove/issues/112)
+
+2026-09-23. A publication that fails on a missing permission has to be recorded on its row, so
+[ADR 0026](0026-phase-1-app-grant-and-missing-permission-diagnosis.md) §5 needs the row to exist
+before the first GitHub write. §5's "one row per published Check" becomes **one row per intended
+Check**:
+- **The row is created `pending`** with its `external_id` as the durable subject identity, unique
+  per Owner. Each subject has exactly one intended Check, so a retry finds the existing row and never
+  creates a second one.
+- **The Check Run id and suite id are nullable** until GitHub returns them.
+- **The row gains a nullable `failure_reason`**, which holds ADR 0026 §4's
+  `required_permission_missing` and its per-permission detail.
+
+Nothing that ADR 0022 validates against changes. A `rerequested` payload can name only a Check that
+GitHub created, and by then its row has the ids.

@@ -600,3 +600,20 @@ a `closed` or `converted_to_draft` delivery on a pull request that is open and r
 returns `unchanged`, and `synchronize` supersedes only a live Run whose head **differs** from the
 canonical head. A stale `synchronize` or `converted_to_draft` at the same head therefore leaves a
 manual draft review alone. This is recorded and tested rather than inferred from the code.
+
+## Amended by [#112](https://github.com/nick-neely/reprove/issues/112)
+
+2026-09-23. [ADR 0026](0026-phase-1-app-grant-and-missing-permission-diagnosis.md) fixes the
+Phase 1 grant, and it replaces "The App requests only what Phase 0 uses" above:
+`Metadata: read`, `Pull requests: write`, `Checks: write` and `Contents: read`. `Issues: read` stays
+out. `Commit statuses: write` is an open question that is untested.
+
+"Paid exactly once, deliberately, before Phase 1 launches" is right about the maintainer's App,
+which migrates once in a single handoff. It is wrong as a general rule. With deploy-your-own, every
+adopter owns an App, so a widening is paid **once per grant widening, by every adopter**. It is an
+adopter upgrade step that ships with its release. The asymmetry this ADR describes still holds, and
+declaring grants before they are needed is still rejected.
+
+The "one explicit subscription" framing stands. `APP_EVENTS` stays `["pull_request"]` and means
+explicit manifest subscriptions only. The two check events that `Checks: write` adds are documented
+and tested as automatic arrivals, and they are not declared.

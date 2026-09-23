@@ -335,3 +335,13 @@ windows with measured deadlines](https://github.com/nick-neely/reprove/issues/11
   narrative snapshot is machinery, as ADR 0012 already says of the file it becomes.
 - `docs/codex-adapter.md`'s "root-owned and unwritable by uid 1000" Workspace requirement is replaced
   by the split of §6.
+
+## Amended by [#112](https://github.com/nick-neely/reprove/issues/112)
+
+2026-09-23. §11 gains a Failure row, `required_permission_missing`. It applies when the §9 fetch mint
+is short of `contents: read`, as [ADR
+0026](0026-phase-1-app-grant-and-missing-permission-diagnosis.md) §4 establishes it: a successful mint
+that returns a narrower grant, or a `403` or `422` that a failure-path lookup proves is a shortfall.
+The Failure carries the per-permission comparison. That case leaves `materialization_failed`'s
+"authentication". A mint failure that the lookup does not establish as a shortfall stays
+`materialization_failed`.
