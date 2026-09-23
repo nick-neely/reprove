@@ -351,3 +351,12 @@ window. Phase 1 supplies no Owner layer and adds no unused Owner parameter.
 `security:` and into `review:`, and the example above is updated accordingly. It is best-effort
 install behaviour under `verify` rather than an enforced restriction, so it has no narrowing
 operation and does not belong in a section defined by the meet. Its default stays `deny`.
+
+## Amended by [#113](https://github.com/nick-neely/reprove/issues/113)
+
+[ADR 0027](0027-verify-sandbox-egress.md) §5 fixes `security.egress`'s meaning: it lists exact
+hostnames **in addition to** a Reprove default registry set that is reachable throughout a `verify`
+Reviewer turn, so `egress: []` means "no extra hosts", not "no network". Wildcards are not accepted
+in Phase 1. The meet is unchanged: the effective set is the Reprove boundary intersected with the
+request, and a requested host the boundary denies by construction is narrowed out and reported by
+the config Check, never refused. Under `inspect` it resolves to no extra hosts.

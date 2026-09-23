@@ -1680,9 +1680,14 @@ authority it already has.
 - Gateway credentials brokered outside the Sandbox;
 - Sandbox destroyed after execution.
 
-Egress is default-deny and phased, restricted by host, method, and path. Install may reach configured
-package registries. Verification may reach the resolved Model or Gateway endpoint and explicit
-Repository-approved destinations. There is no ordinary allow-all. The proxy always enforces request
+Egress is default-deny, restricted by host, method, and path, and every allowed host is forwarded to
+a Reprove proxy ([ADR 0027](adr/0027-verify-sandbox-egress.md)). The hosted Sandbox has two network
+phases, materialization and Reviewer; there is no install-only window, because under `verify` the
+Reviewer decides when to install. Throughout the Reviewer phase a `verify` Sandbox may reach the
+resolved Model endpoint through the credential broker, a Reprove default set of public package
+registries and GitHub fetch, read-only, and any exact hostnames the Repository adds under
+`security.egress`. This constrains egress; it does not prevent source-derived data leaving through
+an approved `GET`. There is no ordinary allow-all. The proxy always enforces request
 count and size, body size, wall-clock, concurrency, and denial of unmatched requests; provider-level
 token, Model, or spend limits apply only where the resolved credential supports them.
 

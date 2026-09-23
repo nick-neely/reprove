@@ -334,3 +334,14 @@ Everything else in ADR 0003 stands unchanged.
 > lands with the issue that first drives a Harness. ADR 0010's forbidden-type gate runs over this
 > package's packed declarations, so the bridge needs a non-leaking wrapper of its own; keeping the
 > published surface free of upstream types is worth more than shipping the adapter early.
+
+## Amended by [#113](https://github.com/nick-neely/reprove/issues/113)
+
+2026-09-23. [ADR 0027](0027-verify-sandbox-egress.md) fixes what a hosted `verify` Sandbox may reach.
+Two statements above read more strongly than the design supports. **Egress allowlisting constrains
+the blast; it does not prevent leakage to approved hosts.** Method and path rules block uploads, but
+an approved `GET` can carry source-derived data in its path, query and headers, so every approved
+host is a trusted recipient of it. And **"network policy changes live between phases" means
+materialization and Reviewer**, not install and verify: under `verify` the Reviewer installs when it
+chooses, so a default registry set stays reachable for the whole Reviewer turn. The "additional
+approved egress destinations" key is `security.egress`, and it names hosts beyond that default set.
