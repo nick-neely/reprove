@@ -23,7 +23,8 @@ must provide:
 - seccomp enabled, never `unconfined`;
 - resource limits on CPU, memory and process count;
 - a Workspace in sandbox-owned ephemeral storage, not a writable host directory;
-- egress only through Reprove's proxy;
+- default-deny egress enforced by Reprove's policy, at the Sandbox firewall or Reprove's proxy
+  (amended by [ADR 0030](0030-verify-egress-enforced-by-the-sandbox-firewall.md));
 - teardown after the Run.
 
 **The Harness's own sandbox is never this boundary.** Codex's `--sandbox workspace-write` grants
@@ -345,3 +346,10 @@ host is a trusted recipient of it. And **"network policy changes live between ph
 materialization and Reviewer**, not install and verify: under `verify` the Reviewer installs when it
 chooses, so a default registry set stays reachable for the whole Reviewer turn. The "additional
 approved egress destinations" key is `security.egress`, and it names hosts beyond that default set.
+
+## Amended by [#127](https://github.com/nick-neely/reprove/issues/127)
+
+The Sandbox property is default-deny egress enforced by Reprove's policy, not egress only through
+Reprove's proxy: a hosted `verify` Sandbox enforces method, path and authority at the Vercel
+firewall ([ADR 0030](0030-verify-egress-enforced-by-the-sandbox-firewall.md)). The per-Run limits "always at the proxy" hold for the Provider route only;
+hosted Reviewer-phase egress has no request count, size or concurrency limit.

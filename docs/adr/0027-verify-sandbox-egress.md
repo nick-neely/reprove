@@ -267,3 +267,7 @@ Phase 1 does not offer `inspect`: `review.autonomy: inspect` is a control-plane
 ([ADR 0019](0019-phase-1-repository-configuration-subset.md#amended-by-117)). §5's `inspect`
 sentence is **dormant**, and the handoff to #117 is withdrawn. How a future `inspect` prevents
 installation belongs to whoever reopens it.
+
+## Superseded in part by [#127](https://github.com/nick-neely/reprove/issues/127)
+
+§2, §3, §6, §7 and §8 are superseded by [ADR 0030](0030-verify-egress-enforced-by-the-sandbox-firewall.md). The firewall enforces method, path and authority with a trailing nonce-bodied deny; the egress route, the egress authorization, the denial aggregate and per-request limits are gone; §8's exact readback becomes partial readback plus sampled enforcement probes. §1, §4 and §5 stand.

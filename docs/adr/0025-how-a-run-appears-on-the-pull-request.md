@@ -337,3 +337,7 @@ posted with `commit_id: run.headSha`. A Review POST with an unknown outcome make
 `unresolved` and holds every later Review on the pull request until the marker lookup resolves it or
 an operator force-releases it. A superseded Run's Check title and a skipped or held Review's Check
 title are ADR 0029's.
+
+## Amended by [#127](https://github.com/nick-neely/reprove/issues/127)
+
+The Check's facts table carries no egress-denial count. ADR 0027's handoff adding one is withdrawn: the Sandbox firewall that now enforces egress exposes no denial counts ([ADR 0030](0030-verify-egress-enforced-by-the-sandbox-firewall.md) §5).

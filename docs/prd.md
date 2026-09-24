@@ -1163,7 +1163,7 @@ Sandbox
  ├── private network, PID, and mount namespaces
  ├── no host bind mounts or container-runtime socket
  ├── seccomp, resource limits, and ephemeral storage
- ├── egress only through Reprove's policy proxy
+ ├── default-deny egress enforced by Reprove's policy
  └── teardown after the Pass
 ```
 
@@ -1680,16 +1680,18 @@ authority it already has.
 - Gateway credentials brokered outside the Sandbox;
 - Sandbox destroyed after execution.
 
-Egress is default-deny, restricted by host, method, and path, and every allowed host is forwarded to
-a Reprove proxy ([ADR 0027](adr/0027-verify-sandbox-egress.md)). The hosted Sandbox has two network
+Egress is default-deny, restricted by host, method, and path, and enforced by the Sandbox firewall
+([ADR 0027](adr/0027-verify-sandbox-egress.md), [ADR 0030](adr/0030-verify-egress-enforced-by-the-sandbox-firewall.md)). The hosted Sandbox has two network
 phases, materialization and Reviewer; there is no install-only window, because under `verify` the
 Reviewer decides when to install. Throughout the Reviewer phase a `verify` Sandbox may reach the
 resolved Model endpoint through the credential broker, a Reprove default set of public package
 registries and GitHub fetch, read-only, and any exact hostnames the Repository adds under
 `security.egress`. This constrains egress; it does not prevent source-derived data leaving through
-an approved `GET`. There is no ordinary allow-all. The proxy always enforces request
-count and size, body size, wall-clock, concurrency, and denial of unmatched requests; provider-level
-token, Model, or spend limits apply only where the resolved credential supports them.
+an approved `GET`. There is no ordinary allow-all. Unmatched requests are denied, and a per-Pass check before
+the Reviewer starts samples that the rules enforce. Method and path rules cover HTTPS only. Hosted
+egress has no request count, size, or concurrency limit and no denial count: the firewall exposes
+neither. The Provider route still enforces its own limits; provider-level token, Model, or spend
+limits apply only where the resolved credential supports them.
 
 ---
 

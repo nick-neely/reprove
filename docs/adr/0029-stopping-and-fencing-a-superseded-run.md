@@ -235,3 +235,7 @@ is a second reason for the Provider-route metering that stays in the map's fog.
 - ADR 0021 §7's Slice claim gains the `executing` predicate.
 - A Review POST that times out can hold a pull request's later Reviews until an operator acts. That
   is accepted over a stale Review or a wrong baseline.
+
+## Amended by [#127](https://github.com/nick-neely/reprove/issues/127)
+
+ADR 0028 §7 is superseded by [ADR 0030](0030-verify-egress-enforced-by-the-sandbox-firewall.md): a terminal Run stops new **Provider** admissions only. Reviewer-phase egress to approved hosts continues until the Sandbox is stopped or its policy set to deny-all, so a lost wake bounds model spend but not egress.

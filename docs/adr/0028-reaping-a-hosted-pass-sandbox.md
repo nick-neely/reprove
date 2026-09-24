@@ -233,3 +233,7 @@ anyway.
 whose failure or timeout never prevents the reap. The pass's own `stop()` gains a trigger: a Slice
 claim refused because the Run is no longer `executing`. The generic reap covers a superseded Run as
 this ADR's handoff said, and no stricter promptness is promised.
+
+## Superseded in part by [#127](https://github.com/nick-neely/reprove/issues/127)
+
+§7 is superseded by [ADR 0030](0030-verify-egress-enforced-by-the-sandbox-firewall.md). With no egress route there is no per-admission egress liveness check; that guarantee is given up explicitly. Cleanup attempts a bounded deny-all policy update concurrently with `stop()`. The Provider route keeps its per-admission liveness.

@@ -195,7 +195,7 @@ _Avoid_: mode, path, transport, invocation method
 **Sandbox**:
 The isolation boundary a Run executes inside, defined by properties rather than by a technology:
 its own network, PID and mount namespaces, no host bind mounts and no runtime socket, seccomp and
-resource limits, ephemeral storage, egress only through Reprove's proxy, and teardown after the
+resource limits, ephemeral storage, default-deny egress enforced by Reprove's policy, and teardown after the
 Run. Repository code must not cross it outward; whether a credential sits inside it is what
 Exposure records. A Harness's own sandbox is never this boundary.
 _Avoid_: container, VM, jail
