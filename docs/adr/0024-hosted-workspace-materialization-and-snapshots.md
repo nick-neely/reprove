@@ -396,3 +396,12 @@ Phase 1 does not offer `inspect`: `review.autonomy: inspect` is a control-plane
 The `inspect` sentences in §6 and §8 are **dormant**: ideas for whoever reopens the level, not
 Phase 1 requirements. §12's handoff of the read-only tree to #117 is withdrawn; no Phase 1 ticket
 owns it.
+
+## Amended by [#128](https://github.com/nick-neely/reprove/issues/128)
+
+[ADR 0031](0031-protecting-the-suspend-cursor-and-bridge-endpoint.md) changes §7 and §9. The dedicated Reviewer user is distinct from the bridge (root) and the file
+API (`ubuntu`), and Codex reaches it only through the root wrapper's `setpriv --no-new-privs`.
+The closure sequence gains two steps after the probe: the bridge token is committed encrypted and
+`doStart` launches the Pass's bridge, then that idle bridge is checked as the Reviewer before
+authorization. A demonstrated breach is `sandbox_unenforceable`; `doPromptTurn` follows
+authorization.

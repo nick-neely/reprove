@@ -313,3 +313,11 @@ Harness). What it established, and what this ADR got wrong:
 serialized statement as the claim. A claim refused on that predicate ends the pass with no Result and
 stops its own Sandbox. It fences the next Slice only; it does not interrupt a command already running
 in the current one.
+
+## Amended by [#128](https://github.com/nick-neely/reprove/issues/128)
+
+[ADR 0031](0031-protecting-the-suspend-cursor-and-bridge-endpoint.md) changes §7. The cursor is a credential, not opaque: a step carries only its Slice number, and
+the Slice row holds a strictly parsed projection with the bridge token in encrypted custody, all
+cleared when the Pass is terminalized. A continuing Slice spawns nothing: `mintBridgeToken` throws
+on resume, so a lost `attach` ends the Pass as the Failure `resume_lost` instead of falling to
+`replay` or `rerun`. The hosted session's `id` is the recorded instance ID.

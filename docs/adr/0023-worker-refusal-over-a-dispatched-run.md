@@ -204,3 +204,10 @@ Pass that ends mid-turn (the ambiguous Slice, a deadline abort, a Failure) has t
 `unknown`. An aborted turn never emits `finish`. The distinct-increments rule stands; this is why
 `unknown` will be common. The Provider route sees every response and could meter Usage per
 request, which stays in the map's fog.
+
+## Amended by [#128](https://github.com/nick-neely/reprove/issues/128)
+
+[ADR 0031](0031-protecting-the-suspend-cursor-and-bridge-endpoint.md) adds the Failure reason `resume_lost` (`execution` phase: a continuing Slice could not
+reattach, with detail `attach_failed`, `instance_mismatch`, `token_key_unavailable` or
+`token_unreadable`), and the `pass_failed` detail `launch_guard`. Both reach the Run only
+through [#83](https://github.com/nick-neely/reprove/issues/83).
