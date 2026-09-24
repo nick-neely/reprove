@@ -1,0 +1,35 @@
+[harness:codex:stderr] [harness:codex:warn] Model metadata for `gpt-6-luna` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+[2026-09-24T00:39:37.241Z] turn 1 (aborted)
+{
+  "r1": {
+    "error": "AbortError: This operation was aborted"
+  },
+  "events": "stream-start,text-start,text-delta,text-end,tool-call,tool-result,finish-step,text-start,text-delta,text-end"
+}
+[harness:codex:error session=p114-abort-muet10yh] bridge emitted an error frame: AbortError: The operation was aborted
+[harness:codex:error session=p114-abort-muet10yh]     at abortChildProcess (node:child_process:776:27)
+[harness:codex:error session=p114-abort-muet10yh]     at AbortSignal.onAbortListener (node:child_process:846:7)
+[harness:codex:error session=p114-abort-muet10yh]     at [nodejs.internal.kHybridDispatch] (node:internal/event_target:848:20)
+[harness:codex:error session=p114-abort-muet10yh]     at AbortSignal.dispatchEvent (node:internal/event_target:789:26)
+[harness:codex:error session=p114-abort-muet10yh]     at runAbort (node:internal/abort_controller:554:10)
+[harness:codex:error session=p114-abort-muet10yh]     at abortSignal (node:internal/abort_controller:518:3)
+[harness:codex:error session=p114-abort-muet10yh]     at AbortController.abort (node:internal/abort_controller:573:5)
+[harness:codex:error session=p114-abort-muet10yh]     at handleInbound (file:///vercel/sandbox/.harness-bootstrap/codex/bridge.mjs:514:20)
+[harness:codex:error session=p114-abort-muet10yh]     at WebSocket.<anonymous> (file:///vercel/sandbox/.harness-bootstrap/codex/bridge.mjs:601:12)
+[harness:codex:error session=p114-abort-muet10yh]     at WebSocket.emit (node:events:514:28)
+[harness:codex:stderr] [harness:codex:error] codex turn failed: The operation was aborted
+[harness:codex:stderr] AbortError: The operation was aborted
+[harness:codex:stderr] at abortChildProcess (node:child_process:776:27)
+[harness:codex:stderr] at AbortSignal.onAbortListener (node:child_process:846:7)
+[harness:codex:stderr] at [nodejs.internal.kHybridDispatch] (node:internal/event_target:848:20)
+[harness:codex:stderr] at AbortSignal.dispatchEvent (node:internal/event_target:789:26)
+[harness:codex:stderr] at runAbort (node:internal/abort_controller:554:10)
+[harness:codex:stderr] at abortSignal (node:internal/abort_controller:518:3)
+[harness:codex:stderr] at AbortController.abort (node:internal/abort_controller:573:5)
+[harness:codex:stderr] at handleInbound (file:///vercel/sandbox/.harness-bootstrap/codex/bridge.mjs:514:20)
+[harness:codex:stderr] at WebSocket.<anonymous> (file:///vercel/sandbox/.harness-bootstrap/codex/bridge.mjs:601:12)
+[harness:codex:stderr] at WebSocket.emit (node:events:514:28)
+
+[2026-09-24T00:39:37.623Z] turn 2 threw
+AbortError: The operation was aborted

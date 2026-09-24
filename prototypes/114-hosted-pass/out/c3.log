@@ -1,0 +1,70 @@
+
+[2026-09-24T00:53:52.647Z] A_denyListMethods read back
+{
+  "allow": [
+    "registry.npmjs.org"
+  ]
+}
+
+[2026-09-24T00:53:52.973Z] A_denyListMethods: GET
+{
+  "ms": 325,
+  "exitCode": 0,
+  "out": "200"
+}
+
+[2026-09-24T00:53:53.181Z] A_denyListMethods: POST
+{
+  "ms": 208,
+  "exitCode": 0,
+  "out": "denied by policy 403"
+}
+
+[2026-09-24T00:53:53.459Z] A_denyListMethods: custom method FOO
+{
+  "ms": 278,
+  "exitCode": 0,
+  "out": "501"
+}
+
+[2026-09-24T00:54:07.224Z] A_denyListMethods: npm install
+{
+  "ms": 13765,
+  "exitCode": 0,
+  "out": "npm notice"
+}
+
+[2026-09-24T00:54:08.272Z] B_claimGetThenDeny read back
+{
+  "allow": [
+    "registry.npmjs.org"
+  ]
+}
+
+[2026-09-24T00:54:08.505Z] B_claimGetThenDeny: GET
+{
+  "ms": 233,
+  "exitCode": 0,
+  "out": "200"
+}
+
+[2026-09-24T00:54:08.693Z] B_claimGetThenDeny: POST
+{
+  "ms": 188,
+  "exitCode": 0,
+  "out": "denied by policy 403"
+}
+
+[2026-09-24T00:54:08.969Z] B_claimGetThenDeny: custom method FOO
+{
+  "ms": 275,
+  "exitCode": 0,
+  "out": "denied by policy 403"
+}
+
+[2026-09-24T00:54:23.041Z] B_claimGetThenDeny: npm install
+{
+  "ms": 14072,
+  "exitCode": 0,
+  "out": "npm notice"
+}

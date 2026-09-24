@@ -1,0 +1,616 @@
+{
+  "pass": [
+    {
+      "id": "p114-muetr1v4",
+      "status": "ended",
+      "deadline": "2026-09-24T01:14:40.305Z",
+      "created_at": "2026-09-24T00:59:40.305Z",
+      "outcome": {
+        "last": {
+          "n": 1,
+          "state": "completed",
+          "attempt": 1,
+          "instance": "1ed79f3e-ebf3-41be-af98-413d2d86c6f5",
+          "spawnsAtStart": 1
+        }
+      }
+    }
+  ],
+  "sandboxes": [
+    {
+      "name": "p114-muetr1v4-probe",
+      "pass_id": "p114-muetr1v4",
+      "state": "stopped",
+      "sandbox_id": "sbx_nBJdc0Hs5xdi4FtwsGt5XlcXmM2w",
+      "created_at": "2026-09-24T00:59:50.971Z",
+      "updated_at": "2026-09-24T01:00:06.705Z"
+    },
+    {
+      "name": "p114-muetr1v4",
+      "pass_id": "p114-muetr1v4",
+      "state": "stopped",
+      "sandbox_id": "sbx_eKrBB9KEFRyUnLAmo8muaw5Oj9Zh",
+      "created_at": "2026-09-24T00:59:42.249Z",
+      "updated_at": "2026-09-24T01:01:42.718Z"
+    }
+  ],
+  "bindings": [
+    {
+      "name": "p114-muetr1v4-probe",
+      "kind": "probe",
+      "sandbox_id": "sbx_nBJdc0Hs5xdi4FtwsGt5XlcXmM2w",
+      "request_count": 1,
+      "revoked": true,
+      "rejections": [],
+      "has_placeholder": true
+    },
+    {
+      "name": "p114-muetr1v4",
+      "kind": "review",
+      "sandbox_id": "sbx_eKrBB9KEFRyUnLAmo8muaw5Oj9Zh",
+      "request_count": 12,
+      "revoked": true,
+      "rejections": [],
+      "has_placeholder": true
+    }
+  ],
+  "admissions": [
+    {
+      "id": "27",
+      "binding": "p114-muetr1v4-probe",
+      "admitted_at": "2026-09-24T00:59:57.893Z",
+      "expires_at": "2026-09-24T01:04:57.893Z",
+      "released_at": "2026-09-24T00:59:59.425Z",
+      "release_reason": "complete",
+      "method": "POST",
+      "path": "/v1/responses",
+      "req_bytes": 37627,
+      "status": 200,
+      "upstream_ms": 525,
+      "claims": {
+        "aud": "https://reprove-proto-114.vercel.app/api/proxy",
+        "exp": 1790298596,
+        "iat": 1790211596,
+        "iss": "https://oidc.vercel.com/team_8INDibYV08yytiZJHcMuAaYO",
+        "nbf": 1790211596,
+        "sub": "team:team_8INDibYV08yytiZJHcMuAaYO:project:prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S:sandbox:sbx_nBJdc0Hs5xdi4FtwsGt5XlcXmM2w",
+        "team_id": "team_8INDibYV08yytiZJHcMuAaYO",
+        "project_id": "prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S",
+        "sandbox_id": "sbx_nBJdc0Hs5xdi4FtwsGt5XlcXmM2w",
+        "sandbox_name": "p114-muetr1v4-probe"
+      }
+    },
+    {
+      "id": "28",
+      "binding": "p114-muetr1v4",
+      "admitted_at": "2026-09-24T01:00:09.277Z",
+      "expires_at": "2026-09-24T01:05:09.277Z",
+      "released_at": "2026-09-24T01:00:14.630Z",
+      "release_reason": "complete",
+      "method": "POST",
+      "path": "/v1/responses",
+      "req_bytes": 44641,
+      "status": 200,
+      "upstream_ms": 809,
+      "claims": {
+        "aud": "https://reprove-proto-114.vercel.app/api/proxy",
+        "exp": 1790298588,
+        "iat": 1790211588,
+        "iss": "https://oidc.vercel.com/team_8INDibYV08yytiZJHcMuAaYO",
+        "nbf": 1790211588,
+        "sub": "team:team_8INDibYV08yytiZJHcMuAaYO:project:prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S:sandbox:sbx_eKrBB9KEFRyUnLAmo8muaw5Oj9Zh",
+        "team_id": "team_8INDibYV08yytiZJHcMuAaYO",
+        "project_id": "prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S",
+        "sandbox_id": "sbx_eKrBB9KEFRyUnLAmo8muaw5Oj9Zh",
+        "sandbox_name": "p114-muetr1v4"
+      }
+    },
+    {
+      "id": "29",
+      "binding": "p114-muetr1v4",
+      "admitted_at": "2026-09-24T01:00:14.668Z",
+      "expires_at": "2026-09-24T01:05:14.668Z",
+      "released_at": "2026-09-24T01:00:17.552Z",
+      "release_reason": "complete",
+      "method": "POST",
+      "path": "/v1/responses",
+      "req_bytes": 48470,
+      "status": 200,
+      "upstream_ms": 543,
+      "claims": {
+        "aud": "https://reprove-proto-114.vercel.app/api/proxy",
+        "exp": 1790298588,
+        "iat": 1790211588,
+        "iss": "https://oidc.vercel.com/team_8INDibYV08yytiZJHcMuAaYO",
+        "nbf": 1790211588,
+        "sub": "team:team_8INDibYV08yytiZJHcMuAaYO:project:prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S:sandbox:sbx_eKrBB9KEFRyUnLAmo8muaw5Oj9Zh",
+        "team_id": "team_8INDibYV08yytiZJHcMuAaYO",
+        "project_id": "prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S",
+        "sandbox_id": "sbx_eKrBB9KEFRyUnLAmo8muaw5Oj9Zh",
+        "sandbox_name": "p114-muetr1v4"
+      }
+    },
+    {
+      "id": "30",
+      "binding": "p114-muetr1v4",
+      "admitted_at": "2026-09-24T01:00:18.025Z",
+      "expires_at": "2026-09-24T01:05:18.025Z",
+      "released_at": "2026-09-24T01:00:20.407Z",
+      "release_reason": "complete",
+      "method": "POST",
+      "path": "/v1/responses",
+      "req_bytes": 54447,
+      "status": 200,
+      "upstream_ms": 371,
+      "claims": {
+        "aud": "https://reprove-proto-114.vercel.app/api/proxy",
+        "exp": 1790298588,
+        "iat": 1790211588,
+        "iss": "https://oidc.vercel.com/team_8INDibYV08yytiZJHcMuAaYO",
+        "nbf": 1790211588,
+        "sub": "team:team_8INDibYV08yytiZJHcMuAaYO:project:prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S:sandbox:sbx_eKrBB9KEFRyUnLAmo8muaw5Oj9Zh",
+        "team_id": "team_8INDibYV08yytiZJHcMuAaYO",
+        "project_id": "prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S",
+        "sandbox_id": "sbx_eKrBB9KEFRyUnLAmo8muaw5Oj9Zh",
+        "sandbox_name": "p114-muetr1v4"
+      }
+    },
+    {
+      "id": "31",
+      "binding": "p114-muetr1v4",
+      "admitted_at": "2026-09-24T01:00:20.564Z",
+      "expires_at": "2026-09-24T01:05:20.564Z",
+      "released_at": "2026-09-24T01:00:28.355Z",
+      "release_reason": "complete",
+      "method": "POST",
+      "path": "/v1/responses",
+      "req_bytes": 59156,
+      "status": 200,
+      "upstream_ms": 459,
+      "claims": {
+        "aud": "https://reprove-proto-114.vercel.app/api/proxy",
+        "exp": 1790298588,
+        "iat": 1790211588,
+        "iss": "https://oidc.vercel.com/team_8INDibYV08yytiZJHcMuAaYO",
+        "nbf": 1790211588,
+        "sub": "team:team_8INDibYV08yytiZJHcMuAaYO:project:prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S:sandbox:sbx_eKrBB9KEFRyUnLAmo8muaw5Oj9Zh",
+        "team_id": "team_8INDibYV08yytiZJHcMuAaYO",
+        "project_id": "prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S",
+        "sandbox_id": "sbx_eKrBB9KEFRyUnLAmo8muaw5Oj9Zh",
+        "sandbox_name": "p114-muetr1v4"
+      }
+    },
+    {
+      "id": "32",
+      "binding": "p114-muetr1v4",
+      "admitted_at": "2026-09-24T01:00:28.463Z",
+      "expires_at": "2026-09-24T01:05:28.463Z",
+      "released_at": "2026-09-24T01:00:31.203Z",
+      "release_reason": "complete",
+      "method": "POST",
+      "path": "/v1/responses",
+      "req_bytes": 66320,
+      "status": 200,
+      "upstream_ms": 516,
+      "claims": {
+        "aud": "https://reprove-proto-114.vercel.app/api/proxy",
+        "exp": 1790298588,
+        "iat": 1790211588,
+        "iss": "https://oidc.vercel.com/team_8INDibYV08yytiZJHcMuAaYO",
+        "nbf": 1790211588,
+        "sub": "team:team_8INDibYV08yytiZJHcMuAaYO:project:prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S:sandbox:sbx_eKrBB9KEFRyUnLAmo8muaw5Oj9Zh",
+        "team_id": "team_8INDibYV08yytiZJHcMuAaYO",
+        "project_id": "prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S",
+        "sandbox_id": "sbx_eKrBB9KEFRyUnLAmo8muaw5Oj9Zh",
+        "sandbox_name": "p114-muetr1v4"
+      }
+    },
+    {
+      "id": "33",
+      "binding": "p114-muetr1v4",
+      "admitted_at": "2026-09-24T01:00:32.332Z",
+      "expires_at": "2026-09-24T01:05:32.332Z",
+      "released_at": "2026-09-24T01:00:37.883Z",
+      "release_reason": "complete",
+      "method": "POST",
+      "path": "/v1/responses",
+      "req_bytes": 68898,
+      "status": 200,
+      "upstream_ms": 390,
+      "claims": {
+        "aud": "https://reprove-proto-114.vercel.app/api/proxy",
+        "exp": 1790298588,
+        "iat": 1790211588,
+        "iss": "https://oidc.vercel.com/team_8INDibYV08yytiZJHcMuAaYO",
+        "nbf": 1790211588,
+        "sub": "team:team_8INDibYV08yytiZJHcMuAaYO:project:prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S:sandbox:sbx_eKrBB9KEFRyUnLAmo8muaw5Oj9Zh",
+        "team_id": "team_8INDibYV08yytiZJHcMuAaYO",
+        "project_id": "prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S",
+        "sandbox_id": "sbx_eKrBB9KEFRyUnLAmo8muaw5Oj9Zh",
+        "sandbox_name": "p114-muetr1v4"
+      }
+    },
+    {
+      "id": "34",
+      "binding": "p114-muetr1v4",
+      "admitted_at": "2026-09-24T01:00:43.314Z",
+      "expires_at": "2026-09-24T01:05:43.314Z",
+      "released_at": "2026-09-24T01:00:47.455Z",
+      "release_reason": "complete",
+      "method": "POST",
+      "path": "/v1/responses",
+      "req_bytes": 73024,
+      "status": 200,
+      "upstream_ms": 476,
+      "claims": {
+        "aud": "https://reprove-proto-114.vercel.app/api/proxy",
+        "exp": 1790298588,
+        "iat": 1790211588,
+        "iss": "https://oidc.vercel.com/team_8INDibYV08yytiZJHcMuAaYO",
+        "nbf": 1790211588,
+        "sub": "team:team_8INDibYV08yytiZJHcMuAaYO:project:prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S:sandbox:sbx_eKrBB9KEFRyUnLAmo8muaw5Oj9Zh",
+        "team_id": "team_8INDibYV08yytiZJHcMuAaYO",
+        "project_id": "prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S",
+        "sandbox_id": "sbx_eKrBB9KEFRyUnLAmo8muaw5Oj9Zh",
+        "sandbox_name": "p114-muetr1v4"
+      }
+    },
+    {
+      "id": "35",
+      "binding": "p114-muetr1v4",
+      "admitted_at": "2026-09-24T01:00:47.652Z",
+      "expires_at": "2026-09-24T01:05:47.652Z",
+      "released_at": "2026-09-24T01:00:57.162Z",
+      "release_reason": "complete",
+      "method": "POST",
+      "path": "/v1/responses",
+      "req_bytes": 77454,
+      "status": 200,
+      "upstream_ms": 437,
+      "claims": {
+        "aud": "https://reprove-proto-114.vercel.app/api/proxy",
+        "exp": 1790298588,
+        "iat": 1790211588,
+        "iss": "https://oidc.vercel.com/team_8INDibYV08yytiZJHcMuAaYO",
+        "nbf": 1790211588,
+        "sub": "team:team_8INDibYV08yytiZJHcMuAaYO:project:prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S:sandbox:sbx_eKrBB9KEFRyUnLAmo8muaw5Oj9Zh",
+        "team_id": "team_8INDibYV08yytiZJHcMuAaYO",
+        "project_id": "prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S",
+        "sandbox_id": "sbx_eKrBB9KEFRyUnLAmo8muaw5Oj9Zh",
+        "sandbox_name": "p114-muetr1v4"
+      }
+    },
+    {
+      "id": "36",
+      "binding": "p114-muetr1v4",
+      "admitted_at": "2026-09-24T01:00:57.953Z",
+      "expires_at": "2026-09-24T01:05:57.953Z",
+      "released_at": "2026-09-24T01:01:08.379Z",
+      "release_reason": "complete",
+      "method": "POST",
+      "path": "/v1/responses",
+      "req_bytes": 83857,
+      "status": 200,
+      "upstream_ms": 588,
+      "claims": {
+        "aud": "https://reprove-proto-114.vercel.app/api/proxy",
+        "exp": 1790298588,
+        "iat": 1790211588,
+        "iss": "https://oidc.vercel.com/team_8INDibYV08yytiZJHcMuAaYO",
+        "nbf": 1790211588,
+        "sub": "team:team_8INDibYV08yytiZJHcMuAaYO:project:prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S:sandbox:sbx_eKrBB9KEFRyUnLAmo8muaw5Oj9Zh",
+        "team_id": "team_8INDibYV08yytiZJHcMuAaYO",
+        "project_id": "prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S",
+        "sandbox_id": "sbx_eKrBB9KEFRyUnLAmo8muaw5Oj9Zh",
+        "sandbox_name": "p114-muetr1v4"
+      }
+    },
+    {
+      "id": "37",
+      "binding": "p114-muetr1v4",
+      "admitted_at": "2026-09-24T01:01:08.679Z",
+      "expires_at": "2026-09-24T01:06:08.679Z",
+      "released_at": "2026-09-24T01:01:16.876Z",
+      "release_reason": "complete",
+      "method": "POST",
+      "path": "/v1/responses",
+      "req_bytes": 91430,
+      "status": 200,
+      "upstream_ms": 427,
+      "claims": {
+        "aud": "https://reprove-proto-114.vercel.app/api/proxy",
+        "exp": 1790298588,
+        "iat": 1790211588,
+        "iss": "https://oidc.vercel.com/team_8INDibYV08yytiZJHcMuAaYO",
+        "nbf": 1790211588,
+        "sub": "team:team_8INDibYV08yytiZJHcMuAaYO:project:prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S:sandbox:sbx_eKrBB9KEFRyUnLAmo8muaw5Oj9Zh",
+        "team_id": "team_8INDibYV08yytiZJHcMuAaYO",
+        "project_id": "prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S",
+        "sandbox_id": "sbx_eKrBB9KEFRyUnLAmo8muaw5Oj9Zh",
+        "sandbox_name": "p114-muetr1v4"
+      }
+    },
+    {
+      "id": "38",
+      "binding": "p114-muetr1v4",
+      "admitted_at": "2026-09-24T01:01:16.896Z",
+      "expires_at": "2026-09-24T01:06:16.896Z",
+      "released_at": "2026-09-24T01:01:20.445Z",
+      "release_reason": "complete",
+      "method": "POST",
+      "path": "/v1/responses",
+      "req_bytes": 98469,
+      "status": 200,
+      "upstream_ms": 467,
+      "claims": {
+        "aud": "https://reprove-proto-114.vercel.app/api/proxy",
+        "exp": 1790298588,
+        "iat": 1790211588,
+        "iss": "https://oidc.vercel.com/team_8INDibYV08yytiZJHcMuAaYO",
+        "nbf": 1790211588,
+        "sub": "team:team_8INDibYV08yytiZJHcMuAaYO:project:prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S:sandbox:sbx_eKrBB9KEFRyUnLAmo8muaw5Oj9Zh",
+        "team_id": "team_8INDibYV08yytiZJHcMuAaYO",
+        "project_id": "prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S",
+        "sandbox_id": "sbx_eKrBB9KEFRyUnLAmo8muaw5Oj9Zh",
+        "sandbox_name": "p114-muetr1v4"
+      }
+    },
+    {
+      "id": "39",
+      "binding": "p114-muetr1v4",
+      "admitted_at": "2026-09-24T01:01:20.384Z",
+      "expires_at": "2026-09-24T01:06:20.384Z",
+      "released_at": null,
+      "release_reason": null,
+      "method": "POST",
+      "path": "/v1/responses",
+      "req_bytes": 101566,
+      "status": 200,
+      "upstream_ms": 441,
+      "claims": {
+        "aud": "https://reprove-proto-114.vercel.app/api/proxy",
+        "exp": 1790298588,
+        "iat": 1790211588,
+        "iss": "https://oidc.vercel.com/team_8INDibYV08yytiZJHcMuAaYO",
+        "nbf": 1790211588,
+        "sub": "team:team_8INDibYV08yytiZJHcMuAaYO:project:prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S:sandbox:sbx_eKrBB9KEFRyUnLAmo8muaw5Oj9Zh",
+        "team_id": "team_8INDibYV08yytiZJHcMuAaYO",
+        "project_id": "prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S",
+        "sandbox_id": "sbx_eKrBB9KEFRyUnLAmo8muaw5Oj9Zh",
+        "sandbox_name": "p114-muetr1v4"
+      }
+    }
+  ],
+  "observations": [
+    {
+      "id": "4",
+      "binding": "p114-muetr1v4-probe",
+      "at": "2026-09-24T00:59:57.904Z",
+      "bytes": 37627,
+      "canary_seen": false
+    }
+  ],
+  "slices": [
+    {
+      "pass_id": "p114-muetr1v4",
+      "n": 0,
+      "kind": "probe",
+      "state": "completed",
+      "has_cursor": false,
+      "outcome": {
+        "text": "{\"summary\":\"probe\",\"commandsRun\":[],\"findings\":[]}",
+        "usage": {
+          "inputTokens": {
+            "total": 6734,
+            "noCache": 6734,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "text": 23,
+            "total": 23
+          }
+        },
+        "timing": {
+          "bootstrapMs": 4361,
+          "bootstrapOut": "codex-cli 0.153.4",
+          "materializeMs": 177,
+          "narrowPolicyMs": 310
+        },
+        "probeMs": 13558,
+        "finished": true,
+        "satisfied": true,
+        "canarySeen": false,
+        "rejections": [],
+        "observations": 1,
+        "canaryExecuted": false
+      },
+      "facts": null,
+      "started_at": "2026-09-24T00:59:50.930Z",
+      "ended_at": "2026-09-24T01:00:06.710Z"
+    },
+    {
+      "pass_id": "p114-muetr1v4",
+      "n": 1,
+      "kind": "drive",
+      "state": "completed",
+      "has_cursor": false,
+      "outcome": {
+        "text": "{\n  \"summary\": \"Reviewed the four changed files. The existing tests pass, but targeted reproductions found an extra retry and two sliding-window edge cases.\",\n  \"disprovedHypothesisCount\": 1,\n  \"findings\": [\n    {\n      \"title\": \"Retry remains allowed after all attempts are used\",\n      \"body\": \"When `attempts` reaches `MAX_ATTEMPTS` (3), `shouldRetry` still returns true. A slice that has used its three attempts can therefore receive a fourth. The comparison should exclude the limit.\",\n      \"severity\": \"high\",\n      \"verification\": \"verified\",\n      \"location\": {\n        \"path\": \"src/slice.ts\",\n        \"startLine\": 12,\n        \"endLine\": 12\n      },\n      \"anchoredText\": \"slice.attempts <= MAX_ATTEMPTS\",\n      \"evidence\": [\n        {\n          \"command\": \"node --input-type=module -e 'import {MAX_ATTEMPTS, shouldRetry} from \\\"./src/slice.ts\\\"; console.log(JSON.stringify({limit: MAX_ATTEMPTS, atLimit: shouldRetry({id:\\\"job\\\",attempts:MAX_ATTEMPTS}), beyondLimit: shouldRetry({id:\\\"job\\\",attempts:MAX_ATTEMPTS+1})}))'\",\n          \"exitCode\": 0,\n          \"durationMs\": 0,\n          \"output\": \"{\\\"limit\\\":3,\\\"atLimit\\\":true,\\\"beyondLimit\\\":false}\"\n        }\n      ],\n      \"patch\": null\n    },\n    {\n      \"title\": \"Capacity stays occupied at the exact window boundary\",\n      \"body\": \"The strict comparison retains an event when exactly `windowMs` has elapsed. With a limit of one, an event at 0 blocks another at 1000 ms and capacity becomes available only at 1001 ms. This extends the usual half-open sliding window by one timestamp unit.\",\n      \"severity\": \"medium\",\n      \"verification\": \"verified\",\n      \"location\": {\n        \"path\": \"src/window.ts\",\n        \"startLine\": 8,\n        \"endLine\": 8\n      },\n      \"anchoredText\": \"this.events[0] < now - this.windowMs\",\n      \"evidence\": [\n        {\n          \"command\": \"node --experimental-transform-types --input-type=module -e 'import {SlidingWindow} from \\\"./src/window.ts\\\"; const limiter = new SlidingWindow(1,1000); console.log(JSON.stringify({initial:limiter.tryAcquire(0),atExactExpiry:limiter.tryAcquire(1000),afterExpiry:limiter.tryAcquire(1001)}))'\",\n          \"exitCode\": 0,\n          \"durationMs\": 0,\n          \"output\": \"(node:1183) ExperimentalWarning: Transform Types is an experimental feature and might change at any time\\n(Use `node --trace-warnings ...` to show where the warning was created)\\n{\\\"initial\\\":true,\\\"atExactExpiry\\\":false,\\\"afterExpiry\\\":true}\"\n        }\n      ],\n      \"patch\": null\n    },\n    {\n      \"title\": \"A clock rollback can leave expired events blocking capacity\",\n      \"body\": \"Eviction checks only the first event, assuming timestamps arrive in order. If the supplied clock moves backward, an expired event can sit behind a newer one and continue consuming capacity. With a 1000 ms window and limit two, events recorded at 2000 and then 0 cause an acquisition at 2500 to fail, although only the event at 2000 is still in the window.\",\n      \"severity\": \"medium\",\n      \"verification\": \"verified\",\n      \"location\": {\n        \"path\": \"src/window.ts\",\n        \"startLine\": 8,\n        \"endLine\": 12\n      },\n      \"anchoredText\": \"this.events[0] < now - this.windowMs\",\n      \"evidence\": [\n        {\n          \"command\": \"node --experimental-transform-types --input-type=module -e 'import {SlidingWindow} from \\\"./src/window.ts\\\"; const limiter = new SlidingWindow(2,1000); console.log(JSON.stringify({first:limiter.tryAcquire(2000),clockRollback:limiter.tryAcquire(0),afterRollback:limiter.tryAcquire(2500)}))'\",\n          \"exitCode\": 0,\n          \"durationMs\": 0,\n          \"output\": \"(node:1301) ExperimentalWarning: Transform Types is an experimental feature and might change at any time\\n(Use `node --trace-warnings ...` to show where the warning was created)\\n{\\\"first\\\":true,\\\"clockRollback\\\":true,\\\"afterRollback\\\":false}\"\n        }\n      ],\n      \"patch\": null\n    }\n  ],\n  \"unfinished\": null,\n  \"limitations\": []\n}",
+        "usage": [
+          {
+            "type": "finish",
+            "totalUsage": {
+              "inputTokens": {
+                "total": 145235,
+                "noCache": 15792,
+                "cacheRead": 129443,
+                "cacheWrite": 0
+              },
+              "outputTokens": {
+                "text": 5350,
+                "total": 5350
+              }
+            },
+            "finishReason": {
+              "raw": "stop",
+              "unified": "stop"
+            }
+          }
+        ]
+      },
+      "facts": {
+        "text": "{\n  \"summary\": \"Reviewed the four changed files. The existing tests pass, but targeted reproductions found an extra retry and two sliding-window edge cases.\",\n  \"disprovedHypothesisCount\": 1,\n  \"findings\": [\n    {\n      \"title\": \"Retry remains allowed after all attempts are used\",\n      \"body\": \"When `attempts` reaches `MAX_ATTEMPTS` (3), `shouldRetry` still returns true. A slice that has used its three attempts can therefore receive a fourth. The comparison should exclude the limit.\",\n      \"severity\": \"high\",\n      \"verification\": \"verified\",\n      \"location\": {\n        \"path\": \"src/slice.ts\",\n        \"startLine\": 12,\n        \"endLine\": 12\n      },\n      \"anchoredText\": \"slice.attempts <= MAX_ATTEMPTS\",\n      \"evidence\": [\n        {\n          \"command\": \"node --input-type=module -e 'import {MAX_ATTEMPTS, shouldRetry} from \\\"./src/slice.ts\\\"; console.log(JSON.stringify({limit: MAX_ATTEMPTS, atLimit: shouldRetry({id:\\\"job\\\",attempts:MAX_ATTEMPTS}), beyondLimit: shouldRetry({id:\\\"job\\\",attempts:MAX_ATTEMPTS+1})}))'\",\n          \"exitCode\": 0,\n          \"durationMs\": 0,\n          \"output\": \"{\\\"limit\\\":3,\\\"atLimit\\\":true,\\\"beyondLimit\\\":false}\"\n        }\n      ],\n      \"patch\": null\n    },\n    {\n      \"title\": \"Capacity stays occupied at the exact window boundary\",\n      \"body\": \"The strict comparison retains an event when exactly `windowMs` has elapsed. With a limit of one, an event at 0 blocks another at 1000 ms and capacity becomes available only at 1001 ms. This extends the usual half-open sliding window by one timestamp unit.\",\n      \"severity\": \"medium\",\n      \"verification\": \"verified\",\n      \"location\": {\n        \"path\": \"src/window.ts\",\n        \"startLine\": 8,\n        \"endLine\": 8\n      },\n      \"anchoredText\": \"this.events[0] < now - this.windowMs\",\n      \"evidence\": [\n        {\n          \"command\": \"node --experimental-transform-types --input-type=module -e 'import {SlidingWindow} from \\\"./src/window.ts\\\"; const limiter = new SlidingWindow(1,1000); console.lo",
+        "usage": [
+          {
+            "type": "finish",
+            "totalUsage": {
+              "inputTokens": {
+                "total": 145235,
+                "noCache": 15792,
+                "cacheRead": 129443,
+                "cacheWrite": 0
+              },
+              "outputTokens": {
+                "text": 5350,
+                "total": 5350
+              }
+            },
+            "finishReason": {
+              "raw": "stop",
+              "unified": "stop"
+            }
+          }
+        ],
+        "region": "iad1",
+        "attempt": 1,
+        "sliceMs": 91056,
+        "counters": {
+          "runs": 5,
+          "spawns": 1,
+          "transformCalls": 1
+        },
+        "instance": "1ed79f3e-ebf3-41be-af98-413d2d86c6f5",
+        "isResume": false,
+        "doStartMs": 1305,
+        "toolCalls": [
+          "item_2",
+          "item_3",
+          "item_4",
+          "item_5",
+          "item_6",
+          "item_7",
+          "item_9",
+          "item_10",
+          "item_12",
+          "item_14",
+          "item_15",
+          "item_16",
+          "item_18",
+          "item_19",
+          "item_20",
+          "item_22"
+        ],
+        "eventTypes": {
+          "finish": 1,
+          "text-end": 1,
+          "tool-call": 16,
+          "text-delta": 1,
+          "text-start": 1,
+          "finish-step": 17,
+          "tool-result": 16,
+          "stream-start": 1,
+          "reasoning-end": 7,
+          "reasoning-delta": 7,
+          "reasoning-start": 7
+        },
+        "reattachMs": 75,
+        "toolResults": [
+          "item_2",
+          "item_3",
+          "item_4",
+          "item_5",
+          "item_6",
+          "item_7",
+          "item_9",
+          "item_10",
+          "item_12",
+          "item_14",
+          "item_15",
+          "item_16",
+          "item_18",
+          "item_19",
+          "item_20",
+          "item_22"
+        ],
+        "spawnsAtStart": 1
+      },
+      "started_at": "2026-09-24T01:00:07.540Z",
+      "ended_at": "2026-09-24T01:01:38.638Z"
+    }
+  ],
+  "run": {
+    "status": "completed",
+    "returnValue": {
+      "provisioned": {
+        "createMs": 332,
+        "bootstrapOut": "codex-cli 0.153.4",
+        "bootstrapMs": 4375,
+        "materialize": {
+          "exitCode": 0,
+          "out": "87ee819d54daa8a9ea70df3c46c6ba823fdf610a\ne5823c9 Bound retries, cap backoff, add a sliding-window limiter\n87ee819 Seed fixture project"
+        },
+        "materializeMs": 753,
+        "narrowPolicyMs": 447,
+        "instance": "ff24adaa-73ac-45f8-acf7-abcdd17d36b8",
+        "region": "iad1"
+      },
+      "probe": {
+        "satisfied": true,
+        "finished": true,
+        "observations": 1,
+        "canarySeen": false,
+        "canaryExecuted": false,
+        "rejections": [],
+        "usage": {
+          "inputTokens": {
+            "total": 6734,
+            "noCache": 6734,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 23,
+            "text": 23
+          }
+        },
+        "timing": {
+          "bootstrapOut": "codex-cli 0.153.4",
+          "bootstrapMs": 4361,
+          "materializeMs": 177,
+          "narrowPolicyMs": 310
+        },
+        "probeMs": 13558,
+        "text": "{\"summary\":\"probe\",\"commandsRun\":[],\"findings\":[]}"
+      },
+      "slices": [
+        {
+          "n": 1,
+          "state": "completed",
+          "attempt": 1,
+          "instance": "1ed79f3e-ebf3-41be-af98-413d2d86c6f5",
+          "spawnsAtStart": 1
+        }
+      ],
+      "end": {
+        "p114-muetr1v4": {
+          "stopMs": 3283,
+          "status": "stopped",
+          "evidence": "stopped",
+          "activeCpuUsageMs": 19897,
+          "totalDurationMs": 117556
+        }
+      }
+    }
+  }
+}

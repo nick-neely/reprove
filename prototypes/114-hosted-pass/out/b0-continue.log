@@ -5,7 +5,7 @@
   "status": "running",
   "sessionIdMatches": true
 }
-  io.addRequestTransformations [{"match":{"host":"api.openai.com","path":{"startsWith":"/v1"},"headers":[{"key":{"exact":"Authorization"},"value":{"exact":"Bearer aisdkhc_bmRAq5PkA7hA_SBMxJ-95PkBGaPy9EMMwzAIGY1JhxA"}}]},"headers":["Authorization"]}]
+  io.addRequestTransformations [{"match":{"host":"api.openai.com","path":{"startsWith":"/v1"},"headers":[{"key":{"exact":"Authorization"},"value":{"exact":"Bearer aisdkhc_<placeholder>"}}]},"headers":["Authorization"]}]
 
 [2026-09-24T00:16:10.426Z] resume asked for transforms again (policy left as is)
 1

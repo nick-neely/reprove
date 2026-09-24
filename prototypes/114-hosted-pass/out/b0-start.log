@@ -17,7 +17,7 @@
   "exitCode": 0,
   "out": "87ee819 Seed fixture project\nREADME.md\nsrc\n"
 }
-  io.addRequestTransformations [{"match":{"host":"api.openai.com","path":{"startsWith":"/v1"},"headers":[{"key":{"exact":"Authorization"},"value":{"exact":"Bearer aisdkhc_bmRAq5PkA7hA_SBMxJ-95PkBGaPy9EMMwzAIGY1JhxA"}}]},"headers":["Authorization"]}]
+  io.addRequestTransformations [{"match":{"host":"api.openai.com","path":{"startsWith":"/v1"},"headers":[{"key":{"exact":"Authorization"},"value":{"exact":"Bearer aisdkhc_<placeholder>"}}]},"headers":["Authorization"]}]
   io.run printf "%s" "$HOME"
   io.run mkdir -p '/vercel/sandbox/ws' '/vercel/sandbox/.agent-runs/p114-b0-mues61ig/bridge'
   io.spawn node '/vercel/sandbox/.harness-bootstrap/codex/bridge.mjs' --workdir '/vercel/sandbox/ws' --bridge-state-dir '/vercel/sandbox/.agent-runs/p114-b0-mues61ig/bridg

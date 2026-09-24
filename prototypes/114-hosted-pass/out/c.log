@@ -1,0 +1,273 @@
+
+[2026-09-24T00:43:56.491Z] npm view through the egress route
+{
+  "ms": 1687,
+  "exitCode": 0,
+  "out": "7.0.0"
+}
+
+[2026-09-24T00:43:56.565Z] egress log
+[
+  {
+    "verdict": "allowed",
+    "n": 1,
+    "bytes": "36183",
+    "max_ms": 283,
+    "avg_ms": "283"
+  }
+]
+
+[2026-09-24T00:46:25.703Z] npm install (typescript, eslint, vitest) via egress route
+{
+  "ms": 149075,
+  "exitCode": 0,
+  "out": "npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.1.0\nnpm notice To update run: npm install -g npm@12.1.0\nnpm notice"
+}
+
+[2026-09-24T00:46:25.767Z] egress log for the install
+[
+  {
+    "verdict": "allowed",
+    "n": 343,
+    "bytes": "159673290",
+    "max_ms": 2237,
+    "avg_ms": "269"
+  }
+]
+
+[2026-09-24T00:46:25.832Z] upstream statuses and redirects
+[
+  {
+    "status": 200,
+    "n": 343,
+    "sample_location": null
+  }
+]
+
+[2026-09-24T00:46:38.496Z] same install, domains allowed directly (baseline)
+{
+  "ms": 11810,
+  "exitCode": 0,
+  "out": "npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.1.0\nnpm notice To update run: npm install -g npm@12.1.0\nnpm notice"
+}
+
+[2026-09-24T00:46:38.497Z] install comparison
+{
+  "viaProxyMs": 149075,
+  "directMs": 11810,
+  "ratio": 12.62
+}
+
+[2026-09-24T00:46:40.578Z] git clone public repo through egress (upload-pack)
+{
+  "ms": 1143,
+  "exitCode": 0,
+  "out": "7fd1a60 Merge pull request #6 from Spaceghost/patch-1"
+}
+
+[2026-09-24T00:46:41.585Z] git fetch a fork head by SHA through egress
+{
+  "ms": 1007,
+  "exitCode": 0,
+  "out": "commit"
+}
+
+[2026-09-24T00:46:41.648Z] git requests seen
+[
+  {
+    "method": "GET",
+    "path": "/octocat/Hello-World/info/refs",
+    "verdict": "allowed",
+    "status": 200,
+    "req_bytes": 0,
+    "resp_bytes": 191,
+    "ms": 137
+  },
+  {
+    "method": "POST",
+    "path": "/octocat/Hello-World/git-upload-pack",
+    "verdict": "allowed",
+    "status": 200,
+    "req_bytes": 181,
+    "resp_bytes": 282,
+    "ms": 86
+  },
+  {
+    "method": "POST",
+    "path": "/octocat/Hello-World/git-upload-pack",
+    "verdict": "allowed",
+    "status": 200,
+    "req_bytes": 323,
+    "resp_bytes": 1613,
+    "ms": 92
+  },
+  {
+    "method": "GET",
+    "path": "/octocat/Hello-World/info/refs",
+    "verdict": "allowed",
+    "status": 200,
+    "req_bytes": 0,
+    "resp_bytes": 191,
+    "ms": 38
+  },
+  {
+    "method": "POST",
+    "path": "/octocat/Hello-World/git-upload-pack",
+    "verdict": "allowed",
+    "status": 200,
+    "req_bytes": 108,
+    "resp_bytes": 239095,
+    "ms": 178
+  },
+  {
+    "method": "GET",
+    "path": "/octocat/Hello-World/info/refs",
+    "verdict": "allowed",
+    "status": 200,
+    "req_bytes": 0,
+    "resp_bytes": 191,
+    "ms": 43
+  },
+  {
+    "method": "POST",
+    "path": "/octocat/Hello-World/git-upload-pack",
+    "verdict": "allowed",
+    "status": 200,
+    "req_bytes": 134,
+    "resp_bytes": 4,
+    "ms": 85
+  },
+  {
+    "method": "POST",
+    "path": "/octocat/Hello-World/git-upload-pack",
+    "verdict": "allowed",
+    "status": 200,
+    "req_bytes": 414,
+    "resp_bytes": 619,
+    "ms": 93
+  }
+]
+
+[2026-09-24T00:46:42.192Z] archive download: redirect to codeload, not followed by the proxy
+{
+  "ms": 480,
+  "exitCode": 0,
+  "out": "first=302 redirect=https://codeload.github.com/octocat/Hello-World/tar.gz/refs/heads/master\nfollowed=200 final=https://codeload.github.com/octocat/Hello-World/tar.gz/refs/heads/master"
+}
+
+[2026-09-24T00:46:43.128Z] pip download through egress (pypi.org -> files.pythonhosted.org)
+{
+  "ms": 936,
+  "exitCode": 0,
+  "out": "pip 25.1.1 from /usr/lib/python3/dist-packages/pip (python 3.14)\nERROR: Could not find a version that satisfies the requirement requests (from versions: none)\nERROR: No matching distribution found for requests"
+}
+
+[2026-09-24T00:46:43.195Z] redirect/registry requests
+[
+  {
+    "host": "github.com",
+    "method": "GET",
+    "path": "/octocat/Hello-World/archive/refs/heads/master.tar.gz",
+    "status": 302,
+    "location": "https://codeload.github.com/octocat/Hello-World/tar.gz/refs/heads/master"
+  },
+  {
+    "host": "github.com",
+    "method": "GET",
+    "path": "/octocat/Hello-World/archive/refs/heads/master.tar.gz",
+    "status": 302,
+    "location": "https://codeload.github.com/octocat/Hello-World/tar.gz/refs/heads/master"
+  },
+  {
+    "host": "codeload.github.com",
+    "method": "GET",
+    "path": "/octocat/Hello-World/tar.gz/refs/heads/master",
+    "status": 200,
+    "location": null
+  },
+  {
+    "host": "pypi.org",
+    "method": "GET",
+    "path": "/api/egress/simple/requests",
+    "status": 404,
+    "location": null
+  }
+]
+
+[2026-09-24T00:46:43.468Z] Host header differing from the name
+{
+  "ms": 210,
+  "exitCode": 0,
+  "out": "403"
+}
+
+[2026-09-24T00:46:43.857Z] POST to the registry (method denial)
+{
+  "ms": 388,
+  "exitCode": 0,
+  "out": "403"
+}
+
+[2026-09-24T00:46:44.077Z] a host not in the policy
+{
+  "ms": 220,
+  "exitCode": 0,
+  "out": "000\nexit=6"
+}
+
+[2026-09-24T00:46:44.141Z] what the route saw
+[
+  {
+    "host": "registry.npmjs.org",
+    "method": "POST",
+    "path": "/-/v1/login",
+    "verdict": "method",
+    "status": null,
+    "host_header": "reprove-proto-114.vercel.app",
+    "fwd_headers": "vercel-forwarded-host=registry.npmjs.org;vercel-forwarded-path=/-/v1/login;vercel-forwarded-port=443;vercel-forwarded-scheme=https;auth=absent"
+  }
+]
+
+[2026-09-24T00:46:45.720Z] github.com with [transform, forwardURL]
+{
+  "ms": 398,
+  "exitCode": 0,
+  "out": "7fd1a60b01f91b314f59955a4e4d4e80d8edf11d\tHEAD"
+}
+
+[2026-09-24T00:46:46.879Z] github.com with [forwardURL, transform]
+{
+  "ms": 505,
+  "exitCode": 0,
+  "out": "7fd1a60b01f91b314f59955a4e4d4e80d8edf11d\tHEAD"
+}
+
+[2026-09-24T00:46:46.942Z] transform+forward composition
+[
+  {
+    "path": "/octocat/Hello-World/info/refs",
+    "verdict": "allowed",
+    "status": 200,
+    "fwd_headers": "vercel-forwarded-host=github.com;vercel-forwarded-path=/octocat/Hello-World/info/refs?service=git-upload-pack;vercel-forwarded-port=443;vercel-forwarded-scheme=https;auth=absent"
+  },
+  {
+    "path": "/octocat/Hello-World/git-upload-pack",
+    "verdict": "allowed",
+    "status": 200,
+    "fwd_headers": "vercel-forwarded-host=github.com;vercel-forwarded-path=/octocat/Hello-World/git-upload-pack;vercel-forwarded-port=443;vercel-forwarded-scheme=https;auth=absent"
+  }
+]
+
+[2026-09-24T00:46:47.755Z] forwardURL = non-resolving host
+{
+  "ms": 204,
+  "exitCode": 0,
+  "out": "status=404\nexit=0\nThe deployment could not be found on Vercel.\n\nDEPLOYMENT_NOT_FOUND\n\niad1::2cpdw-1790210807685-2ed5282fe007"
+}
+
+[2026-09-24T00:46:48.578Z] forwardURL = route that 404s
+{
+  "ms": 260,
+  "exitCode": 0,
+  "out": "status=404\nexit=0\n<!DOCTYPE html><html data-dpl-id=\"dpl_CLeq5UVGBfQ7Jo3D9rUJKXeRSAf6\"><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><link rel=\"preload\" as=\"script\" fe"
+}

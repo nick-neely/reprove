@@ -1,0 +1,181 @@
+{
+  "pass": [
+    {
+      "id": "p114-muess3cd",
+      "status": "ended",
+      "deadline": "2026-09-24T00:47:29.492Z",
+      "created_at": "2026-09-24T00:32:29.492Z",
+      "outcome": {
+        "last": {
+          "refused": "probe"
+        }
+      }
+    }
+  ],
+  "sandboxes": [
+    {
+      "name": "p114-muess3cd-probe",
+      "pass_id": "p114-muess3cd",
+      "state": "stopped",
+      "sandbox_id": "sbx_uFaFHkDITsRCmQ5qvfOiDBZdtAwJ",
+      "created_at": "2026-09-24T00:32:38.939Z",
+      "updated_at": "2026-09-24T00:32:56.835Z"
+    },
+    {
+      "name": "p114-muess3cd",
+      "pass_id": "p114-muess3cd",
+      "state": "stopped",
+      "sandbox_id": "sbx_RJWNTjyzueuI2W1gZUwSCf6wNaxj",
+      "created_at": "2026-09-24T00:32:30.193Z",
+      "updated_at": "2026-09-24T00:32:59.772Z"
+    }
+  ],
+  "bindings": [
+    {
+      "name": "p114-muess3cd",
+      "kind": "review",
+      "sandbox_id": "sbx_RJWNTjyzueuI2W1gZUwSCf6wNaxj",
+      "request_count": 0,
+      "revoked": true,
+      "rejections": [],
+      "has_placeholder": false
+    },
+    {
+      "name": "p114-muess3cd-probe",
+      "kind": "probe",
+      "sandbox_id": "sbx_uFaFHkDITsRCmQ5qvfOiDBZdtAwJ",
+      "request_count": 1,
+      "revoked": true,
+      "rejections": [],
+      "has_placeholder": true
+    }
+  ],
+  "admissions": [
+    {
+      "id": "1",
+      "binding": "p114-muess3cd-probe",
+      "admitted_at": "2026-09-24T00:32:47.299Z",
+      "expires_at": "2026-09-24T00:37:47.299Z",
+      "released_at": "2026-09-24T00:32:48.589Z",
+      "release_reason": "complete",
+      "method": "POST",
+      "path": "/v1/responses",
+      "req_bytes": 44137,
+      "status": 200,
+      "upstream_ms": 781,
+      "claims": {
+        "aud": "https://reprove-proto-114.vercel.app/api/proxy",
+        "exp": 1790296965,
+        "iat": 1790209965,
+        "iss": "https://oidc.vercel.com/team_8INDibYV08yytiZJHcMuAaYO",
+        "nbf": 1790209965,
+        "sub": "team:team_8INDibYV08yytiZJHcMuAaYO:project:prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S:sandbox:sbx_uFaFHkDITsRCmQ5qvfOiDBZdtAwJ",
+        "team_id": "team_8INDibYV08yytiZJHcMuAaYO",
+        "project_id": "prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S",
+        "sandbox_id": "sbx_uFaFHkDITsRCmQ5qvfOiDBZdtAwJ",
+        "sandbox_name": "p114-muess3cd-probe"
+      }
+    }
+  ],
+  "observations": [
+    {
+      "id": "1",
+      "binding": "p114-muess3cd-probe",
+      "at": "2026-09-24T00:32:47.335Z",
+      "bytes": 44137,
+      "canary_seen": false
+    }
+  ],
+  "slices": [
+    {
+      "pass_id": "p114-muess3cd",
+      "n": 0,
+      "kind": "probe",
+      "state": "completed",
+      "has_cursor": false,
+      "outcome": {
+        "text": "{\"summary\":\"probe\",\"commandsRun\":[],\"findings\":[]}",
+        "usage": {
+          "inputTokens": {
+            "total": 7960,
+            "noCache": 7960,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "text": 23,
+            "total": 23
+          }
+        },
+        "timing": {
+          "bootstrapMs": 5524,
+          "materializeMs": 253,
+          "narrowPolicyMs": 344
+        },
+        "probeMs": 14753,
+        "finished": true,
+        "satisfied": false,
+        "canarySeen": false,
+        "rejections": [],
+        "observations": 1,
+        "canaryExecuted": true
+      },
+      "facts": null,
+      "started_at": "2026-09-24T00:32:38.931Z",
+      "ended_at": "2026-09-24T00:32:56.841Z"
+    }
+  ],
+  "run": {
+    "status": "completed",
+    "returnValue": {
+      "provisioned": {
+        "createMs": 312,
+        "bootstrapMs": 4605,
+        "materialize": {
+          "exitCode": 0,
+          "head": "87ee819 Seed fixture project"
+        },
+        "materializeMs": 668,
+        "narrowPolicyMs": 328,
+        "instance": "f738b7ca-8308-4923-8fbe-c8807785e735",
+        "region": "iad1"
+      },
+      "probe": {
+        "satisfied": false,
+        "finished": true,
+        "observations": 1,
+        "canarySeen": false,
+        "canaryExecuted": true,
+        "rejections": [],
+        "usage": {
+          "inputTokens": {
+            "total": 7960,
+            "noCache": 7960,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 23,
+            "text": 23
+          }
+        },
+        "timing": {
+          "bootstrapMs": 5524,
+          "materializeMs": 253,
+          "narrowPolicyMs": 344
+        },
+        "probeMs": 14753,
+        "text": "{\"summary\":\"probe\",\"commandsRun\":[],\"findings\":[]}"
+      },
+      "end": {
+        "p114-muess3cd": {
+          "stopMs": 2259,
+          "status": "stopped",
+          "evidence": "stopped",
+          "activeCpuUsageMs": 7856,
+          "totalDurationMs": 27635
+        }
+      }
+    }
+  }
+}

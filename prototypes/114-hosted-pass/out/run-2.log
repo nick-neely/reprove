@@ -1,0 +1,16 @@
+started {
+  runId: 'wrun_01M38D7WZKE0TYZH557B4D6HX6',
+  input: {
+    passId: 'p114-muess3cd',
+    model: 'gpt-6-luna',
+    sliceMs: 40000,
+    deadlineMinutes: 15,
+    probe: true,
+    killAfterSlice1: false
+  }
+}
+{"t":12,"run":"running","pass":"executing","slices":[],"admissions":0,"sandboxes":["p114-muess3cd:running"]}
+{"t":23,"run":"running","pass":"executing","slices":["0:probe:started"],"admissions":1,"sandboxes":["p114-muess3cd:running","p114-muess3cd-probe:running"]}
+{"t":33,"run":"running","pass":"executing","slices":["0:probe:completed"],"admissions":1,"sandboxes":["p114-muess3cd:running","p114-muess3cd-probe:stopped"]}
+{"t":44,"run":"completed","pass":"ended","slices":["0:probe:completed"],"admissions":1,"sandboxes":["p114-muess3cd-probe:stopped","p114-muess3cd:stopped"]}
+final written out/run-p114-muess3cd.json wall s 44

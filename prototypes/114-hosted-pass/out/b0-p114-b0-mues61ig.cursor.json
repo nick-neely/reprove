@@ -1,0 +1,31 @@
+{
+  "name": "p114-b0-mues61ig",
+  "sessionId": "sbx_09eVGEd3ZQeiR05dOlAjD60liIoo",
+  "model": "gpt-6-luna",
+  "state": {
+    "type": "continue-turn",
+    "harnessId": "codex",
+    "specificationVersion": "harness-v1",
+    "data": {
+      "threadId": "01a0d0c4-6ad9-7241-92ec-e078c48162f3",
+      "turnConfigurationFingerprint": "bc0b5931040115719985d38ba36c36bb9b83aec623dcadd3724029518b737725",
+      "sandboxCredentialEnvironment": {
+        "CODEX_API_KEY": "aisdkhc_bmRAq5PkA7hA_SBMxJ-95PkBGaPy9EMMwzAIGY1JhxA"
+      },
+      "bridge": {
+        "port": 3000,
+        "token": "d55a8775c7b3750133cbd8160a0548800fe6c6ca7513d3cea93e110925d2db9d",
+        "lastSeenEventId": 11,
+        "sandboxId": "p114-b0-mues61ig"
+      }
+    }
+  },
+  "timing": {
+    "createMs": 539,
+    "bootstrapMs": 4961,
+    "materializeMs": 1254,
+    "policyUpdateMs": 711,
+    "doStartMs": 1933,
+    "slice1Ms": 26255
+  }
+}

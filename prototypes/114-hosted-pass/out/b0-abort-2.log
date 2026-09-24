@@ -1,0 +1,49 @@
+
+[2026-09-24T00:41:02.619Z] turn 1 (aborted)
+{
+  "r1": {
+    "error": "AbortError: This operation was aborted"
+  },
+  "events": "stream-start,text-start,text-delta,text-end,tool-call,text-start,text-delta,text-end,tool-result,finish-step,text-start,text-delta,text-end,finish-step"
+}
+
+[2026-09-24T00:41:05.973Z] same session after 3s threw
+AbortError: The operation was aborted
+
+[2026-09-24T00:41:06.802Z] doStop state
+{
+  "type": "resume-session",
+  "dataKeys": [
+    "threadId",
+    "turnConfigurationFingerprint",
+    "sandboxCredentialEnvironment"
+  ],
+  "threadId": "01a0d0da-de30-7771-9f91-76689b557027"
+}
+
+[2026-09-24T00:41:14.345Z] resumeFrom session
+{
+  "ms": 6505,
+  "text": "PERIWINKLE-7",
+  "contextIntact": true,
+  "events": "stream-start,text-start,text-delta,text-end,finish-step,finish",
+  "usage": {
+    "inputTokens": {
+      "total": 33529,
+      "noCache": 8533,
+      "cacheRead": 24996,
+      "cacheWrite": 0
+    },
+    "outputTokens": {
+      "total": 210,
+      "text": 210
+    }
+  }
+}
+
+[2026-09-24T00:41:14.345Z] resume spawns
+{
+  "spawns": 1,
+  "runs": 1,
+  "transformCalls": 1
+}

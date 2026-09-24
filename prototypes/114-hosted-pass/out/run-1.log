@@ -1,0 +1,14 @@
+started {
+  runId: 'wrun_01M38D53V1XV9ZPR3Z255CVD0G',
+  input: {
+    passId: 'p114-muesq4ws',
+    model: 'gpt-6-luna',
+    sliceMs: 40000,
+    deadlineMinutes: 15,
+    probe: true,
+    killAfterSlice1: false
+  }
+}
+{"t":12,"run":"running","pass":"executing","slices":[],"admissions":0,"sandboxes":["p114-muesq4ws:running"]}
+{"t":23,"run":"completed","pass":"ended","slices":["0:probe:completed"],"admissions":0,"sandboxes":["p114-muesq4ws.probe:create_requested","p114-muesq4ws:stopped"]}
+final written out/run-p114-muesq4ws.json wall s 23

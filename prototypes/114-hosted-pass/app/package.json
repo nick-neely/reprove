@@ -1,0 +1,27 @@
+{
+  "name": "prototype-114-app",
+  "private": true,
+  "description": "PROTOTYPE for #114. Throwaway, never merged.",
+  "type": "module",
+  "scripts": {
+    "build": "next build"
+  },
+  "engines": {
+    "node": "24.x"
+  },
+  "dependencies": {
+    "@ai-sdk/harness": "1.0.102",
+    "@ai-sdk/harness-codex": "1.0.104",
+    "@octokit/auth-app": "^8",
+    "@vercel/sandbox": "3.5.0",
+    "jose": "^6.2.3",
+    "next": "^16.3.4",
+    "pg": "^8",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "undici": "^7.29.0",
+    "workflow": "4.8.5",
+    "ws": "8.21.3",
+    "zod": "4.5.4"
+  }
+}

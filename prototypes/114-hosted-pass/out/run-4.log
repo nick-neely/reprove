@@ -1,0 +1,21 @@
+started {
+  runId: 'wrun_01M38DGPJZPZSARB9K38XK67DK',
+  input: {
+    passId: 'p114-muesy9uk',
+    model: 'gpt-6-luna',
+    sliceMs: 40000,
+    deadlineMinutes: 15,
+    probe: false,
+    killAfterSlice1: true
+  }
+}
+{"t":11,"run":"running","pass":"executing","slices":["1:drive:started"],"admissions":1,"sandboxes":["p114-muesy9uk:running"]}
+{"t":22,"run":"running","pass":"executing","slices":["1:drive:started"],"admissions":2,"sandboxes":["p114-muesy9uk:running"]}
+{"t":32,"run":"running","pass":"executing","slices":["1:drive:started"],"admissions":2,"sandboxes":["p114-muesy9uk:running"]}
+{"t":42,"run":"running","pass":"executing","slices":["1:drive:started"],"admissions":5,"sandboxes":["p114-muesy9uk:running"]}
+{"t":53,"run":"running","pass":"executing","slices":["1:drive:suspended","2:drive:started"],"admissions":5,"sandboxes":["p114-muesy9uk:running"]}
+{"t":63,"run":"running","pass":"executing","slices":["1:drive:suspended","2:drive:started"],"admissions":6,"sandboxes":["p114-muesy9uk:running"]}
+{"t":74,"run":"running","pass":"executing","slices":["1:drive:suspended","2:drive:started"],"admissions":6,"sandboxes":["p114-muesy9uk:running"]}
+{"t":84,"run":"running","pass":"executing","slices":["1:drive:suspended","2:drive:started"],"admissions":7,"sandboxes":["p114-muesy9uk:running"]}
+{"t":95,"run":"completed","pass":"ended","slices":["1:drive:suspended","2:drive:completed"],"admissions":7,"sandboxes":["p114-muesy9uk:stopped"]}
+final written out/run-p114-muesy9uk.json wall s 95

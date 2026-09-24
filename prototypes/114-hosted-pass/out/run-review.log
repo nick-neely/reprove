@@ -1,0 +1,29 @@
+started {
+  runId: 'wrun_01M38ESNSPSBSXD11E050Z8W0A',
+  input: {
+    passId: 'p114-muetr1v4',
+    model: 'gpt-6-sol',
+    sliceMs: 240000,
+    deadlineMinutes: 15,
+    probe: true,
+    killAfterSlice1: false,
+    mode: 'review',
+    baseSha: '87ee819d54daa8a9ea70df3c46c6ba823fdf610a',
+    headSha: 'e5823c9d4f1e2ee8b29c5d9420ec88404167b72e',
+    effort: 'medium'
+  }
+}
+{"t":12,"run":"running","pass":"executing","slices":[],"admissions":0,"sandboxes":["p114-muetr1v4:running"]}
+{"t":22,"run":"running","pass":"executing","slices":["0:probe:started"],"admissions":1,"sandboxes":["p114-muetr1v4:running","p114-muetr1v4-probe:running"]}
+{"t":32,"run":"running","pass":"executing","slices":["0:probe:completed","1:drive:started"],"admissions":1,"sandboxes":["p114-muetr1v4:running","p114-muetr1v4-probe:stopped"]}
+{"t":43,"run":"running","pass":"executing","slices":["0:probe:completed","1:drive:started"],"admissions":4,"sandboxes":["p114-muetr1v4:running","p114-muetr1v4-probe:stopped"]}
+{"t":53,"run":"running","pass":"executing","slices":["0:probe:completed","1:drive:started"],"admissions":6,"sandboxes":["p114-muetr1v4:running","p114-muetr1v4-probe:stopped"]}
+{"t":64,"run":"running","pass":"executing","slices":["0:probe:completed","1:drive:started"],"admissions":7,"sandboxes":["p114-muetr1v4:running","p114-muetr1v4-probe:stopped"]}
+{"t":74,"run":"running","pass":"executing","slices":["0:probe:completed","1:drive:started"],"admissions":9,"sandboxes":["p114-muetr1v4:running","p114-muetr1v4-probe:stopped"]}
+{"t":84,"run":"running","pass":"executing","slices":["0:probe:completed","1:drive:started"],"admissions":10,"sandboxes":["p114-muetr1v4:running","p114-muetr1v4-probe:stopped"]}
+{"t":95,"run":"running","pass":"executing","slices":["0:probe:completed","1:drive:started"],"admissions":11,"sandboxes":["p114-muetr1v4:running","p114-muetr1v4-probe:stopped"]}
+{"t":105,"run":"running","pass":"executing","slices":["0:probe:completed","1:drive:started"],"admissions":13,"sandboxes":["p114-muetr1v4:running","p114-muetr1v4-probe:stopped"]}
+{"t":116,"run":"running","pass":"executing","slices":["0:probe:completed","1:drive:started"],"admissions":13,"sandboxes":["p114-muetr1v4:running","p114-muetr1v4-probe:stopped"]}
+{"t":126,"run":"running","pass":"ended","slices":["0:probe:completed","1:drive:completed"],"admissions":13,"sandboxes":["p114-muetr1v4-probe:stopped","p114-muetr1v4:stopped"]}
+{"t":137,"run":"completed","pass":"ended","slices":["0:probe:completed","1:drive:completed"],"admissions":13,"sandboxes":["p114-muetr1v4-probe:stopped","p114-muetr1v4:stopped"]}
+final written out/run-p114-muetr1v4.json wall s 137

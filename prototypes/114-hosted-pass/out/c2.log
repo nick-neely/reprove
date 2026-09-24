@@ -1,0 +1,97 @@
+
+[2026-09-24T00:48:21.317Z] pip download via egress after the fix
+{
+  "ms": 1676,
+  "exitCode": 0,
+  "out": "requests-2.34.2-py3-none-any.whl"
+}
+
+[2026-09-24T00:48:21.397Z] pip requests
+[
+  {
+    "host": "pypi.org",
+    "path": "/simple/requests/",
+    "status": 200,
+    "location": null
+  },
+  {
+    "host": "files.pythonhosted.org",
+    "path": "/packages/a0/f4/c67b0b3f1b9245e8d266f0f112c500d50e5b4e83cb6f3b71b65281",
+    "status": 200,
+    "location": null
+  },
+  {
+    "host": "files.pythonhosted.org",
+    "path": "/packages/a0/f4/c67b0b3f1b9245e8d266f0f112c500d50e5b4e83cb6f3b71b65281",
+    "status": 200,
+    "location": null
+  }
+]
+
+[2026-09-24T00:48:22.307Z] forwardURL https://p114-unreachable.invalid/x
+{
+  "ms": 212,
+  "exitCode": 0,
+  "out": "status=502\nexit=0\nBad Gateway"
+}
+
+[2026-09-24T00:48:53.273Z] forwardURL https://10.255.255.1/x
+{
+  "ms": 30219,
+  "exitCode": 0,
+  "out": "status=000\nexit=28\nBad Gateway"
+}
+
+[2026-09-24T00:48:53.438Z] forwardURL http://reprove-proto-114.vercel.app/api/egress: update rejected
+Status code 400 is not ok: Invalid forward rule: address must use https.
+
+[2026-09-24T00:48:53.442Z] response-rule policy rejected
+[
+  {
+    "code": "custom",
+    "path": [
+      "allow",
+      "registry.npmjs.org",
+      0
+    ],
+    "message": "transform, forwardURL, or response must be provided"
+  }
+]
+
+[2026-09-24T00:48:53.442Z] update ms
+3
+
+[2026-09-24T00:51:08.915Z] GET allowed by a match-only rule?
+{
+  "ms": 135473,
+  "exitCode": 0,
+  "out": "502"
+}
+
+[2026-09-24T00:53:27.165Z] POST answered by the firewall's response rule?
+{
+  "ms": 138250,
+  "exitCode": 0,
+  "out": "Bad Gateway 502"
+}
+node:events:487
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: Connection terminated unexpectedly
+    at Connection.<anonymous> (/home/exedev/dev/reprove/prototypes/114-hosted-pass/node_modules/pg/lib/client.js:204:73)
+    at Object.onceWrapper (node:events:630:28)
+    at Connection.emit (node:events:509:28)
+    at Socket.<anonymous> (/home/exedev/dev/reprove/prototypes/114-hosted-pass/node_modules/pg/lib/connection.js:64:12)
+    at Socket.emit (node:events:521:24)
+    at TCP.<anonymous> (node:net:351:12)
+Emitted 'error' event on Client instance at:
+    at Client._handleErrorEvent (/home/exedev/dev/reprove/prototypes/114-hosted-pass/node_modules/pg/lib/client.js:422:10)
+    at Connection.<anonymous> (/home/exedev/dev/reprove/prototypes/114-hosted-pass/node_modules/pg/lib/client.js:222:16)
+    at Object.onceWrapper (node:events:630:28)
+    at Connection.emit (node:events:509:28)
+    at Socket.<anonymous> (/home/exedev/dev/reprove/prototypes/114-hosted-pass/node_modules/pg/lib/connection.js:64:12)
+    at Socket.emit (node:events:521:24)
+    at TCP.<anonymous> (node:net:351:12)
+
+Node.js v24.18.0

@@ -1,0 +1,24 @@
+started {
+  runId: 'wrun_01M38DC4Z95S500QB86T5KJZ2V',
+  input: {
+    passId: 'p114-muesv2sj',
+    model: 'gpt-6-luna',
+    sliceMs: 40000,
+    deadlineMinutes: 15,
+    probe: true,
+    killAfterSlice1: false
+  }
+}
+{"t":13,"run":"running","pass":"executing","slices":[],"admissions":0,"sandboxes":["p114-muesv2sj:running"]}
+{"t":24,"run":"running","pass":"executing","slices":["0:probe:started"],"admissions":1,"sandboxes":["p114-muesv2sj:running","p114-muesv2sj-probe:running"]}
+{"t":34,"run":"running","pass":"executing","slices":["0:probe:completed","1:drive:started"],"admissions":2,"sandboxes":["p114-muesv2sj:running","p114-muesv2sj-probe:stopped"]}
+{"t":45,"run":"running","pass":"executing","slices":["0:probe:completed","1:drive:started"],"admissions":3,"sandboxes":["p114-muesv2sj:running","p114-muesv2sj-probe:stopped"]}
+{"t":55,"run":"running","pass":"executing","slices":["0:probe:completed","1:drive:started"],"admissions":3,"sandboxes":["p114-muesv2sj:running","p114-muesv2sj-probe:stopped"]}
+{"t":66,"run":"running","pass":"executing","slices":["0:probe:completed","1:drive:started"],"admissions":7,"sandboxes":["p114-muesv2sj:running","p114-muesv2sj-probe:stopped"]}
+{"t":76,"run":"running","pass":"executing","slices":["0:probe:completed","1:drive:suspended","2:drive:started"],"admissions":8,"sandboxes":["p114-muesv2sj:running","p114-muesv2sj-probe:stopped"]}
+{"t":87,"run":"running","pass":"executing","slices":["0:probe:completed","1:drive:suspended","2:drive:started"],"admissions":8,"sandboxes":["p114-muesv2sj:running","p114-muesv2sj-probe:stopped"]}
+{"t":97,"run":"running","pass":"executing","slices":["0:probe:completed","1:drive:suspended","2:drive:started"],"admissions":9,"sandboxes":["p114-muesv2sj:running","p114-muesv2sj-probe:stopped"]}
+{"t":107,"run":"running","pass":"executing","slices":["0:probe:completed","1:drive:suspended","2:drive:started"],"admissions":9,"sandboxes":["p114-muesv2sj:running","p114-muesv2sj-probe:stopped"]}
+{"t":118,"run":"running","pass":"executing","slices":["0:probe:completed","1:drive:suspended","2:drive:suspended","3:drive:started"],"admissions":10,"sandboxes":["p114-muesv2sj:running","p114-muesv2sj-probe:stopped"]}
+{"t":131,"run":"completed","pass":"ended","slices":["0:probe:completed","1:drive:suspended","2:drive:suspended","3:drive:completed"],"admissions":10,"sandboxes":["p114-muesv2sj-probe:stopped","p114-muesv2sj:stopped"]}
+final written out/run-p114-muesv2sj.json wall s 131

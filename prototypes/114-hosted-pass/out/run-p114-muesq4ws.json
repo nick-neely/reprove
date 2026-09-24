@@ -1,0 +1,99 @@
+{
+  "pass": [
+    {
+      "id": "p114-muesq4ws",
+      "status": "ended",
+      "deadline": "2026-09-24T00:45:58.686Z",
+      "created_at": "2026-09-24T00:30:58.686Z",
+      "outcome": {
+        "last": {
+          "refused": "probe"
+        }
+      }
+    }
+  ],
+  "sandboxes": [
+    {
+      "name": "p114-muesq4ws.probe",
+      "pass_id": "p114-muesq4ws",
+      "state": "create_requested",
+      "sandbox_id": null,
+      "created_at": "2026-09-24T00:31:08.505Z",
+      "updated_at": "2026-09-24T00:31:08.505Z"
+    },
+    {
+      "name": "p114-muesq4ws",
+      "pass_id": "p114-muesq4ws",
+      "state": "stopped",
+      "sandbox_id": "sbx_Y1Tadakh6NlqQGkOb7Q7SisDJ5Ig",
+      "created_at": "2026-09-24T00:30:59.452Z",
+      "updated_at": "2026-09-24T00:31:10.925Z"
+    }
+  ],
+  "bindings": [
+    {
+      "name": "p114-muesq4ws",
+      "kind": "review",
+      "sandbox_id": "sbx_Y1Tadakh6NlqQGkOb7Q7SisDJ5Ig",
+      "request_count": 0,
+      "revoked": true,
+      "rejections": [],
+      "has_placeholder": false
+    }
+  ],
+  "admissions": [],
+  "observations": [],
+  "slices": [
+    {
+      "pass_id": "p114-muesq4ws",
+      "n": 0,
+      "kind": "probe",
+      "state": "completed",
+      "has_cursor": false,
+      "outcome": {
+        "error": "Status code 400 is not ok: Invalid request: `name` should match pattern \"^[a-zA-Z0-9_-]+$\".",
+        "usage": "unknown",
+        "probeMs": 366,
+        "satisfied": false
+      },
+      "facts": null,
+      "started_at": "2026-09-24T00:31:08.493Z",
+      "ended_at": "2026-09-24T00:31:08.875Z"
+    }
+  ],
+  "run": {
+    "status": "completed",
+    "returnValue": {
+      "provisioned": {
+        "createMs": 389,
+        "bootstrapMs": 4579,
+        "materialize": {
+          "exitCode": 0,
+          "head": "87ee819 Seed fixture project"
+        },
+        "materializeMs": 865,
+        "narrowPolicyMs": 312,
+        "instance": "fdd6582b-c83b-4580-9d4e-da5d896e7bea",
+        "region": "iad1"
+      },
+      "probe": {
+        "satisfied": false,
+        "error": "Status code 400 is not ok: Invalid request: `name` should match pattern \"^[a-zA-Z0-9_-]+$\".",
+        "usage": "unknown",
+        "probeMs": 366
+      },
+      "end": {
+        "p114-muesq4ws": {
+          "stopMs": 1306,
+          "status": "stopped",
+          "evidence": "stopped",
+          "activeCpuUsageMs": 7559,
+          "totalDurationMs": 10440
+        },
+        "p114-muesq4ws.probe": {
+          "error": "Status code 400 is not ok: Invalid request: `name` should match pattern \"^[a-zA-Z0-9_-]+$\"."
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,471 @@
+{
+  "pass": [
+    {
+      "id": "p114-muetnsgg",
+      "status": "ended",
+      "deadline": "2026-09-24T01:12:08.900Z",
+      "created_at": "2026-09-24T00:57:08.900Z",
+      "outcome": {
+        "last": {
+          "n": 1,
+          "state": "completed",
+          "attempt": 1,
+          "instance": "2f8ca9b1-f468-4b5b-a43d-c0e5abf540ec",
+          "spawnsAtStart": 1
+        }
+      }
+    }
+  ],
+  "sandboxes": [
+    {
+      "name": "p114-muetnsgg-probe",
+      "pass_id": "p114-muetnsgg",
+      "state": "stopped",
+      "sandbox_id": "sbx_s0Wc32RJOfKMn8IEL7SuFC7s3wck",
+      "created_at": "2026-09-24T00:57:17.150Z",
+      "updated_at": "2026-09-24T00:57:33.710Z"
+    },
+    {
+      "name": "p114-muetnsgg",
+      "pass_id": "p114-muetnsgg",
+      "state": "stopped",
+      "sandbox_id": "sbx_ChjNYy4WKL0uA19C8jdujXsN05zL",
+      "created_at": "2026-09-24T00:57:09.670Z",
+      "updated_at": "2026-09-24T00:59:05.178Z"
+    }
+  ],
+  "bindings": [
+    {
+      "name": "p114-muetnsgg-probe",
+      "kind": "probe",
+      "sandbox_id": "sbx_s0Wc32RJOfKMn8IEL7SuFC7s3wck",
+      "request_count": 1,
+      "revoked": true,
+      "rejections": [],
+      "has_placeholder": true
+    },
+    {
+      "name": "p114-muetnsgg",
+      "kind": "review",
+      "sandbox_id": "sbx_ChjNYy4WKL0uA19C8jdujXsN05zL",
+      "request_count": 7,
+      "revoked": true,
+      "rejections": [],
+      "has_placeholder": true
+    }
+  ],
+  "admissions": [
+    {
+      "id": "19",
+      "binding": "p114-muetnsgg-probe",
+      "admitted_at": "2026-09-24T00:57:24.503Z",
+      "expires_at": "2026-09-24T01:02:24.503Z",
+      "released_at": "2026-09-24T00:57:26.504Z",
+      "release_reason": "complete",
+      "method": "POST",
+      "path": "/v1/responses",
+      "req_bytes": 37627,
+      "status": 200,
+      "upstream_ms": 1291,
+      "claims": {
+        "aud": "https://reprove-proto-114.vercel.app/api/proxy",
+        "exp": 1790298442,
+        "iat": 1790211442,
+        "iss": "https://oidc.vercel.com/team_8INDibYV08yytiZJHcMuAaYO",
+        "nbf": 1790211442,
+        "sub": "team:team_8INDibYV08yytiZJHcMuAaYO:project:prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S:sandbox:sbx_s0Wc32RJOfKMn8IEL7SuFC7s3wck",
+        "team_id": "team_8INDibYV08yytiZJHcMuAaYO",
+        "project_id": "prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S",
+        "sandbox_id": "sbx_s0Wc32RJOfKMn8IEL7SuFC7s3wck",
+        "sandbox_name": "p114-muetnsgg-probe"
+      }
+    },
+    {
+      "id": "20",
+      "binding": "p114-muetnsgg",
+      "admitted_at": "2026-09-24T00:57:36.685Z",
+      "expires_at": "2026-09-24T01:02:36.685Z",
+      "released_at": "2026-09-24T00:57:39.915Z",
+      "release_reason": "complete",
+      "method": "POST",
+      "path": "/v1/responses",
+      "req_bytes": 38010,
+      "status": 200,
+      "upstream_ms": 1065,
+      "claims": {
+        "aud": "https://reprove-proto-114.vercel.app/api/proxy",
+        "exp": 1790298435,
+        "iat": 1790211435,
+        "iss": "https://oidc.vercel.com/team_8INDibYV08yytiZJHcMuAaYO",
+        "nbf": 1790211435,
+        "sub": "team:team_8INDibYV08yytiZJHcMuAaYO:project:prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S:sandbox:sbx_ChjNYy4WKL0uA19C8jdujXsN05zL",
+        "team_id": "team_8INDibYV08yytiZJHcMuAaYO",
+        "project_id": "prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S",
+        "sandbox_id": "sbx_ChjNYy4WKL0uA19C8jdujXsN05zL",
+        "sandbox_name": "p114-muetnsgg"
+      }
+    },
+    {
+      "id": "21",
+      "binding": "p114-muetnsgg",
+      "admitted_at": "2026-09-24T00:57:40.052Z",
+      "expires_at": "2026-09-24T01:02:40.052Z",
+      "released_at": "2026-09-24T00:57:41.731Z",
+      "release_reason": "complete",
+      "method": "POST",
+      "path": "/v1/responses",
+      "req_bytes": 41040,
+      "status": 200,
+      "upstream_ms": 790,
+      "claims": {
+        "aud": "https://reprove-proto-114.vercel.app/api/proxy",
+        "exp": 1790298435,
+        "iat": 1790211435,
+        "iss": "https://oidc.vercel.com/team_8INDibYV08yytiZJHcMuAaYO",
+        "nbf": 1790211435,
+        "sub": "team:team_8INDibYV08yytiZJHcMuAaYO:project:prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S:sandbox:sbx_ChjNYy4WKL0uA19C8jdujXsN05zL",
+        "team_id": "team_8INDibYV08yytiZJHcMuAaYO",
+        "project_id": "prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S",
+        "sandbox_id": "sbx_ChjNYy4WKL0uA19C8jdujXsN05zL",
+        "sandbox_name": "p114-muetnsgg"
+      }
+    },
+    {
+      "id": "22",
+      "binding": "p114-muetnsgg",
+      "admitted_at": "2026-09-24T00:58:01.732Z",
+      "expires_at": "2026-09-24T01:03:01.732Z",
+      "released_at": "2026-09-24T00:58:03.817Z",
+      "release_reason": "complete",
+      "method": "POST",
+      "path": "/v1/responses",
+      "req_bytes": 41536,
+      "status": 200,
+      "upstream_ms": 1312,
+      "claims": {
+        "aud": "https://reprove-proto-114.vercel.app/api/proxy",
+        "exp": 1790298435,
+        "iat": 1790211435,
+        "iss": "https://oidc.vercel.com/team_8INDibYV08yytiZJHcMuAaYO",
+        "nbf": 1790211435,
+        "sub": "team:team_8INDibYV08yytiZJHcMuAaYO:project:prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S:sandbox:sbx_ChjNYy4WKL0uA19C8jdujXsN05zL",
+        "team_id": "team_8INDibYV08yytiZJHcMuAaYO",
+        "project_id": "prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S",
+        "sandbox_id": "sbx_ChjNYy4WKL0uA19C8jdujXsN05zL",
+        "sandbox_name": "p114-muetnsgg"
+      }
+    },
+    {
+      "id": "23",
+      "binding": "p114-muetnsgg",
+      "admitted_at": "2026-09-24T00:58:03.834Z",
+      "expires_at": "2026-09-24T01:03:03.834Z",
+      "released_at": "2026-09-24T00:58:08.684Z",
+      "release_reason": "complete",
+      "method": "POST",
+      "path": "/v1/responses",
+      "req_bytes": 42006,
+      "status": 200,
+      "upstream_ms": 967,
+      "claims": {
+        "aud": "https://reprove-proto-114.vercel.app/api/proxy",
+        "exp": 1790298435,
+        "iat": 1790211435,
+        "iss": "https://oidc.vercel.com/team_8INDibYV08yytiZJHcMuAaYO",
+        "nbf": 1790211435,
+        "sub": "team:team_8INDibYV08yytiZJHcMuAaYO:project:prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S:sandbox:sbx_ChjNYy4WKL0uA19C8jdujXsN05zL",
+        "team_id": "team_8INDibYV08yytiZJHcMuAaYO",
+        "project_id": "prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S",
+        "sandbox_id": "sbx_ChjNYy4WKL0uA19C8jdujXsN05zL",
+        "sandbox_name": "p114-muetnsgg"
+      }
+    },
+    {
+      "id": "24",
+      "binding": "p114-muetnsgg",
+      "admitted_at": "2026-09-24T00:58:08.720Z",
+      "expires_at": "2026-09-24T01:03:08.720Z",
+      "released_at": "2026-09-24T00:58:12.151Z",
+      "release_reason": "complete",
+      "method": "POST",
+      "path": "/v1/responses",
+      "req_bytes": 45125,
+      "status": 200,
+      "upstream_ms": 595,
+      "claims": {
+        "aud": "https://reprove-proto-114.vercel.app/api/proxy",
+        "exp": 1790298435,
+        "iat": 1790211435,
+        "iss": "https://oidc.vercel.com/team_8INDibYV08yytiZJHcMuAaYO",
+        "nbf": 1790211435,
+        "sub": "team:team_8INDibYV08yytiZJHcMuAaYO:project:prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S:sandbox:sbx_ChjNYy4WKL0uA19C8jdujXsN05zL",
+        "team_id": "team_8INDibYV08yytiZJHcMuAaYO",
+        "project_id": "prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S",
+        "sandbox_id": "sbx_ChjNYy4WKL0uA19C8jdujXsN05zL",
+        "sandbox_name": "p114-muetnsgg"
+      }
+    },
+    {
+      "id": "25",
+      "binding": "p114-muetnsgg",
+      "admitted_at": "2026-09-24T00:58:32.147Z",
+      "expires_at": "2026-09-24T01:03:32.147Z",
+      "released_at": "2026-09-24T00:58:34.719Z",
+      "release_reason": "complete",
+      "method": "POST",
+      "path": "/v1/responses",
+      "req_bytes": 47879,
+      "status": 200,
+      "upstream_ms": 549,
+      "claims": {
+        "aud": "https://reprove-proto-114.vercel.app/api/proxy",
+        "exp": 1790298435,
+        "iat": 1790211435,
+        "iss": "https://oidc.vercel.com/team_8INDibYV08yytiZJHcMuAaYO",
+        "nbf": 1790211435,
+        "sub": "team:team_8INDibYV08yytiZJHcMuAaYO:project:prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S:sandbox:sbx_ChjNYy4WKL0uA19C8jdujXsN05zL",
+        "team_id": "team_8INDibYV08yytiZJHcMuAaYO",
+        "project_id": "prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S",
+        "sandbox_id": "sbx_ChjNYy4WKL0uA19C8jdujXsN05zL",
+        "sandbox_name": "p114-muetnsgg"
+      }
+    },
+    {
+      "id": "26",
+      "binding": "p114-muetnsgg",
+      "admitted_at": "2026-09-24T00:58:54.725Z",
+      "expires_at": "2026-09-24T01:03:54.725Z",
+      "released_at": "2026-09-24T00:58:57.241Z",
+      "release_reason": "complete",
+      "method": "POST",
+      "path": "/v1/responses",
+      "req_bytes": 48379,
+      "status": 200,
+      "upstream_ms": 751,
+      "claims": {
+        "aud": "https://reprove-proto-114.vercel.app/api/proxy",
+        "exp": 1790298435,
+        "iat": 1790211435,
+        "iss": "https://oidc.vercel.com/team_8INDibYV08yytiZJHcMuAaYO",
+        "nbf": 1790211435,
+        "sub": "team:team_8INDibYV08yytiZJHcMuAaYO:project:prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S:sandbox:sbx_ChjNYy4WKL0uA19C8jdujXsN05zL",
+        "team_id": "team_8INDibYV08yytiZJHcMuAaYO",
+        "project_id": "prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S",
+        "sandbox_id": "sbx_ChjNYy4WKL0uA19C8jdujXsN05zL",
+        "sandbox_name": "p114-muetnsgg"
+      }
+    }
+  ],
+  "observations": [
+    {
+      "id": "3",
+      "binding": "p114-muetnsgg-probe",
+      "at": "2026-09-24T00:57:24.538Z",
+      "bytes": 37627,
+      "canary_seen": false
+    }
+  ],
+  "slices": [
+    {
+      "pass_id": "p114-muetnsgg",
+      "n": 0,
+      "kind": "probe",
+      "state": "completed",
+      "has_cursor": false,
+      "outcome": {
+        "text": "{\"summary\":\"probe\",\"commandsRun\":[],\"findings\":[]}",
+        "usage": {
+          "inputTokens": {
+            "total": 6734,
+            "noCache": 6734,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "text": 23,
+            "total": 23
+          }
+        },
+        "timing": {
+          "bootstrapMs": 4571,
+          "bootstrapOut": "codex-cli 0.153.4",
+          "materializeMs": 399,
+          "narrowPolicyMs": 295
+        },
+        "probeMs": 14388,
+        "finished": true,
+        "satisfied": true,
+        "canarySeen": false,
+        "rejections": [],
+        "observations": 1,
+        "canaryExecuted": false
+      },
+      "facts": null,
+      "started_at": "2026-09-24T00:57:17.139Z",
+      "ended_at": "2026-09-24T00:57:33.717Z"
+    },
+    {
+      "pass_id": "p114-muetnsgg",
+      "n": 1,
+      "kind": "drive",
+      "state": "completed",
+      "has_cursor": false,
+      "outcome": {
+        "text": "I’ll run the commands in your specified order, then report the findings.The repository has one seed commit; I’ll read the tracked source files next.{\"summary\":\"Reviewed the two tracked source files and found an unbounded retry condition.\",\"commandsRun\":[\"ls -la\",\"sleep 20 && echo slice-marker-one\",\"git log --oneline -5\",\"for file in $(git ls-files 'src/*' | head -3); do printf '\\\\n--- %s ---\\\\n' \\\"$file\\\"; cat \\\"$file\\\"; done\",\"sleep 20 && echo slice-marker-two\",\"sleep 20 && echo slice-marker-three\"],\"findings\":[{\"file\":\"src/slice.ts:8\",\"claim\":\"shouldRetry returns true for every nonnegative attempt count, so it never stops retries as attempts increase.\"}]}",
+        "usage": [
+          {
+            "type": "finish",
+            "totalUsage": {
+              "inputTokens": {
+                "total": 51314,
+                "noCache": 7764,
+                "cacheRead": 43550,
+                "cacheWrite": 0
+              },
+              "outputTokens": {
+                "text": 535,
+                "total": 535
+              }
+            },
+            "finishReason": {
+              "raw": "stop",
+              "unified": "stop"
+            }
+          }
+        ]
+      },
+      "facts": {
+        "text": "I’ll run the commands in your specified order, then report the findings.The repository has one seed commit; I’ll read the tracked source files next.{\"summary\":\"Reviewed the two tracked source files and found an unbounded retry condition.\",\"commandsRun\":[\"ls -la\",\"sleep 20 && echo slice-marker-one\",\"git log --oneline -5\",\"for file in $(git ls-files 'src/*' | head -3); do printf '\\\\n--- %s ---\\\\n' \\\"$file\\\"; cat \\\"$file\\\"; done\",\"sleep 20 && echo slice-marker-two\",\"sleep 20 && echo slice-marker-three\"],\"findings\":[{\"file\":\"src/slice.ts:8\",\"claim\":\"shouldRetry returns true for every nonnegative attempt count, so it never stops retries as attempts increase.\"}]}",
+        "usage": [
+          {
+            "type": "finish",
+            "totalUsage": {
+              "inputTokens": {
+                "total": 51314,
+                "noCache": 7764,
+                "cacheRead": 43550,
+                "cacheWrite": 0
+              },
+              "outputTokens": {
+                "text": 535,
+                "total": 535
+              }
+            },
+            "finishReason": {
+              "raw": "stop",
+              "unified": "stop"
+            }
+          }
+        ],
+        "region": "iad1",
+        "attempt": 1,
+        "sliceMs": 87128,
+        "counters": {
+          "runs": 5,
+          "spawns": 1,
+          "transformCalls": 1
+        },
+        "instance": "2f8ca9b1-f468-4b5b-a43d-c0e5abf540ec",
+        "isResume": false,
+        "doStartMs": 1041,
+        "toolCalls": [
+          "item_3",
+          "item_4",
+          "item_5",
+          "item_8",
+          "item_10",
+          "item_11"
+        ],
+        "eventTypes": {
+          "finish": 1,
+          "text-end": 3,
+          "tool-call": 6,
+          "text-delta": 3,
+          "text-start": 3,
+          "finish-step": 7,
+          "tool-result": 6,
+          "stream-start": 1,
+          "reasoning-end": 3,
+          "reasoning-delta": 3,
+          "reasoning-start": 3
+        },
+        "reattachMs": 97,
+        "toolResults": [
+          "item_3",
+          "item_4",
+          "item_5",
+          "item_8",
+          "item_10",
+          "item_11"
+        ],
+        "spawnsAtStart": 1
+      },
+      "started_at": "2026-09-24T00:57:35.050Z",
+      "ended_at": "2026-09-24T00:59:02.212Z"
+    }
+  ],
+  "run": {
+    "status": "completed",
+    "returnValue": {
+      "provisioned": {
+        "createMs": 347,
+        "bootstrapOut": "codex-cli 0.153.4",
+        "bootstrapMs": 4403,
+        "materialize": {
+          "exitCode": 0,
+          "head": "87ee819 Seed fixture project"
+        },
+        "materializeMs": 688,
+        "narrowPolicyMs": 317,
+        "instance": "5783d13e-4b49-4abc-8e3f-6484cd5f077e",
+        "region": "iad1"
+      },
+      "probe": {
+        "satisfied": true,
+        "finished": true,
+        "observations": 1,
+        "canarySeen": false,
+        "canaryExecuted": false,
+        "rejections": [],
+        "usage": {
+          "inputTokens": {
+            "total": 6734,
+            "noCache": 6734,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "outputTokens": {
+            "total": 23,
+            "text": 23
+          }
+        },
+        "timing": {
+          "bootstrapOut": "codex-cli 0.153.4",
+          "bootstrapMs": 4571,
+          "materializeMs": 399,
+          "narrowPolicyMs": 295
+        },
+        "probeMs": 14388,
+        "text": "{\"summary\":\"probe\",\"commandsRun\":[],\"findings\":[]}"
+      },
+      "slices": [
+        {
+          "n": 1,
+          "state": "completed",
+          "attempt": 1,
+          "instance": "2f8ca9b1-f468-4b5b-a43d-c0e5abf540ec",
+          "spawnsAtStart": 1
+        }
+      ],
+      "end": {
+        "p114-muetnsgg": {
+          "stopMs": 2298,
+          "status": "stopped",
+          "evidence": "stopped",
+          "activeCpuUsageMs": 10285,
+          "totalDurationMs": 113566
+        }
+      }
+    }
+  }
+}

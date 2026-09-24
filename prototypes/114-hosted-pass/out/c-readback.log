@@ -1,0 +1,54 @@
+
+[2026-09-24T00:54:39.739Z] getter
+{
+  "allow": [
+    "registry.npmjs.org",
+    "api.openai.com",
+    "github.com"
+  ]
+}
+
+[2026-09-24T00:54:39.908Z] Sandbox.get getter
+{
+  "allow": [
+    "registry.npmjs.org",
+    "api.openai.com",
+    "github.com"
+  ]
+}
+
+[2026-09-24T00:54:40.104Z] listSessions raw networkPolicy
+{
+  "mode": "custom",
+  "allowedDomains": [
+    "registry.npmjs.org",
+    "api.openai.com",
+    "github.com"
+  ],
+  "injectionRules": [
+    {
+      "domain": "registry.npmjs.org",
+      "headerNames": [
+        "x-reprove-egress"
+      ]
+    },
+    {
+      "domain": "github.com",
+      "headerNames": [
+        "authorization"
+      ]
+    }
+  ],
+  "forwardRules": [
+    {
+      "domain": "api.openai.com",
+      "forwardURL": "https://reprove-proto-114.vercel.app/api/proxy"
+    }
+  ],
+  "responseRules": [
+    {
+      "domain": "registry.npmjs.org",
+      "statusCode": 403
+    }
+  ]
+}
