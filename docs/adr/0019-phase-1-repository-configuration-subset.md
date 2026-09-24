@@ -73,6 +73,9 @@ strategy       standard
 reasoningEffort medium
 ```
 
+> Amended 2026-09-24: the default Model is now `gpt-6-sol`, on a Codex runtime pinned at 0.156.1.
+> See [Amended by #130](#amended-by-130).
+
 plus every default ADR 0011's schema already declares. The values live in one named
 `PRODUCT_DEFAULTS` value in the control plane. The default Model is an explicit named constant,
 not `MODEL_CATALOGUE[0]`.
@@ -297,3 +300,77 @@ line "#110 and #113 own the enforceability of `installScripts` and `egress`" is 
 Schema, defaults, examples and digest handling in code move with the key. That is implementation
 handed off by [the Phase 1 map](https://github.com/nick-neely/reprove/issues/102), not a further
 decision.
+
+## Amended by [#130](https://github.com/nick-neely/reprove/issues/130)
+
+2026-09-24. `gpt-6-sol` shipped on 2026-09-14 at half `gpt-5.6-sol`'s price. [What moving the Codex
+pin to 0.156.1 changes](../research/codex-pin-bump-0156.md) found that the first Codex release with
+`gpt-6-sol` metadata, 0.156.1, moves the Model onto Responses Lite with code-mode-only tools, the
+request shape openai/codex#31894 reports as leaving `codex exec` with no callable tools.
+[Check whether code-mode tools run on a brokered Codex turn for gpt-6-sol and
+gpt-5.6-sol](https://github.com/nick-neely/reprove/issues/131) settled that live: tools executed on
+13 of 13 Passes through the real brokered Adapter, on both Models, and every instruction probe
+passed. The default therefore moves.
+
+### The product default Model is `gpt-6-sol`
+
+§2's `PRODUCT_DEFAULTS.model` is **`gpt-6-sol`**. Every other default is unchanged, including
+explicit `medium` reasoning, which is also the Model's own default. The advertised reasoning efforts
+stay `low` through `max`, because the bridge's typed interface stops there.
+
+The move **replaces, it does not add.** The production catalogue still holds exactly one selectable
+Model per Harness, so `model: gpt-5.6-sol` in `.reprove.yml` becomes `config_unsupported` like any
+other value. The price catalogue swaps its row for `gpt-6-sol` at $2 input, $0.20 cached input and
+$10 output per 1M tokens, under a **new pricing revision**. The request carries `service_tier: null`
+on this route, so the Model's catalogued `priority` tier is not billed.
+
+The target Lineage becomes **`codex/brokered/openai/gpt-6-sol/verify/standard`**. It is unqualified,
+as the old one was; ADR 0018 and [#53](https://github.com/nick-neely/reprove/issues/53) qualify it.
+The Phase 0 Lineage line in `CONTEXT.md` and the gate's Phase 0 record stay as history.
+
+### The Codex runtime is pinned exactly and bumped deliberately
+
+The Adapter-owned frozen bootstrap lock moves Codex CLI and SDK from 0.153.4 to **0.156.1**. The
+Harness core stays at **1.0.102** and the bridge at **1.0.104**: the SDK's JavaScript is
+byte-identical from 0.153.4 to 0.156.1, and the bridge reaches the CLI only through it.
+
+- **Exact pins, never a floating range.** Each bump is a reviewed catalog change under ADR 0014,
+  produces a new Revision, and needs the contract suite plus requalification. Automated bump pull
+  requests may surface updates; they do not merge themselves.
+- **"Latest" means the newest release that passes the re-check list** below when the handoff is
+  cut, not the newest on npm.
+- **The bridge moves separately, later.** Bridge 1.0.125 must move with core 1.0.123, and it removes
+  `createCodex({ model })`, so a Pass that does not pass `model` on each turn silently runs
+  `gpt-5.5`. It also moves bootstrap and session state under `$HOME/.ai-sdk-harness`, which moves
+  the preflight symlink and the hosted bootstrap path, and it embeds Codex 0.155.0, which has no
+  `gpt-6-sol` metadata. Nothing in it is needed for `gpt-6-sol`.
+
+### What the bump re-checked
+
+| Assumption | On 0.156.1 with bridge 1.0.104 |
+| --- | --- |
+| `gpt-6-sol` runs on fallback metadata | changed: real metadata, no warning |
+| `apply_patch` is absent for `gpt-6-sol` | changed: registered, nested under code-mode `exec` |
+| Tools are callable, commands reach Evidence as `command_execution` then `bash` | unchanged, proven live by #131 on both Models |
+| Instruction boundary: `--ignore-user-config`, `--ignore-rules`, `project_doc_max_bytes=0`, `skills.include_instructions=false`, ADR 0009 canaries | unchanged; the checked insertion still matches and 13 of 13 live probes passed |
+| Credential forwarding, the placeholder check, no ambient host credential | unchanged; the bridge's code is unchanged |
+| The Harness throws on non-`allow-all` `permissionMode` and on built-in tool filtering, and forces `danger-full-access` | unchanged |
+| `features.shell_tool=false` removes shell execution | the flag is unchanged, but `apply_patch` and the `collaboration` namespace survive it, so it no longer yields a read-only tool set. Input to [#117](https://github.com/nick-neely/reprove/issues/117) |
+| Detach, suspend, reattach; the harness falls to `rerun` silently | unchanged, since the bridge and core are unchanged. Input to [#128](https://github.com/nick-neely/reprove/issues/128) |
+| The bridge cannot interrupt a running turn | unchanged: an abort kills the CLI. Input to [#129](https://github.com/nick-neely/reprove/issues/129) |
+| Slice Usage is zero until `finish` | unchanged |
+| Instruction probe cost | measured at a mean of $0.019 per probe on `gpt-6-sol` |
+
+### Handoff items
+
+- **Bump the lock, move the default, swap the price row** as above, and correct `docs/codex-adapter.md`,
+  whose pins, defaults and "latest bridge remains 1.0.104" line are all stale.
+- **Give the contract suite a code-mode reply.** `tools/codex-contract.test.mjs` answers with a
+  top-level `exec_command` call and cannot detect a code-mode tool failure. It gains a
+  `functions.exec` custom tool call.
+- **Blocked by [Parse a Codex turn's answer from its final message, not every text
+  delta](https://github.com/nick-neely/reprove/issues/132).** Without it every `gpt-6-sol` Pass fails
+  as `result_invalid`, so no real core is integrated before it lands.
+- The provider proxy drops the `x-openai-internal-codex-responses-lite` header the CLI sends for
+  these Models. #131 saw no observable difference either way; the handoff decides whether to forward
+  it.
