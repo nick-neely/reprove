@@ -292,3 +292,14 @@ hypothesis you could not attempt because of a Limitation stays static and may na
 Return the required JSON answer and nothing else: summary, disprovedHypothesisCount, findings,
 unfinished, limitations. Set patch to null on every Finding.
 ```
+
+## Observed by [#114](https://github.com/nick-neely/reprove/issues/114)
+
+**§6's measurement: a fresh turn can follow an aborted one, through a restart.** After an abort
+the same session object is unusable: every later call throws `AbortError`. `doStop()` followed by
+`doStart({ resumeFrom })` respawns the bridge on the same thread, and a fresh `doPromptTurn`
+answered correctly from the aborted turn's context in 6.5 s. A wrap-up turn is therefore possible,
+at the cost of a bridge restart and a turn that re-reads the thread. Whether Phase 1 adopts it, and
+`deadline_reached` with it, is [Decide whether a deadline abort gets a wrap-up
+turn](https://github.com/nick-neely/reprove/issues/129). The aborted turn's Usage never arrives
+(ADR 0023, observed by #114).

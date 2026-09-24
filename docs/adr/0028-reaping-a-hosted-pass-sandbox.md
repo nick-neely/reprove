@@ -203,3 +203,26 @@ anyway.
 - ADR 0015's deferred teardown statement is resolved here. ADRs 0021 §7, 0023 §7, 0024 §9, 0027 §3
   and 0008 are amended.
 - `CONTEXT.md` gains nothing. **Quarantine** already names a local Sandbox capability.
+
+## Observed by [#114](https://github.com/nick-neely/reprove/issues/114)
+
+- **§6, observed.** The dashboard's command history shows each command's argv **in full**,
+  including `sh -c` script text; it never shows env values, stdout or stderr, and never shows SDK
+  file writes or reads. Through the API, a stopped Sandbox still returns each command's argv, cwd
+  and exit code but not its env, and its output is `410 sandbox_stopped`. **`delete()` purges** the
+  Sandbox, its sessions and its command history from the dashboard, log search and API (`404`).
+  Rule 1 is the rule that matters; the table stands, with "may appear" now "appears, argv only".
+- **§3: an interrupted create can complete after the client gives up.** Aborted at 300 ms, a
+  create left a by-name lookup returning `404` at 641 ms and the Sandbox existing at 2.5 s; aborts
+  at 150 ms never created one. A `404` after an interrupted create proves nothing, which is why
+  intent without an id must never create again. A retry that does call create gets `400` "already
+  exists", not `409`. A create the platform **rejects** outright (an invalid name returns `400` at
+  once) is not ambiguous; the record should distinguish a definite rejection from an unknown
+  outcome instead of leaving intent without an id.
+- **§3: exact-id verification works.** `currentSession().sessionId` (`sbx_...`) is stable for a
+  non-persistent Sandbox, equals the token's `sandbox_id`, and is what `get` by name returns.
+- **`Sandbox.get` by state**: running returns `running`; stopped returns the Sandbox as `stopped`
+  without resuming it; never-created and deleted return `404 not_found`; a non-persistent Sandbox
+  past its timeout reads `stopped` at the timeout, and a command on it fails `400` "Cannot resume
+  sandbox: no snapshot available". `stop()` took 1.3 to 3.3 s and a following `get` reading
+  `stopped` is the provider evidence §4 needs.

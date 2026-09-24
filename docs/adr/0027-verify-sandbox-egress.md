@@ -236,3 +236,30 @@ enforce proxy egress. There is no local exception.
 the predicate the Provider Binding applies, checked on every admission; a check that cannot
 complete rejects. This cuts new Reviewer-phase egress once the Run is terminal or the authorization
 is revoked. It does not retract a request already admitted.
+
+## Observed by [#114](https://github.com/nick-neely/reprove/issues/114)
+
+- **§2's measurement failed, so §2 is reopened** as [Decide whether verify egress is enforced by
+  the firewall or by the egress proxy](https://github.com/nick-neely/reprove/issues/127). `npm
+  install` of typescript, eslint and vitest (343 requests, 160 MB) took 149 s through the egress
+  route against 11.8 s direct. The rejection's premise has also moved: `@vercel/sandbox@3.5.0` adds
+  `response` rules, and claiming `GET`/`HEAD` with a no-op transform followed by a trailing
+  `response: 403` enforced a method allowlist in the firewall (a made-up method was denied; a
+  method deny-list let it through) with the same install at 14.1 s. A TLS-terminating rule also
+  makes the firewall reject `Host` ≠ SNI itself; a plain allow does not.
+- **§6.** The deployed proxy can pin DNS: an undici `Agent` with a fixed `connect.lookup` and
+  `servername` works on Vercel Functions. Observed targets: npm tarballs come from
+  `registry.npmjs.org` with no redirect; a GitHub archive `302`s to `codeload.github.com`, which the
+  client then fetches through the route; PyPI's simple index links to `files.pythonhosted.org`
+  rather than redirecting. Git over the route is `GET .../info/refs` plus `POST
+  .../git-upload-pack`, with request bodies of 108 to 414 bytes for a clone and a fetch by SHA.
+  Several domains sharing one `forwardURL` work, routed by the forwarded host.
+- **§7: an unreachable `forwardURL` fails closed.** A non-resolving host returns `502` at once; a
+  blackholed address returns `502` after about 135 s; a missing deployment or a route that `404`s
+  returns that response to the Sandbox. The real upstream is never reached. An `http:` forward is
+  rejected at update.
+- **§8's exact readback is impossible.** The SDK getter returns domains only; the raw session
+  record returns domains, injected header *names*, forward URLs and response status codes, never
+  matchers or bodies. #127 decides what replaces the check.
+- The route must disable Next.js's trailing-slash redirect: PyPI's `/simple/<name>/` otherwise gets
+  a `308` that the client follows onto a wrong upstream path.

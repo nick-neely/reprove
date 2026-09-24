@@ -356,3 +356,35 @@ The Failure carries the per-permission comparison. That case leaves `materializa
   the record when invalidity is confirmed. Owner deletion cascades to custody.
 - **§10's cleanup identity is the `create_requested` intent row**, written before create. The
   reaper trusts it; a negative lookup alone never confirms a Sandbox is gone.
+
+## Observed by [#114](https://github.com/nick-neely/reprove/issues/114)
+
+The conditions §12 handed the prototype, as observed on the `vercel/sandbox/universal` image
+(Ubuntu 26.04, Node 24, git 2.53):
+
+- **Default command user** is `ubuntu` (uid 1000), in `sudo` and `adm`, with passwordless `sudo`;
+  `HOME` and the working directory are `/vercel`.
+- **The Reviewer user as created cannot use `sudo`**, is in no privileged group, and the image has
+  no file capabilities and only the stock setuid set (`su`, `sudo`, `passwd`, `mount` and their
+  kin). **But §7's parent-directory check fails on the stock image.** The image ships
+  `/usr/local/bin`, `/usr/local/lib` (with the global `node_modules`, including `@openai/codex`) and
+  `/usr/local/bin/node` owned by uid 1001, which has no user; `createUser` hands the first created
+  user uid 1001, so the Reviewer owns `node` on root's `PATH`. The setup phase must re-own
+  `/usr/local` to root before creating the Reviewer, and the preflight must assert that no
+  Reviewer-writable directory or executable lies on the `PATH` of root, the default user or the
+  bridge. This is exactly the replacement §7 exists to catch.
+- **Header-injected `git fetch` by SHA works**, full and `--depth=1`, with no credential inside the
+  Sandbox, and a fork head fetched by SHA through the base repository's `refs/pull/*/head` works.
+  A fork of a *private* base was not available to test.
+- **Transforms are removed per domain**: dropping `api.github.com`'s transform left `github.com`'s
+  working. A policy update took 0.3 to 0.7 s from a Function.
+- **A connection opened before an update keeps its injection**: a reused keep-alive socket still
+  got `200` after the transform was removed while a fresh one got `401`. §9's host-side revocation,
+  confirmed invalid, is required, not belt and braces.
+- **Names are unique per project while the Sandbox exists**, running or stopped: a second create
+  gets `400 bad_request` ("already exists ... delete it first"); the name is free again after
+  `delete()`. Names must match `^[a-zA-Z0-9_-]+$`.
+- **A transform and a `forwardURL` on one domain do not compose**: in either rule order the
+  forwarded request arrives without the injected header. Materialization completes under the
+  transform policy and the Reviewer-phase policy replaces it; they cannot overlap. How GitHub is
+  reached during review is [#127](https://github.com/nick-neely/reprove/issues/127).

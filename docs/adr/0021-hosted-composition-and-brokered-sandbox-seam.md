@@ -259,3 +259,50 @@ ADR deferred, and puts materialization inside the Pass's own Sandbox.
   that exact id; one that finds intent and no id is the ambiguous case and never creates again.
 - **Who sweeps sooner than the platform timeout** is the Run's lifecycle, on `ended` and
   `worker_lost`, with per-Sandbox teardown states in which `stopped` needs provider evidence.
+
+## Observed by [#114](https://github.com/nick-neely/reprove/issues/114)
+
+The prototype ran the seam live on Vercel (`@vercel/sandbox@3.5.0`, `workflow@4.8.5`, the pinned
+Harness). What it established, and what this ADR got wrong:
+
+- **§9 is proven.** Slice 1 ran on one Function instance, persisted its cursor and then killed its
+  process. Workflow retried the step on a new instance about 1.6 s later, the claim replayed the
+  persisted Slice without driving, and Slice 2 on the new instance reattached by name, spawned
+  nothing (the bridge `attach` rung), continued the **same** turn and finished it. Every tool call
+  arrived exactly once across the boundary, including one whose call and result straddled it, with
+  one `finish`. The sliced shape may be committed. §7's recoverable case (write succeeded, step
+  result lost) replayed as designed.
+- **§7: the cursor is not opaque.** `doSuspendTurn`'s payload carries the bridge port and its
+  64-character bearer token, and the bridge listens on a public `sandbox.domain(port)` URL.
+  Returning the cursor as a step result writes a live bridge credential into Workflow's event log.
+  The prototype kept it on the Slice row and returned only the Slice number. Where it lives and how
+  the endpoint is protected is [Decide how a suspended turn's cursor and the bridge endpoint are
+  protected](https://github.com/nick-neely/reprove/issues/128).
+- **§7: a lost `attach` degrades silently.** The Harness falls from `attach` to `replay` to `rerun`
+  without an error, and `isResume` is `true` on every rung. `rerun` re-drives the turn, which §8
+  forbids. A continuing Slice must observe that nothing was spawned during resume and fail closed
+  otherwise; the prototype counted spawns through its session.
+- **§6: `<passId>.probe` is not a valid name.** Sandbox names must match `^[a-zA-Z0-9_-]+$`; the
+  prototype used `<passId>-probe`. Pass ids must stay inside that alphabet.
+- **§3 holds, and the step needs the image, not the stock recipe.** The workflow bundle's trace
+  carried no Harness; the step route's carried the seven `harness-codex/dist/bridge` files, named
+  through `outputFileTracingIncludes`. Installing the Harness's own bootstrap recipe let the probe
+  fixture's `.codex/config.toml` MCP server **execute**, and the probe refused correctly. The hosted
+  bootstrap must install the same patched files as the local image (`codexImageFiles`: the
+  `codexPathOverride` wrapper with `--ignore-user-config --ignore-rules`), root-owned under
+  `/opt/reprove/codex` and linked into the Harness's bootstrap path; with it the probe passed. A
+  from-scratch bootstrap took 4.4 to 5.5 s, so no snapshot is needed for startup.
+- **§4 and §5 work as written, with four deployment facts.** The token names `team_id`,
+  `project_id`, `sandbox_id` (equal to `currentSession().sessionId`) and `sandbox_name`, which is
+  present for `persistent: false` Sandboxes; its audience is the `forwardURL`, its issuer
+  `oidc.vercel.com/<team>`, and it is valid for 24 hours. `defineSandboxProxy` silently substitutes
+  the sandbox id when the name claim is absent, so admission must read the claim, not the helper's
+  fallback. The `forwardURL` must be `https` and must be the **production domain**: Standard
+  Deployment Protection covers deployment URLs and a forwarded request cannot carry a bypass, so a
+  redeploy changes the admitting code under Passes already in flight. The route must disable
+  Next.js's trailing-slash redirect, or the Sandbox follows the `308` onto a wrong upstream path.
+- **Measured** (one region, `iad1`; inputs to [#115](https://github.com/nick-neely/reprove/issues/115)):
+  create 0.3 to 0.6 s; policy update 0.3 to 0.7 s from a Function (11.5 s once from outside
+  Vercel); reattach by name 70 to 80 ms; `doStart` 1.1 to 1.9 s fresh and 0.15 to 0.46 s resuming;
+  probe 13.5 to 14.8 s; `stop()` 1.3 to 3.3 s; Provider requests 40 to 100 KB each, growing with the
+  turn, 0.3 to 1.3 s to response headers through the route.

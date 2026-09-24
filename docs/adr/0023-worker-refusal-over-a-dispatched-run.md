@@ -194,3 +194,13 @@ bound lapses before turn start.
 §7 holds across teardown. When the lifecycle reaps a terminal Run's Sandboxes ([ADR 0028](0028-reaping-a-hosted-pass-sandbox.md)), any Usage the
 Pass had not reported stays `incomplete` on the aggregate, never zero. Stopping a Sandbox writes no
 Usage increment.
+
+## Observed by [#114](https://github.com/nick-neely/reprove/issues/114)
+
+**§7: a Slice reports no Usage until the turn ends.** Across three Slices of one turn every
+`finish-step` carried zero tokens and only the final `finish` carried the turn's total. Slice
+Usage is therefore neither cumulative nor incremental: earlier Slices contribute nothing, and a
+Pass that ends mid-turn (the ambiguous Slice, a deadline abort, a Failure) has turn Usage
+`unknown`. An aborted turn never emits `finish`. The distinct-increments rule stands; this is why
+`unknown` will be common. The Provider route sees every response and could meter Usage per
+request, which stays in the map's fog.
