@@ -21,9 +21,9 @@ catalogs:
     "@ai-sdk/harness": 1.0.102
     "@ai-sdk/harness-codex": 1.0.104
   workflow:
-    workflow: 4.8.5
-    "@workflow/world-postgres": 4.3.5
-    "@workflow/vitest": 4.0.21
+    workflow: 4.8.8
+    "@workflow/world-postgres": 4.3.6
+    "@workflow/vitest": 4.0.24
 
 # --- Package manager selection -------------------------------------------------
 # pnpm 11 removed `managePackageManagerVersions` and `packageManagerStrict`.
