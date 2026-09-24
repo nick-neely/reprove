@@ -1,0 +1,10 @@
+{"type":"stream-start","seq":17}
+{"type":"bridge-thread","threadId":"01a0d195-e25d-70a2-989e-fe2338d7cbb5","seq":18}
+{"type":"reasoning-start","id":"item_0","seq":19}
+{"type":"reasoning-delta","id":"item_0","delta":"**Evaluating schema findings**\n\nI think we need to look into the schema and see why it might be invalid. Maybe there's an issue with the commentary in the JSON or a mismatch with the final schema. Perhaps all fields are required, and we can't have any empty findings. The user mentioned that only commands were executed, and we might need to rerun things to get an exact JSON response. Ensuring a structured format seems essential for the system!","seq":20}
+{"type":"reasoning-end","id":"item_0","seq":21}
+{"type":"text-start","id":"item_1","seq":22}
+{"type":"text-delta","id":"item_1","delta":"{\"summary\":\"file=n1-9f1809f3aa30cb55 echo=n2-3f067a18d21b2d1c\",\"disprovedHypothesisCount\":0,\"findings\":[]}","seq":23}
+{"type":"text-end","id":"item_1","seq":24}
+{"type":"finish-step","finishReason":{"unified":"stop","raw":"stop"},"usage":{"inputTokens":{"total":0,"noCache":0,"cacheRead":0,"cacheWrite":0},"outputTokens":{"total":0,"text":0}},"harnessMetadata":{"codex":{"inferredStep":true}},"seq":25}
+{"type":"finish","finishReason":{"unified":"stop","raw":"stop"},"totalUsage":{"inputTokens":{"total":35487,"noCache":9057,"cacheRead":26430,"cacheWrite":0},"outputTokens":{"total":344,"text":344}},"seq":26}

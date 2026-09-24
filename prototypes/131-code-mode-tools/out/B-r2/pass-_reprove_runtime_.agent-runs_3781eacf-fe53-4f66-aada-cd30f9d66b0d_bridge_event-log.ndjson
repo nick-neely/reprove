@@ -1,0 +1,10 @@
+{"type":"stream-start","seq":17}
+{"type":"bridge-thread","threadId":"01a0d193-fb1c-73e3-a497-1de2add9ec64","seq":18}
+{"type":"reasoning-start","id":"item_0","seq":19}
+{"type":"reasoning-delta","id":"item_0","delta":"**Considering JSON schema requirements**\n\nI need to think about the required shape for the findings. It seems like there's a specific JSON schema that requires exact formats. Previously, it seemed valid, but now I’m questioning if the summary spaces need to be precise. I wonder if it's related to the commentary JSON or if the system expects all the top fields to be included. It seems like the return schema for JSON is likely something the system enforces.","seq":20}
+{"type":"reasoning-end","id":"item_0","seq":21}
+{"type":"text-start","id":"item_1","seq":22}
+{"type":"text-delta","id":"item_1","delta":"{\"summary\":\"file=n1-ef34ad9e7114303c echo=n2-a6048aeae31d0759\",\"disprovedHypothesisCount\":0,\"findings\":[]}","seq":23}
+{"type":"text-end","id":"item_1","seq":24}
+{"type":"finish-step","finishReason":{"unified":"stop","raw":"stop"},"usage":{"inputTokens":{"total":0,"noCache":0,"cacheRead":0,"cacheWrite":0},"outputTokens":{"total":0,"text":0}},"harnessMetadata":{"codex":{"inferredStep":true}},"seq":25}
+{"type":"finish","finishReason":{"unified":"stop","raw":"stop"},"totalUsage":{"inputTokens":{"total":35468,"noCache":9046,"cacheRead":26422,"cacheWrite":0},"outputTokens":{"total":328,"text":328}},"seq":26}

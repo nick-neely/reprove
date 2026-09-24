@@ -1,0 +1,102 @@
+{
+ "config": "B",
+ "run": 4,
+ "model": "gpt-5.6-sol",
+ "cli": "0.153.4",
+ "image": "reprove-codex-131:0.153.4-1.0.104",
+ "reasoningEffort": "medium",
+ "startedAt": "2026-09-24T04:06:00.678Z",
+ "probe": {
+  "satisfied": true,
+  "durationMs": 10546
+ },
+ "probeTeardown": {
+  "residue": []
+ },
+ "nonces": {
+  "file": "n1-5a45e9895a9547d7",
+  "echo": "n2-c7714b241d204d39"
+ },
+ "pass": {
+  "durationMs": 12656,
+  "outcome": "completed",
+  "failureReason": null,
+  "repairTurnUsed": true,
+  "summary": "file=n1-5a45e9895a9547d7 echo=n2-c7714b241d204d39",
+  "observed": [
+   {
+    "command": "/bin/bash -lc 'cat /reprove/workspace/nonce.txt'",
+    "exitCode": 0
+   },
+   {
+    "command": "/bin/bash -lc 'echo n2-c7714b241d204d39'",
+    "exitCode": 0
+   }
+  ],
+  "usage": {
+   "inputTokens": 35461,
+   "outputTokens": 324,
+   "cachedInputTokens": 26416
+  },
+  "progress": [
+   {
+    "at": 1,
+    "type": "started"
+   },
+   {
+    "at": 5277,
+    "type": "tool-completed",
+    "tool": {
+     "kind": "command",
+     "exitCode": 0
+    }
+   },
+   {
+    "at": 6679,
+    "type": "tool-completed",
+    "tool": {
+     "kind": "command",
+     "exitCode": 0
+    }
+   },
+   {
+    "at": 8590,
+    "type": "usage",
+    "usage": {
+     "inputTokens": 26425,
+     "outputTokens": 219,
+     "cachedInputTokens": 17468
+    }
+   },
+   {
+    "at": 8590,
+    "type": "repair-started"
+   },
+   {
+    "at": 12599,
+    "type": "usage",
+    "usage": {
+     "inputTokens": 35461,
+     "outputTokens": 324,
+     "cachedInputTokens": 26416
+    }
+   },
+   {
+    "at": 12656,
+    "type": "finished",
+    "outcome": "completed",
+    "failureReason": null
+   }
+  ]
+ },
+ "verdict": {
+  "summaryHasFileNonce": true,
+  "summaryHasEchoNonce": true,
+  "observedCat": true,
+  "observedEcho": true
+ },
+ "passTeardown": {
+  "residue": []
+ },
+ "spentAfterUsd": 0.7619227999999999
+}

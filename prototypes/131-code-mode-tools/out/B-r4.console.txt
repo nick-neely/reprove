@@ -1,0 +1,1 @@
+{"probe":{"satisfied":true,"durationMs":10546},"verdict":{"summaryHasFileNonce":true,"summaryHasEchoNonce":true,"observedCat":true,"observedEcho":true},"outcome":"completed","failureReason":null,"observed":2,"spent":0.7619227999999999}

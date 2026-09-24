@@ -1,0 +1,7 @@
+{"type":"stream-start","seq":1}
+{"type":"bridge-thread","threadId":"01a0d197-1ab4-7eb3-8b36-eebdf300498b","seq":2}
+{"type":"text-start","id":"item_2","seq":3}
+{"type":"text-delta","id":"item_2","delta":"{\"summary\":\"probe\",\"disprovedHypothesisCount\":0,\"findings\":[]}","seq":4}
+{"type":"text-end","id":"item_2","seq":5}
+{"type":"finish-step","finishReason":{"unified":"stop","raw":"stop"},"usage":{"inputTokens":{"total":0,"noCache":0,"cacheRead":0,"cacheWrite":0},"outputTokens":{"total":0,"text":0}},"harnessMetadata":{"codex":{"inferredStep":true}},"seq":6}
+{"type":"finish","finishReason":{"unified":"stop","raw":"stop"},"totalUsage":{"inputTokens":{"total":9383,"noCache":9383,"cacheRead":0,"cacheWrite":0},"outputTokens":{"total":45,"text":45}},"seq":7}

@@ -1,0 +1,126 @@
+{
+ "config": "A",
+ "run": 4,
+ "model": "gpt-6-sol",
+ "cli": "0.156.1",
+ "image": "reprove-codex-131:0.156.1-1.0.104",
+ "reasoningEffort": "medium",
+ "startedAt": "2026-09-24T04:05:32.959Z",
+ "probe": {
+  "satisfied": true,
+  "durationMs": 10158
+ },
+ "probeTeardown": {
+  "residue": []
+ },
+ "nonces": {
+  "file": "n1-3c33919ca49885ec",
+  "echo": "n2-205fc3b2b1b65fa1"
+ },
+ "pass": {
+  "durationMs": 15354,
+  "outcome": "failed",
+  "failureReason": "result_invalid",
+  "repairTurnUsed": true,
+  "summary": "",
+  "observed": [
+   {
+    "command": "/bin/bash -lc 'cat /reprove/workspace/nonce.txt'",
+    "exitCode": 0
+   },
+   {
+    "command": "/bin/bash -lc 'echo n2-205fc3b2b1b65fa1'",
+    "exitCode": 0
+   },
+   {
+    "command": "/bin/bash -lc 'cat /reprove/workspace/nonce.txt'",
+    "exitCode": 0
+   },
+   {
+    "command": "/bin/bash -lc 'echo n2-205fc3b2b1b65fa1'",
+    "exitCode": 0
+   }
+  ],
+  "usage": {
+   "inputTokens": 58861,
+   "outputTokens": 519,
+   "cachedInputTokens": 48632
+  },
+  "progress": [
+   {
+    "at": 0,
+    "type": "started"
+   },
+   {
+    "at": 5003,
+    "type": "tool-completed",
+    "tool": {
+     "kind": "command",
+     "exitCode": 0
+    }
+   },
+   {
+    "at": 6986,
+    "type": "tool-completed",
+    "tool": {
+     "kind": "command",
+     "exitCode": 0
+    }
+   },
+   {
+    "at": 8417,
+    "type": "usage",
+    "usage": {
+     "inputTokens": 28751,
+     "outputTokens": 191,
+     "cachedInputTokens": 19029
+    }
+   },
+   {
+    "at": 8417,
+    "type": "repair-started"
+   },
+   {
+    "at": 11768,
+    "type": "tool-completed",
+    "tool": {
+     "kind": "command",
+     "exitCode": 0
+    }
+   },
+   {
+    "at": 13441,
+    "type": "tool-completed",
+    "tool": {
+     "kind": "command",
+     "exitCode": 0
+    }
+   },
+   {
+    "at": 15278,
+    "type": "usage",
+    "usage": {
+     "inputTokens": 58861,
+     "outputTokens": 519,
+     "cachedInputTokens": 48632
+    }
+   },
+   {
+    "at": 15354,
+    "type": "finished",
+    "outcome": "failed",
+    "failureReason": "result_invalid"
+   }
+  ]
+ },
+ "verdict": {
+  "summaryHasFileNonce": false,
+  "summaryHasEchoNonce": false,
+  "observedCat": true,
+  "observedEcho": true
+ },
+ "passTeardown": {
+  "residue": []
+ },
+ "spentAfterUsd": 0.6737603999999999
+}

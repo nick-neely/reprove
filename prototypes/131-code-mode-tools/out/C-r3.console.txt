@@ -1,0 +1,4 @@
+[harness:codex:stderr] [harness:codex:warn] Model metadata for `gpt-6-sol` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+[harness:codex:stderr] [harness:codex:warn] Model metadata for `gpt-6-sol` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+[harness:codex:stderr] [harness:codex:warn] Model metadata for `gpt-6-sol` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+{"probe":{"satisfied":true,"durationMs":11185},"verdict":{"summaryHasFileNonce":false,"summaryHasEchoNonce":false,"observedCat":true,"observedEcho":true},"outcome":"failed","failureReason":"result_invalid","observed":4,"spent":0.5645441999999999}

@@ -1,0 +1,1525 @@
+{
+ "totalUsd": 0.7994069999999998,
+ "rows": [
+  {
+   "run": "A-r1",
+   "model": "gpt-6-sol",
+   "cli": "0.156.1",
+   "probeSatisfied": true,
+   "probe": {
+    "requests": 1,
+    "inputTokens": 9383,
+    "cachedInputTokens": 0,
+    "outputTokens": 67,
+    "reasoningTokens": 38,
+    "costUsd": 0.019436
+   },
+   "probeShape": {
+    "input": [
+     "additional_tools",
+     "message",
+     "message",
+     "message",
+     "message",
+     "message",
+     "message"
+    ]
+   },
+   "passShape": {
+    "additionalTools": [
+     "namespace:functions[exec,wait,request_user_input,request_user_input_async]",
+     "namespace:clock[sleep]",
+     "namespace:collaboration[followup_task,interrupt_agent,list_agents,send_message,spawn_agent,wait_agent]"
+    ],
+    "inputTypes": [
+     "additional_tools",
+     "message",
+     "message",
+     "message",
+     "message",
+     "message",
+     "message"
+    ],
+    "parallelToolCalls": false,
+    "reasoning": {
+     "effort": "medium",
+     "summary": "detailed",
+     "context": "all_turns"
+    },
+    "textFormat": "json_schema",
+    "requestHeaderNames": [
+     "accept",
+     "authorization",
+     "content-type",
+     "x-codex-turn-metadata"
+    ]
+   },
+   "responseServiceTier": [
+    "default"
+   ],
+   "httpStatuses": [
+    200
+   ],
+   "terminalErrors": [],
+   "maxRequestMs": 3867,
+   "toolCalls": [
+    "custom_tool_call:exec",
+    "custom_tool_call:exec",
+    "custom_tool_call:exec",
+    "custom_tool_call:exec"
+   ],
+   "bridgeToolCalls": [
+    "bash(provider)",
+    "bash(provider)"
+   ],
+   "rolloutItemTypes": [
+    "session_meta:",
+    "event_msg:task_started",
+    "response_item:message",
+    "world_state:",
+    "turn_context:",
+    "event_msg:item_completed",
+    "response_item:reasoning",
+    "response_item:custom_tool_call",
+    "token_usage_record:",
+    "response_item:custom_tool_call_output",
+    "event_msg:token_count",
+    "event_msg:task_complete",
+    "event_msg:thread_settings_applied"
+   ],
+   "observed": [
+    "/bin/bash -lc 'cat /reprove/workspace/nonce.txt' => 0",
+    "/bin/bash -lc 'echo n2-64655147e4cc0ec8' => 0",
+    "/bin/bash -lc 'cat /reprove/workspace/nonce.txt' => 0",
+    "/bin/bash -lc 'echo n2-64655147e4cc0ec8' => 0"
+   ],
+   "firstTurnAnswer": "{\"summary\":\"file=n1-8323d14413b6ec28 echo=n2-64655147e4cc0ec8\",\"disprovedHypothesisCount\":0,\"findings\":[]}",
+   "firstAnswerNoncesCorrect": true,
+   "commentaryMessages": [
+    "I’ll run the two required shell commands and return their outputs in the requested JSON.",
+    "I’ll rerun the two required commands and use only their current stdout in the JSON response."
+   ],
+   "messageCount": 4,
+   "adapterOutcome": "failed/result_invalid/repair=true",
+   "passDurationMs": 21879,
+   "pass": {
+    "requests": 6,
+    "inputTokens": 58686,
+    "cachedInputTokens": 48672,
+    "outputTokens": 435,
+    "reasoningTokens": 95,
+    "costUsd": 0.0341124
+   },
+   "adapterUsage": {
+    "inputTokens": 58686,
+    "outputTokens": 435,
+    "cachedInputTokens": 48672
+   },
+   "warnings": [
+    "[harness:codex:warn] Codex is ignoring 1 unrecognized configuration setting. Check for typos or deprecated settings.",
+    "[harness:codex:warn]   session-flags: `preferred_auth_method` is ignored."
+   ]
+  },
+  {
+   "run": "A-r2",
+   "model": "gpt-6-sol",
+   "cli": "0.156.1",
+   "probeSatisfied": true,
+   "probe": {
+    "requests": 1,
+    "inputTokens": 9383,
+    "cachedInputTokens": 0,
+    "outputTokens": 54,
+    "reasoningTokens": 25,
+    "costUsd": 0.019305999999999997
+   },
+   "probeShape": {
+    "input": [
+     "additional_tools",
+     "message",
+     "message",
+     "message",
+     "message",
+     "message",
+     "message"
+    ]
+   },
+   "passShape": {
+    "additionalTools": [
+     "namespace:functions[exec,wait,request_user_input,request_user_input_async]",
+     "namespace:clock[sleep]",
+     "namespace:collaboration[followup_task,interrupt_agent,list_agents,send_message,spawn_agent,wait_agent]"
+    ],
+    "inputTypes": [
+     "additional_tools",
+     "message",
+     "message",
+     "message",
+     "message",
+     "message",
+     "message"
+    ],
+    "parallelToolCalls": false,
+    "reasoning": {
+     "effort": "medium",
+     "summary": "detailed",
+     "context": "all_turns"
+    },
+    "textFormat": "json_schema",
+    "requestHeaderNames": [
+     "accept",
+     "authorization",
+     "content-type",
+     "x-codex-turn-metadata"
+    ]
+   },
+   "responseServiceTier": [
+    "default"
+   ],
+   "httpStatuses": [
+    200
+   ],
+   "terminalErrors": [],
+   "maxRequestMs": 3519,
+   "toolCalls": [
+    "custom_tool_call:exec",
+    "custom_tool_call:exec",
+    "custom_tool_call:exec",
+    "custom_tool_call:exec"
+   ],
+   "bridgeToolCalls": [
+    "bash(provider)",
+    "bash(provider)"
+   ],
+   "rolloutItemTypes": [
+    "session_meta:",
+    "event_msg:task_started",
+    "response_item:message",
+    "world_state:",
+    "turn_context:",
+    "event_msg:item_completed",
+    "response_item:reasoning",
+    "response_item:custom_tool_call",
+    "token_usage_record:",
+    "response_item:custom_tool_call_output",
+    "event_msg:token_count",
+    "event_msg:task_complete",
+    "event_msg:thread_settings_applied"
+   ],
+   "observed": [
+    "/bin/bash -lc 'cat /reprove/workspace/nonce.txt' => 0",
+    "/bin/bash -lc 'echo n2-214cac299ba0bee8' => 0",
+    "/bin/bash -lc 'cat /reprove/workspace/nonce.txt' => 0",
+    "/bin/bash -lc 'echo n2-214cac299ba0bee8' => 0"
+   ],
+   "firstTurnAnswer": "{\"summary\":\"file=n1-a73e29de298d9a94 echo=n2-214cac299ba0bee8\",\"disprovedHypothesisCount\":0,\"findings\":[]}",
+   "firstAnswerNoncesCorrect": true,
+   "commentaryMessages": [
+    "I’ll run the two specified commands and return their trimmed output in the required JSON.",
+    "I’ll rerun the two required commands and use their current output to repair the JSON."
+   ],
+   "messageCount": 4,
+   "adapterOutcome": "failed/result_invalid/repair=true",
+   "passDurationMs": 15764,
+   "pass": {
+    "requests": 6,
+    "inputTokens": 58774,
+    "cachedInputTokens": 48581,
+    "outputTokens": 539,
+    "reasoningTokens": 208,
+    "costUsd": 0.0354922
+   },
+   "adapterUsage": {
+    "inputTokens": 58774,
+    "outputTokens": 539,
+    "cachedInputTokens": 48581
+   },
+   "warnings": [
+    "[harness:codex:warn] Codex is ignoring 1 unrecognized configuration setting. Check for typos or deprecated settings.",
+    "[harness:codex:warn]   session-flags: `preferred_auth_method` is ignored."
+   ]
+  },
+  {
+   "run": "A-r3",
+   "model": "gpt-6-sol",
+   "cli": "0.156.1",
+   "probeSatisfied": true,
+   "probe": {
+    "requests": 1,
+    "inputTokens": 9383,
+    "cachedInputTokens": 0,
+    "outputTokens": 44,
+    "reasoningTokens": 15,
+    "costUsd": 0.019205999999999997
+   },
+   "probeShape": {
+    "input": [
+     "additional_tools",
+     "message",
+     "message",
+     "message",
+     "message",
+     "message",
+     "message"
+    ]
+   },
+   "passShape": {
+    "additionalTools": [
+     "namespace:functions[exec,wait,request_user_input,request_user_input_async]",
+     "namespace:clock[sleep]",
+     "namespace:collaboration[followup_task,interrupt_agent,list_agents,send_message,spawn_agent,wait_agent]"
+    ],
+    "inputTypes": [
+     "additional_tools",
+     "message",
+     "message",
+     "message",
+     "message",
+     "message",
+     "message"
+    ],
+    "parallelToolCalls": false,
+    "reasoning": {
+     "effort": "medium",
+     "summary": "detailed",
+     "context": "all_turns"
+    },
+    "textFormat": "json_schema",
+    "requestHeaderNames": [
+     "accept",
+     "authorization",
+     "content-type",
+     "x-codex-turn-metadata"
+    ]
+   },
+   "responseServiceTier": [
+    "default"
+   ],
+   "httpStatuses": [
+    200
+   ],
+   "terminalErrors": [],
+   "maxRequestMs": 3911,
+   "toolCalls": [
+    "custom_tool_call:exec",
+    "custom_tool_call:exec",
+    "custom_tool_call:exec",
+    "custom_tool_call:exec"
+   ],
+   "bridgeToolCalls": [
+    "bash(provider)",
+    "bash(provider)"
+   ],
+   "rolloutItemTypes": [
+    "session_meta:",
+    "event_msg:task_started",
+    "response_item:message",
+    "world_state:",
+    "turn_context:",
+    "event_msg:item_completed",
+    "response_item:reasoning",
+    "response_item:custom_tool_call",
+    "token_usage_record:",
+    "response_item:custom_tool_call_output",
+    "event_msg:token_count",
+    "event_msg:task_complete",
+    "event_msg:thread_settings_applied"
+   ],
+   "observed": [
+    "/bin/bash -lc 'cat /reprove/workspace/nonce.txt' => 0",
+    "/bin/bash -lc 'echo n2-5605591374808629' => 0",
+    "/bin/bash -lc 'cat /reprove/workspace/nonce.txt' => 0",
+    "/bin/bash -lc 'echo n2-5605591374808629' => 0"
+   ],
+   "firstTurnAnswer": "{\"summary\":\"file=n1-faa44523bae98787 echo=n2-5605591374808629\",\"disprovedHypothesisCount\":0,\"findings\":[]}",
+   "firstAnswerNoncesCorrect": true,
+   "commentaryMessages": [
+    "I’ll run the two specified shell commands separately and use their output for the required JSON.",
+    "I’ll rerun the two required commands separately and use their current output in the JSON."
+   ],
+   "messageCount": 4,
+   "adapterOutcome": "failed/result_invalid/repair=true",
+   "passDurationMs": 15655,
+   "pass": {
+    "requests": 6,
+    "inputTokens": 58561,
+    "cachedInputTokens": 48443,
+    "outputTokens": 446,
+    "reasoningTokens": 160,
+    "costUsd": 0.0343846
+   },
+   "adapterUsage": {
+    "inputTokens": 58561,
+    "outputTokens": 446,
+    "cachedInputTokens": 48443
+   },
+   "warnings": [
+    "[harness:codex:warn] Codex is ignoring 1 unrecognized configuration setting. Check for typos or deprecated settings.",
+    "[harness:codex:warn]   session-flags: `preferred_auth_method` is ignored."
+   ]
+  },
+  {
+   "run": "A-r4",
+   "model": "gpt-6-sol",
+   "cli": "0.156.1",
+   "probeSatisfied": true,
+   "probe": {
+    "requests": 1,
+    "inputTokens": 9383,
+    "cachedInputTokens": 0,
+    "outputTokens": 45,
+    "reasoningTokens": 16,
+    "costUsd": 0.019215999999999997
+   },
+   "probeShape": {
+    "input": [
+     "additional_tools",
+     "message",
+     "message",
+     "message",
+     "message",
+     "message",
+     "message"
+    ]
+   },
+   "passShape": {
+    "additionalTools": [
+     "namespace:functions[exec,wait,request_user_input,request_user_input_async]",
+     "namespace:clock[sleep]",
+     "namespace:collaboration[followup_task,interrupt_agent,list_agents,send_message,spawn_agent,wait_agent]"
+    ],
+    "inputTypes": [
+     "additional_tools",
+     "message",
+     "message",
+     "message",
+     "message",
+     "message",
+     "message"
+    ],
+    "parallelToolCalls": false,
+    "reasoning": {
+     "effort": "medium",
+     "summary": "detailed",
+     "context": "all_turns"
+    },
+    "textFormat": "json_schema",
+    "requestHeaderNames": [
+     "accept",
+     "authorization",
+     "content-type",
+     "x-codex-turn-metadata"
+    ]
+   },
+   "responseServiceTier": [
+    "default"
+   ],
+   "httpStatuses": [
+    200
+   ],
+   "terminalErrors": [],
+   "maxRequestMs": 3043,
+   "toolCalls": [
+    "custom_tool_call:exec",
+    "custom_tool_call:exec",
+    "custom_tool_call:exec",
+    "custom_tool_call:exec"
+   ],
+   "bridgeToolCalls": [
+    "bash(provider)",
+    "bash(provider)"
+   ],
+   "rolloutItemTypes": [
+    "session_meta:",
+    "event_msg:task_started",
+    "response_item:message",
+    "world_state:",
+    "turn_context:",
+    "event_msg:item_completed",
+    "response_item:reasoning",
+    "response_item:custom_tool_call",
+    "token_usage_record:",
+    "response_item:custom_tool_call_output",
+    "event_msg:token_count",
+    "event_msg:task_complete",
+    "event_msg:thread_settings_applied"
+   ],
+   "observed": [
+    "/bin/bash -lc 'cat /reprove/workspace/nonce.txt' => 0",
+    "/bin/bash -lc 'echo n2-205fc3b2b1b65fa1' => 0",
+    "/bin/bash -lc 'cat /reprove/workspace/nonce.txt' => 0",
+    "/bin/bash -lc 'echo n2-205fc3b2b1b65fa1' => 0"
+   ],
+   "firstTurnAnswer": "{\"summary\":\"file=n1-3c33919ca49885ec echo=n2-205fc3b2b1b65fa1\",\"disprovedHypothesisCount\":0,\"findings\":[]}",
+   "firstAnswerNoncesCorrect": true,
+   "commentaryMessages": [
+    "I’ll run the two required shell commands and use their output for the JSON response.",
+    "I’ll rerun the two required commands separately, then return JSON using only their output."
+   ],
+   "messageCount": 4,
+   "adapterOutcome": "failed/result_invalid/repair=true",
+   "passDurationMs": 15354,
+   "pass": {
+    "requests": 6,
+    "inputTokens": 58861,
+    "cachedInputTokens": 48632,
+    "outputTokens": 519,
+    "reasoningTokens": 176,
+    "costUsd": 0.03537439999999999
+   },
+   "adapterUsage": {
+    "inputTokens": 58861,
+    "outputTokens": 519,
+    "cachedInputTokens": 48632
+   },
+   "warnings": [
+    "[harness:codex:warn] Codex is ignoring 1 unrecognized configuration setting. Check for typos or deprecated settings.",
+    "[harness:codex:warn]   session-flags: `preferred_auth_method` is ignored."
+   ]
+  },
+  {
+   "run": "B-r1",
+   "model": "gpt-5.6-sol",
+   "cli": "0.153.4",
+   "probeSatisfied": true,
+   "probe": {
+    "requests": 1,
+    "inputTokens": 8599,
+    "cachedInputTokens": 0,
+    "outputTokens": 27,
+    "reasoningTokens": 0,
+    "costUsd": 0.034935999999999995
+   },
+   "probeShape": {
+    "input": [
+     "additional_tools",
+     "message",
+     "message",
+     "message",
+     "message",
+     "message",
+     "message"
+    ]
+   },
+   "passShape": {
+    "additionalTools": [
+     "namespace:functions[exec,wait,request_user_input]",
+     "namespace:collaboration[followup_task,interrupt_agent,list_agents,send_message,spawn_agent,wait_agent]"
+    ],
+    "inputTypes": [
+     "additional_tools",
+     "message",
+     "message",
+     "message",
+     "message",
+     "message",
+     "message"
+    ],
+    "parallelToolCalls": false,
+    "reasoning": {
+     "effort": "medium",
+     "summary": "detailed",
+     "context": "all_turns"
+    },
+    "textFormat": "json_schema",
+    "requestHeaderNames": [
+     "accept",
+     "authorization",
+     "content-type",
+     "x-codex-turn-metadata"
+    ]
+   },
+   "responseServiceTier": [
+    "default"
+   ],
+   "httpStatuses": [
+    200
+   ],
+   "terminalErrors": [],
+   "maxRequestMs": 3453,
+   "toolCalls": [
+    "custom_tool_call:exec",
+    "custom_tool_call:exec"
+   ],
+   "bridgeToolCalls": [],
+   "rolloutItemTypes": [
+    "session_meta:",
+    "event_msg:task_started",
+    "response_item:message",
+    "world_state:",
+    "turn_context:",
+    "event_msg:item_completed",
+    "response_item:custom_tool_call",
+    "token_usage_record:",
+    "response_item:custom_tool_call_output",
+    "event_msg:token_count",
+    "event_msg:task_complete",
+    "event_msg:thread_settings_applied",
+    "response_item:reasoning"
+   ],
+   "observed": [
+    "/bin/bash -lc 'cat /reprove/workspace/nonce.txt' => 0",
+    "/bin/bash -lc 'echo n2-18f0078983134f81' => 0"
+   ],
+   "firstTurnAnswer": "{\"summary\":\"file=n1-1c29c60384359adf echo=n2-18f0078983134f81\",\"disprovedHypothesisCount\":0,\"findings\":[]}",
+   "firstAnswerNoncesCorrect": true,
+   "commentaryMessages": [
+    "{\"summary\":\"I’ll run the two required connectivity commands separately and use their exact trimmed outputs.\" ,\"disprovedHypothesisCount\":0,\"findings\":[]}"
+   ],
+   "messageCount": 3,
+   "adapterOutcome": "completed/null/repair=true",
+   "passDurationMs": 12549,
+   "pass": {
+    "requests": 4,
+    "inputTokens": 35446,
+    "cachedInputTokens": 26407,
+    "outputTokens": 300,
+    "reasoningTokens": 34,
+    "costUsd": 0.0527188
+   },
+   "adapterUsage": {
+    "inputTokens": 35446,
+    "outputTokens": 300,
+    "cachedInputTokens": 26407
+   },
+   "warnings": []
+  },
+  {
+   "run": "B-r2",
+   "model": "gpt-5.6-sol",
+   "cli": "0.153.4",
+   "probeSatisfied": true,
+   "probe": {
+    "requests": 1,
+    "inputTokens": 8599,
+    "cachedInputTokens": 0,
+    "outputTokens": 27,
+    "reasoningTokens": 0,
+    "costUsd": 0.034935999999999995
+   },
+   "probeShape": {
+    "input": [
+     "additional_tools",
+     "message",
+     "message",
+     "message",
+     "message",
+     "message",
+     "message"
+    ]
+   },
+   "passShape": {
+    "additionalTools": [
+     "namespace:functions[exec,wait,request_user_input]",
+     "namespace:collaboration[followup_task,interrupt_agent,list_agents,send_message,spawn_agent,wait_agent]"
+    ],
+    "inputTypes": [
+     "additional_tools",
+     "message",
+     "message",
+     "message",
+     "message",
+     "message",
+     "message"
+    ],
+    "parallelToolCalls": false,
+    "reasoning": {
+     "effort": "medium",
+     "summary": "detailed",
+     "context": "all_turns"
+    },
+    "textFormat": "json_schema",
+    "requestHeaderNames": [
+     "accept",
+     "authorization",
+     "content-type",
+     "x-codex-turn-metadata"
+    ]
+   },
+   "responseServiceTier": [
+    "default"
+   ],
+   "httpStatuses": [
+    200
+   ],
+   "terminalErrors": [],
+   "maxRequestMs": 4143,
+   "toolCalls": [
+    "custom_tool_call:exec",
+    "custom_tool_call:exec"
+   ],
+   "bridgeToolCalls": [],
+   "rolloutItemTypes": [
+    "session_meta:",
+    "event_msg:task_started",
+    "response_item:message",
+    "world_state:",
+    "turn_context:",
+    "event_msg:item_completed",
+    "response_item:custom_tool_call",
+    "token_usage_record:",
+    "response_item:custom_tool_call_output",
+    "event_msg:token_count",
+    "event_msg:task_complete",
+    "event_msg:thread_settings_applied",
+    "response_item:reasoning"
+   ],
+   "observed": [
+    "/bin/bash -lc 'cat /reprove/workspace/nonce.txt' => 0",
+    "/bin/bash -lc 'echo n2-a6048aeae31d0759' => 0"
+   ],
+   "firstTurnAnswer": "{\"summary\":\"file=n1-ef34ad9e7114303c echo=n2-a6048aeae31d0759\",\"disprovedHypothesisCount\":0,\"findings\":[]}",
+   "firstAnswerNoncesCorrect": true,
+   "commentaryMessages": [
+    "{ \"summary\": \"I’ll run the two required connectivity commands separately and report only their trimmed outputs.\", \"disprovedHypothesisCount\": 0, \"findings\": [] }"
+   ],
+   "messageCount": 3,
+   "adapterOutcome": "completed/null/repair=true",
+   "passDurationMs": 17983,
+   "pass": {
+    "requests": 4,
+    "inputTokens": 35468,
+    "cachedInputTokens": 26422,
+    "outputTokens": 328,
+    "reasoningTokens": 55,
+    "costUsd": 0.05331280000000001
+   },
+   "adapterUsage": {
+    "inputTokens": 35468,
+    "outputTokens": 328,
+    "cachedInputTokens": 26422
+   },
+   "warnings": []
+  },
+  {
+   "run": "B-r3",
+   "model": "gpt-5.6-sol",
+   "cli": "0.153.4",
+   "probeSatisfied": true,
+   "probe": {
+    "requests": 1,
+    "inputTokens": 8599,
+    "cachedInputTokens": 0,
+    "outputTokens": 27,
+    "reasoningTokens": 0,
+    "costUsd": 0.034935999999999995
+   },
+   "probeShape": {
+    "input": [
+     "additional_tools",
+     "message",
+     "message",
+     "message",
+     "message",
+     "message",
+     "message"
+    ]
+   },
+   "passShape": {
+    "additionalTools": [
+     "namespace:functions[exec,wait,request_user_input]",
+     "namespace:collaboration[followup_task,interrupt_agent,list_agents,send_message,spawn_agent,wait_agent]"
+    ],
+    "inputTypes": [
+     "additional_tools",
+     "message",
+     "message",
+     "message",
+     "message",
+     "message",
+     "message"
+    ],
+    "parallelToolCalls": false,
+    "reasoning": {
+     "effort": "medium",
+     "summary": "detailed",
+     "context": "all_turns"
+    },
+    "textFormat": "json_schema",
+    "requestHeaderNames": [
+     "accept",
+     "authorization",
+     "content-type",
+     "x-codex-turn-metadata"
+    ]
+   },
+   "responseServiceTier": [
+    "default"
+   ],
+   "httpStatuses": [
+    200
+   ],
+   "terminalErrors": [],
+   "maxRequestMs": 4408,
+   "toolCalls": [
+    "custom_tool_call:exec",
+    "custom_tool_call:exec"
+   ],
+   "bridgeToolCalls": [],
+   "rolloutItemTypes": [
+    "session_meta:",
+    "event_msg:task_started",
+    "response_item:message",
+    "world_state:",
+    "turn_context:",
+    "event_msg:item_completed",
+    "response_item:custom_tool_call",
+    "token_usage_record:",
+    "response_item:custom_tool_call_output",
+    "event_msg:token_count",
+    "event_msg:task_complete",
+    "event_msg:thread_settings_applied",
+    "response_item:reasoning"
+   ],
+   "observed": [
+    "/bin/bash -lc 'cat /reprove/workspace/nonce.txt' => 0",
+    "/bin/bash -lc 'echo n2-3f067a18d21b2d1c' => 0"
+   ],
+   "firstTurnAnswer": "{\"summary\":\"file=n1-9f1809f3aa30cb55 echo=n2-3f067a18d21b2d1c\",\"disprovedHypothesisCount\":0,\"findings\":[]}",
+   "firstAnswerNoncesCorrect": true,
+   "commentaryMessages": [
+    "{\"summary\":\"I’ll run the two required connectivity commands separately and use only their actual trimmed output.\",\"disprovedHypothesisCount\":0,\"findings\":[]}"
+   ],
+   "messageCount": 3,
+   "adapterOutcome": "completed/null/repair=true",
+   "passDurationMs": 15189,
+   "pass": {
+    "requests": 4,
+    "inputTokens": 35487,
+    "cachedInputTokens": 26430,
+    "outputTokens": 344,
+    "reasoningTokens": 62,
+    "costUsd": 0.05367999999999999
+   },
+   "adapterUsage": {
+    "inputTokens": 35487,
+    "outputTokens": 344,
+    "cachedInputTokens": 26430
+   },
+   "warnings": []
+  },
+  {
+   "run": "B-r4",
+   "model": "gpt-5.6-sol",
+   "cli": "0.153.4",
+   "probeSatisfied": true,
+   "probe": {
+    "requests": 1,
+    "inputTokens": 8599,
+    "cachedInputTokens": 0,
+    "outputTokens": 27,
+    "reasoningTokens": 0,
+    "costUsd": 0.034935999999999995
+   },
+   "probeShape": {
+    "input": [
+     "additional_tools",
+     "message",
+     "message",
+     "message",
+     "message",
+     "message",
+     "message"
+    ]
+   },
+   "passShape": {
+    "additionalTools": [
+     "namespace:functions[exec,wait,request_user_input]",
+     "namespace:collaboration[followup_task,interrupt_agent,list_agents,send_message,spawn_agent,wait_agent]"
+    ],
+    "inputTypes": [
+     "additional_tools",
+     "message",
+     "message",
+     "message",
+     "message",
+     "message",
+     "message"
+    ],
+    "parallelToolCalls": false,
+    "reasoning": {
+     "effort": "medium",
+     "summary": "detailed",
+     "context": "all_turns"
+    },
+    "textFormat": "json_schema",
+    "requestHeaderNames": [
+     "accept",
+     "authorization",
+     "content-type",
+     "x-codex-turn-metadata"
+    ]
+   },
+   "responseServiceTier": [
+    "default"
+   ],
+   "httpStatuses": [
+    200
+   ],
+   "terminalErrors": [],
+   "maxRequestMs": 3767,
+   "toolCalls": [
+    "custom_tool_call:exec",
+    "custom_tool_call:exec"
+   ],
+   "bridgeToolCalls": [],
+   "rolloutItemTypes": [
+    "session_meta:",
+    "event_msg:task_started",
+    "response_item:message",
+    "world_state:",
+    "turn_context:",
+    "event_msg:item_completed",
+    "response_item:custom_tool_call",
+    "token_usage_record:",
+    "response_item:custom_tool_call_output",
+    "event_msg:token_count",
+    "event_msg:task_complete",
+    "event_msg:thread_settings_applied",
+    "response_item:reasoning"
+   ],
+   "observed": [
+    "/bin/bash -lc 'cat /reprove/workspace/nonce.txt' => 0",
+    "/bin/bash -lc 'echo n2-c7714b241d204d39' => 0"
+   ],
+   "firstTurnAnswer": "{\"summary\":\"file=n1-5a45e9895a9547d7 echo=n2-c7714b241d204d39\",\"disprovedHypothesisCount\":0,\"findings\":[]}",
+   "firstAnswerNoncesCorrect": true,
+   "commentaryMessages": [
+    "{\"summary\":\"I’ll run the two required connectivity commands separately and use their exact trimmed stdout in the response.\",\"disprovedHypothesisCount\":0,\"findings\":[]}"
+   ],
+   "messageCount": 3,
+   "adapterOutcome": "completed/null/repair=true",
+   "passDurationMs": 12656,
+   "pass": {
+    "requests": 4,
+    "inputTokens": 35461,
+    "cachedInputTokens": 26416,
+    "outputTokens": 324,
+    "reasoningTokens": 50,
+    "costUsd": 0.05322639999999999
+   },
+   "adapterUsage": {
+    "inputTokens": 35461,
+    "outputTokens": 324,
+    "cachedInputTokens": 26416
+   },
+   "warnings": []
+  },
+  {
+   "run": "C-r1",
+   "model": "gpt-6-sol",
+   "cli": "0.153.4",
+   "probeSatisfied": true,
+   "probe": {
+    "requests": 1,
+    "inputTokens": 7028,
+    "cachedInputTokens": 0,
+    "outputTokens": 53,
+    "reasoningTokens": 24,
+    "costUsd": 0.014585999999999998
+   },
+   "probeShape": {
+    "tools": [
+     "function:exec_command",
+     "function:write_stdin",
+     "function:request_user_input",
+     "function:view_image",
+     "namespace:multi_agent_v1[close_agent,resume_agent,send_input,spawn_agent,wait_agent]",
+     "function:get_goal",
+     "function:create_goal",
+     "function:update_goal"
+    ],
+    "input": [
+     "message",
+     "message",
+     "message"
+    ]
+   },
+   "passShape": {
+    "topLevelTools": [
+     "function:exec_command",
+     "function:write_stdin",
+     "function:request_user_input",
+     "function:view_image",
+     "namespace:multi_agent_v1[close_agent,resume_agent,send_input,spawn_agent,wait_agent]",
+     "function:get_goal",
+     "function:create_goal",
+     "function:update_goal"
+    ],
+    "additionalTools": null,
+    "inputTypes": [
+     "message",
+     "message",
+     "message"
+    ],
+    "instructionsChars": 16979,
+    "parallelToolCalls": true,
+    "reasoning": {
+     "effort": "medium",
+     "summary": "detailed"
+    },
+    "textFormat": "json_schema",
+    "requestHeaderNames": [
+     "accept",
+     "authorization",
+     "content-type",
+     "x-codex-turn-metadata"
+    ]
+   },
+   "responseServiceTier": [
+    "default"
+   ],
+   "httpStatuses": [
+    200
+   ],
+   "terminalErrors": [],
+   "maxRequestMs": 3415,
+   "toolCalls": [
+    "function_call:exec_command",
+    "function_call:exec_command",
+    "function_call:exec_command",
+    "function_call:exec_command"
+   ],
+   "bridgeToolCalls": [
+    "bash(provider)",
+    "bash(provider)"
+   ],
+   "rolloutItemTypes": [
+    "session_meta:",
+    "event_msg:task_started",
+    "response_item:message",
+    "world_state:",
+    "turn_context:",
+    "event_msg:item_completed",
+    "response_item:reasoning",
+    "response_item:function_call",
+    "token_usage_record:",
+    "response_item:function_call_output",
+    "event_msg:token_count",
+    "event_msg:task_complete",
+    "event_msg:thread_settings_applied"
+   ],
+   "observed": [
+    "/bin/bash -lc 'cat /reprove/workspace/nonce.txt' => 0",
+    "/bin/bash -lc 'echo n2-dc9cd6bdbddd6a3a' => 0",
+    "/bin/bash -lc 'cat /reprove/workspace/nonce.txt' => 0",
+    "/bin/bash -lc 'echo n2-dc9cd6bdbddd6a3a' => 0"
+   ],
+   "firstTurnAnswer": "{\"summary\":\"file=n1-27728dee8273b492 echo=n2-dc9cd6bdbddd6a3a\",\"disprovedHypothesisCount\":0,\"findings\":[]}",
+   "firstAnswerNoncesCorrect": true,
+   "commentaryMessages": [
+    "I’ll run the two required commands separately, then return the JSON result.",
+    "I’ll rerun both commands to verify the values for the repaired JSON."
+   ],
+   "messageCount": 4,
+   "adapterOutcome": "failed/result_invalid/repair=true",
+   "passDurationMs": 16908,
+   "pass": {
+    "requests": 6,
+    "inputTokens": 44249,
+    "cachedInputTokens": 36561,
+    "outputTokens": 432,
+    "reasoningTokens": 162,
+    "costUsd": 0.027008199999999996
+   },
+   "adapterUsage": {
+    "inputTokens": 44249,
+    "outputTokens": 432,
+    "cachedInputTokens": 36561
+   },
+   "warnings": []
+  },
+  {
+   "run": "C-r2",
+   "model": "gpt-6-sol",
+   "cli": "0.153.4",
+   "probeSatisfied": true,
+   "probe": {
+    "requests": 1,
+    "inputTokens": 7028,
+    "cachedInputTokens": 0,
+    "outputTokens": 62,
+    "reasoningTokens": 33,
+    "costUsd": 0.014676
+   },
+   "probeShape": {
+    "tools": [
+     "function:exec_command",
+     "function:write_stdin",
+     "function:request_user_input",
+     "function:view_image",
+     "namespace:multi_agent_v1[close_agent,resume_agent,send_input,spawn_agent,wait_agent]",
+     "function:get_goal",
+     "function:create_goal",
+     "function:update_goal"
+    ],
+    "input": [
+     "message",
+     "message",
+     "message"
+    ]
+   },
+   "passShape": {
+    "topLevelTools": [
+     "function:exec_command",
+     "function:write_stdin",
+     "function:request_user_input",
+     "function:view_image",
+     "namespace:multi_agent_v1[close_agent,resume_agent,send_input,spawn_agent,wait_agent]",
+     "function:get_goal",
+     "function:create_goal",
+     "function:update_goal"
+    ],
+    "additionalTools": null,
+    "inputTypes": [
+     "message",
+     "message",
+     "message"
+    ],
+    "instructionsChars": 16979,
+    "parallelToolCalls": true,
+    "reasoning": {
+     "effort": "medium",
+     "summary": "detailed"
+    },
+    "textFormat": "json_schema",
+    "requestHeaderNames": [
+     "accept",
+     "authorization",
+     "content-type",
+     "x-codex-turn-metadata"
+    ]
+   },
+   "responseServiceTier": [
+    "default"
+   ],
+   "httpStatuses": [
+    200
+   ],
+   "terminalErrors": [],
+   "maxRequestMs": 2727,
+   "toolCalls": [
+    "function_call:exec_command",
+    "function_call:exec_command",
+    "function_call:exec_command",
+    "function_call:exec_command"
+   ],
+   "bridgeToolCalls": [
+    "bash(provider)",
+    "bash(provider)"
+   ],
+   "rolloutItemTypes": [
+    "session_meta:",
+    "event_msg:task_started",
+    "response_item:message",
+    "world_state:",
+    "turn_context:",
+    "event_msg:item_completed",
+    "response_item:reasoning",
+    "response_item:function_call",
+    "token_usage_record:",
+    "response_item:function_call_output",
+    "event_msg:token_count",
+    "event_msg:task_complete",
+    "event_msg:thread_settings_applied"
+   ],
+   "observed": [
+    "/bin/bash -lc 'cat /reprove/workspace/nonce.txt' => 0",
+    "/bin/bash -lc 'echo n2-586e93aca704ec99' => 0",
+    "/bin/bash -lc 'cat /reprove/workspace/nonce.txt' => 0",
+    "/bin/bash -lc 'echo n2-586e93aca704ec99' => 0"
+   ],
+   "firstTurnAnswer": "{\"summary\":\"file=n1-401f7c45cd54a356 echo=n2-586e93aca704ec99\",\"disprovedHypothesisCount\":0,\"findings\":[]}",
+   "firstAnswerNoncesCorrect": true,
+   "commentaryMessages": [
+    "I’ll run the two required connectivity commands, then return the JSON.",
+    "I’ll rerun the two required commands to verify the values."
+   ],
+   "messageCount": 4,
+   "adapterOutcome": "failed/result_invalid/repair=true",
+   "passDurationMs": 16636,
+   "pass": {
+    "requests": 6,
+    "inputTokens": 44091,
+    "cachedInputTokens": 36459,
+    "outputTokens": 344,
+    "reasoningTokens": 89,
+    "costUsd": 0.0259958
+   },
+   "adapterUsage": {
+    "inputTokens": 44091,
+    "outputTokens": 344,
+    "cachedInputTokens": 36459
+   },
+   "warnings": [
+    "[harness:codex:warn] Model metadata for `gpt-6-sol` not found. Defaulting to fallback metadata; this can degrade performance and cause issues."
+   ]
+  },
+  {
+   "run": "C-r3",
+   "model": "gpt-6-sol",
+   "cli": "0.153.4",
+   "probeSatisfied": true,
+   "probe": {
+    "requests": 1,
+    "inputTokens": 7028,
+    "cachedInputTokens": 0,
+    "outputTokens": 63,
+    "reasoningTokens": 34,
+    "costUsd": 0.014686
+   },
+   "probeShape": {
+    "tools": [
+     "function:exec_command",
+     "function:write_stdin",
+     "function:request_user_input",
+     "function:view_image",
+     "namespace:multi_agent_v1[close_agent,resume_agent,send_input,spawn_agent,wait_agent]",
+     "function:get_goal",
+     "function:create_goal",
+     "function:update_goal"
+    ],
+    "input": [
+     "message",
+     "message",
+     "message"
+    ]
+   },
+   "passShape": {
+    "topLevelTools": [
+     "function:exec_command",
+     "function:write_stdin",
+     "function:request_user_input",
+     "function:view_image",
+     "namespace:multi_agent_v1[close_agent,resume_agent,send_input,spawn_agent,wait_agent]",
+     "function:get_goal",
+     "function:create_goal",
+     "function:update_goal"
+    ],
+    "additionalTools": null,
+    "inputTypes": [
+     "message",
+     "message",
+     "message"
+    ],
+    "instructionsChars": 16979,
+    "parallelToolCalls": true,
+    "reasoning": {
+     "effort": "medium",
+     "summary": "detailed"
+    },
+    "textFormat": "json_schema",
+    "requestHeaderNames": [
+     "accept",
+     "authorization",
+     "content-type",
+     "x-codex-turn-metadata"
+    ]
+   },
+   "responseServiceTier": [
+    "default"
+   ],
+   "httpStatuses": [
+    200
+   ],
+   "terminalErrors": [],
+   "maxRequestMs": 7087,
+   "toolCalls": [
+    "function_call:exec_command",
+    "function_call:exec_command",
+    "function_call:exec_command",
+    "function_call:exec_command"
+   ],
+   "bridgeToolCalls": [
+    "bash(provider)",
+    "bash(provider)"
+   ],
+   "rolloutItemTypes": [
+    "session_meta:",
+    "event_msg:task_started",
+    "response_item:message",
+    "world_state:",
+    "turn_context:",
+    "event_msg:item_completed",
+    "response_item:reasoning",
+    "response_item:function_call",
+    "token_usage_record:",
+    "response_item:function_call_output",
+    "event_msg:token_count",
+    "event_msg:task_complete",
+    "event_msg:thread_settings_applied"
+   ],
+   "observed": [
+    "/bin/bash -lc 'cat /reprove/workspace/nonce.txt' => 0",
+    "/bin/bash -lc 'echo n2-a0a9beb263d79d54' => 0",
+    "/bin/bash -lc 'cat /reprove/workspace/nonce.txt' => 0",
+    "/bin/bash -lc 'echo n2-a0a9beb263d79d54' => 0"
+   ],
+   "firstTurnAnswer": "{\"summary\":\"file=n1-2977bd354274894e echo=n2-a0a9beb263d79d54\",\"disprovedHypothesisCount\":0,\"findings\":[]}",
+   "firstAnswerNoncesCorrect": true,
+   "commentaryMessages": [
+    "I’ll run the two connectivity commands, then return the required JSON.",
+    "I’ll rerun the two required commands, then return their output in the specified JSON shape."
+   ],
+   "messageCount": 4,
+   "adapterOutcome": "failed/result_invalid/repair=true",
+   "passDurationMs": 21822,
+   "pass": {
+    "requests": 6,
+    "inputTokens": 44265,
+    "cachedInputTokens": 36567,
+    "outputTokens": 387,
+    "reasoningTokens": 124,
+    "costUsd": 0.026579399999999996
+   },
+   "adapterUsage": {
+    "inputTokens": 44265,
+    "outputTokens": 387,
+    "cachedInputTokens": 36567
+   },
+   "warnings": [
+    "[harness:codex:warn] Model metadata for `gpt-6-sol` not found. Defaulting to fallback metadata; this can degrade performance and cause issues."
+   ]
+  },
+  {
+   "run": "D-r1",
+   "model": "gpt-6-sol",
+   "cli": "0.156.1",
+   "probeSatisfied": true,
+   "probe": {
+    "requests": 1,
+    "inputTokens": 9383,
+    "cachedInputTokens": 0,
+    "outputTokens": 50,
+    "reasoningTokens": 21,
+    "costUsd": 0.019266
+   },
+   "probeShape": {
+    "input": [
+     "additional_tools",
+     "message",
+     "message",
+     "message",
+     "message",
+     "message",
+     "message"
+    ]
+   },
+   "passShape": {
+    "additionalTools": [
+     "namespace:functions[exec,wait,request_user_input,request_user_input_async]",
+     "namespace:clock[sleep]",
+     "namespace:collaboration[followup_task,interrupt_agent,list_agents,send_message,spawn_agent,wait_agent]"
+    ],
+    "inputTypes": [
+     "additional_tools",
+     "message",
+     "message",
+     "message",
+     "message",
+     "message",
+     "message"
+    ],
+    "parallelToolCalls": false,
+    "reasoning": {
+     "effort": "medium",
+     "summary": "detailed",
+     "context": "all_turns"
+    },
+    "textFormat": "json_schema",
+    "requestHeaderNames": [
+     "accept",
+     "authorization",
+     "content-type",
+     "x-codex-turn-metadata",
+     "x-openai-internal-codex-responses-lite"
+    ]
+   },
+   "responseServiceTier": [
+    "default"
+   ],
+   "httpStatuses": [
+    200
+   ],
+   "terminalErrors": [],
+   "maxRequestMs": 3215,
+   "toolCalls": [
+    "custom_tool_call:exec",
+    "custom_tool_call:exec",
+    "custom_tool_call:exec",
+    "custom_tool_call:exec"
+   ],
+   "bridgeToolCalls": [
+    "bash(provider)",
+    "bash(provider)"
+   ],
+   "rolloutItemTypes": [
+    "session_meta:",
+    "event_msg:task_started",
+    "response_item:message",
+    "world_state:",
+    "turn_context:",
+    "event_msg:item_completed",
+    "response_item:reasoning",
+    "response_item:custom_tool_call",
+    "token_usage_record:",
+    "response_item:custom_tool_call_output",
+    "event_msg:token_count",
+    "event_msg:task_complete",
+    "event_msg:thread_settings_applied"
+   ],
+   "observed": [
+    "/bin/bash -lc 'cat /reprove/workspace/nonce.txt' => 0",
+    "/bin/bash -lc 'echo n2-ec572fcaf3e415e1' => 0",
+    "/bin/bash -lc 'cat /reprove/workspace/nonce.txt' => 0",
+    "/bin/bash -lc 'echo n2-ec572fcaf3e415e1' => 0"
+   ],
+   "firstTurnAnswer": "{\"summary\":\"file=n1-b3d2282ba2e575cd echo=n2-ec572fcaf3e415e1\",\"disprovedHypothesisCount\":0,\"findings\":[]}",
+   "firstAnswerNoncesCorrect": true,
+   "commentaryMessages": [
+    "I’ll run the two required shell commands separately, then return the JSON result.",
+    "I’ll rerun the two required commands and use only their output in the JSON."
+   ],
+   "messageCount": 4,
+   "adapterOutcome": "failed/result_invalid/repair=true",
+   "passDurationMs": 15789,
+   "pass": {
+    "requests": 6,
+    "inputTokens": 58845,
+    "cachedInputTokens": 48639,
+    "outputTokens": 522,
+    "reasoningTokens": 185,
+    "costUsd": 0.0353598
+   },
+   "adapterUsage": {
+    "inputTokens": 58845,
+    "outputTokens": 522,
+    "cachedInputTokens": 48639
+   },
+   "warnings": [
+    "[harness:codex:warn] Codex is ignoring 1 unrecognized configuration setting. Check for typos or deprecated settings.",
+    "[harness:codex:warn]   session-flags: `preferred_auth_method` is ignored."
+   ]
+  },
+  {
+   "run": "D-r2",
+   "model": "gpt-6-sol",
+   "cli": "0.156.1",
+   "probeSatisfied": true,
+   "probe": {
+    "requests": 1,
+    "inputTokens": 9383,
+    "cachedInputTokens": 9380,
+    "outputTokens": 53,
+    "reasoningTokens": 24,
+    "costUsd": 0.002412
+   },
+   "probeShape": {
+    "input": [
+     "additional_tools",
+     "message",
+     "message",
+     "message",
+     "message",
+     "message",
+     "message"
+    ]
+   },
+   "passShape": {
+    "additionalTools": [
+     "namespace:functions[exec,wait,request_user_input,request_user_input_async]",
+     "namespace:clock[sleep]",
+     "namespace:collaboration[followup_task,interrupt_agent,list_agents,send_message,spawn_agent,wait_agent]"
+    ],
+    "inputTypes": [
+     "additional_tools",
+     "message",
+     "message",
+     "message",
+     "message",
+     "message",
+     "message"
+    ],
+    "parallelToolCalls": false,
+    "reasoning": {
+     "effort": "medium",
+     "summary": "detailed",
+     "context": "all_turns"
+    },
+    "textFormat": "json_schema",
+    "requestHeaderNames": [
+     "accept",
+     "authorization",
+     "content-type",
+     "x-codex-turn-metadata",
+     "x-openai-internal-codex-responses-lite"
+    ]
+   },
+   "responseServiceTier": [
+    "default"
+   ],
+   "httpStatuses": [
+    200
+   ],
+   "terminalErrors": [],
+   "maxRequestMs": 3993,
+   "toolCalls": [
+    "custom_tool_call:exec",
+    "custom_tool_call:exec",
+    "custom_tool_call:exec",
+    "custom_tool_call:exec"
+   ],
+   "bridgeToolCalls": [
+    "bash(provider)",
+    "bash(provider)"
+   ],
+   "rolloutItemTypes": [
+    "session_meta:",
+    "event_msg:task_started",
+    "response_item:message",
+    "world_state:",
+    "turn_context:",
+    "event_msg:item_completed",
+    "response_item:reasoning",
+    "response_item:custom_tool_call",
+    "token_usage_record:",
+    "response_item:custom_tool_call_output",
+    "event_msg:token_count",
+    "event_msg:task_complete",
+    "event_msg:thread_settings_applied"
+   ],
+   "observed": [
+    "/bin/bash -lc 'cat /reprove/workspace/nonce.txt' => 0",
+    "/bin/bash -lc 'echo n2-59a6dd46bc220f6f' => 0",
+    "/bin/bash -lc 'cat /reprove/workspace/nonce.txt' => 0",
+    "/bin/bash -lc 'echo n2-59a6dd46bc220f6f' => 0"
+   ],
+   "firstTurnAnswer": "{\"summary\":\"file=n1-5bd88d5408f4a471 echo=n2-59a6dd46bc220f6f\",\"disprovedHypothesisCount\":0,\"findings\":[]}",
+   "firstAnswerNoncesCorrect": true,
+   "commentaryMessages": [
+    "I’ll run the two required shell commands and return their trimmed output in the specified JSON.",
+    "I’ll rerun the two required commands separately and use only their output to build the JSON."
+   ],
+   "messageCount": 4,
+   "adapterOutcome": "failed/result_invalid/repair=true",
+   "passDurationMs": 17997,
+   "pass": {
+    "requests": 6,
+    "inputTokens": 58850,
+    "cachedInputTokens": 48671,
+    "outputTokens": 498,
+    "reasoningTokens": 151,
+    "costUsd": 0.0350722
+   },
+   "adapterUsage": {
+    "inputTokens": 58850,
+    "outputTokens": 498,
+    "cachedInputTokens": 48671
+   },
+   "warnings": [
+    "[harness:codex:warn] Codex is ignoring 1 unrecognized configuration setting. Check for typos or deprecated settings.",
+    "[harness:codex:warn]   session-flags: `preferred_auth_method` is ignored."
+   ]
+  }
+ ]
+}

@@ -1,0 +1,8 @@
+{
+ "/reprove/home/.agents/skills/.ai-sdk-harness-skills.json": 58,
+ "/reprove/runtime/.agent-runs/98a79b04-72d5-491e-a935-6a6efd621eec/bridge/bridge-meta.json": 53,
+ "/reprove/runtime/.agent-runs/98a79b04-72d5-491e-a935-6a6efd621eec/bridge/event-log.ndjson": 766,
+ "/reprove/runtime/.agent-runs/98a79b04-72d5-491e-a935-6a6efd621eec/bridge/rerun-start-config.json": 2795,
+ "/reprove/runtime/.agent-runs/98a79b04-72d5-491e-a935-6a6efd621eec/bridge/start-config.json": 2795,
+ "/tmp/reprove-proxy-ca.pem": 1176
+}
