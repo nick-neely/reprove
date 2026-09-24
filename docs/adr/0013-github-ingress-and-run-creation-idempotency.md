@@ -617,3 +617,14 @@ declaring grants before they are needed is still rejected.
 The "one explicit subscription" framing stands. `APP_EVENTS` stays `["pull_request"]` and means
 explicit manifest subscriptions only. The two check events that `Checks: write` adds are documented
 and tested as automatic arrivals, and they are not declared.
+
+## Amended by [#118](https://github.com/nick-neely/reprove/issues/118)
+
+[ADR 0029](0029-stopping-and-fencing-a-superseded-run.md) adds two writes to the per-pull-request critical section. A created Run gets `sequence`
+as `max + 1` for its pull request, unique per Owner, repository and pull request number, because
+`created_at` is transaction start time and can disagree with commit order. A superseding
+transaction records `supersededAtHead`, `supersededOutcome` (`new_run`, `existing_run`,
+`refusal`, `disabled`) and `supersededTarget` on the Run it ends; `existing_run` is the
+`duplicate_head` decision. The superseding transaction also enqueues the superseded Run's Check
+publication. Ingress still persists no current head for a pull request; the Review fence reads it
+live from GitHub.

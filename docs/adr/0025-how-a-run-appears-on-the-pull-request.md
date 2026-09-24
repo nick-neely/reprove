@@ -327,3 +327,13 @@ Check**:
 
 Nothing that ADR 0022 validates against changes. A `rerequested` payload can name only a Check that
 GitHub created, and by then its row has the ids.
+
+## Amended by [#118](https://github.com/nick-neely/reprove/issues/118)
+
+[ADR 0029](0029-stopping-and-fencing-a-superseded-run.md) changes how the rows of §5 are written. Every Check and Review write for a pull request is made
+under one per-pull-request publication lease, state-driven and forward-only: a concluded Check is
+only re-asserted. Every Review body carries the hidden marker `<!-- reprove.run.<id> -->` and is
+posted with `commit_id: run.headSha`. A Review POST with an unknown outcome makes its row
+`unresolved` and holds every later Review on the pull request until the marker lookup resolves it or
+an operator force-releases it. A superseded Run's Check title and a skipped or held Review's Check
+title are ADR 0029's.

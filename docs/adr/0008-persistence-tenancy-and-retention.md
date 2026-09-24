@@ -638,3 +638,13 @@ repository source - and adds the credential Reprove does hold, rather than routi
   calls them over the runtime connection. Boot asserts the function set, its owner and the
   maintenance role's policies. No new credential and no `BYPASSRLS` ([ADR 0028](0028-reaping-a-hosted-pass-sandbox.md) §8).
 - **Owner deletion's cascade includes custody records.**
+
+## Amended by [#118](https://github.com/nick-neely/reprove/issues/118)
+
+[ADR 0029](0029-stopping-and-fencing-a-superseded-run.md) changes publication state. The Run's publication row's Review outcome is `pending`,
+`unresolved`, `published`, `stale_head`, `overtaken`, `force_released` or `failed`. A forced
+release records its actor and the accepted risk. A per-pull-request publication lease table with a
+fencing token serializes every Check and Review write for a pull request. "The most recent prior Run
+that successfully published a logical Review" is computed by the Run's per-pull-request `sequence`,
+not by `created_at`. Run rows are kept rather than deleted, so `max + 1` stays meaningful under
+retention.

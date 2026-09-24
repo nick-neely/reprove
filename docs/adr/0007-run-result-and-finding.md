@@ -324,3 +324,14 @@ here, told apart by its non-empty accumulated Refusals. A Run whose execution ow
 not `unscheduled`; it stays `failed(worker_lost)`. "Nothing executed" in the paragraph on Failure
 vocabulary reads as "execution was never authorized": a refused Run may have spent a probe, and its
 Usage is reported.
+
+## Amended by [#118](https://github.com/nick-neely/reprove/issues/118)
+
+[ADR 0029](0029-stopping-and-fencing-a-superseded-run.md) changes publication, not the Run. A Review that the fence skips is a Review outcome on the
+publication row, never a Run status: `stale_head` when the pull request's head moved past the Run,
+`overtaken` when a later Run in the pull request's sequence already published. The Run stays
+`completed` or `incomplete`, and its Check concludes from the Run outcome under this ADR's mapping,
+independent of the Threshold and of whether a Review posted. Reconciliation's predecessor is the
+highest-sequence earlier Run whose Review is `published` with a GitHub review id; a skipped,
+unresolved or force-released Review is never one. A superseded Run's `cancelled` Check carries a
+title built from its recorded supersession facts.

@@ -306,3 +306,10 @@ Harness). What it established, and what this ADR got wrong:
   Vercel); reattach by name 70 to 80 ms; `doStart` 1.1 to 1.9 s fresh and 0.15 to 0.46 s resuming;
   probe 13.5 to 14.8 s; `stop()` 1.3 to 3.3 s; Provider requests 40 to 100 KB each, growing with the
   turn, 0.3 to 1.3 s to response headers through the route.
+
+## Amended by [#118](https://github.com/nick-neely/reprove/issues/118)
+
+[ADR 0029](0029-stopping-and-fencing-a-superseded-run.md) changes §7. Claiming a Slice also requires the Run to be `executing`, checked in the same
+serialized statement as the claim. A claim refused on that predicate ends the pass with no Result and
+stops its own Sandbox. It fences the next Slice only; it does not interrupt a command already running
+in the current one.

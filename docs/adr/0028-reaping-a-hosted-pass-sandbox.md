@@ -226,3 +226,10 @@ anyway.
   past its timeout reads `stopped` at the timeout, and a command on it fails `400` "Cannot resume
   sandbox: no snapshot available". `stop()` took 1.3 to 3.3 s and a following `get` reading
   `stopped` is the provider evidence §4 needs.
+
+## Amended by [#118](https://github.com/nick-neely/reprove/issues/118)
+
+[ADR 0029](0029-stopping-and-fencing-a-superseded-run.md) changes §1. On `ended` the lifecycle also cancels the pass's Workflow run, in a bounded step
+whose failure or timeout never prevents the reap. The pass's own `stop()` gains a trigger: a Slice
+claim refused because the Run is no longer `executing`. The generic reap covers a superseded Run as
+this ADR's handoff said, and no stricter promptness is promised.
