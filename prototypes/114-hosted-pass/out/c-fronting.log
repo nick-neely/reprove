@@ -1,0 +1,30 @@
+
+[2026-09-24T01:10:03.938Z] B firewall-native: Host=example.com via registry SNI
+http=403
+{"error":"Forbidden: request authority does not match SNI","status":403}
+
+[2026-09-24T01:10:04.336Z] B firewall-native: Host=www.cloudflare.com via registry SNI
+http=403
+{"error":"Forbidden: request authority does not match SNI","status":403}
+
+[2026-09-24T01:10:04.519Z] B firewall-native: SNI=example.com to a registry IP
+http=000 exit=35
+
+[2026-09-24T01:10:05.288Z] plain allow: Host=example.com via registry SNI
+http=403
+<html>
+<head><title>403 Forbidden</title></head>
+<body>
+<center><h1>403 Forbidden</h1></center>
+<hr><center>cloudfla
+
+[2026-09-24T01:10:05.778Z] plain allow: Host=www.cloudflare.com via registry SNI
+http=403
+<html>
+<head><title>403 Forbidden</title></head>
+<body>
+<center><h1>403 Forbidden</h1></center>
+<hr><center>cloudfla
+
+[2026-09-24T01:10:05.950Z] plain allow: SNI=example.com to a registry IP
+http=000 exit=35
