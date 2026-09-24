@@ -1,0 +1,155 @@
+
+[2026-09-24T00:02:17.182Z] create p114-names-muerp6qn in 5757ms
+{
+  "name": "p114-names-muerp6qn",
+  "sessionId": "sbx_UI30c6Jj8Xcp0VOo9RounNvJ7s8E",
+  "status": "running",
+  "persistent": false,
+  "createdAt": "2026-09-24T00:02:17.110Z",
+  "expiresAt": "2026-09-24T00:07:16.939Z",
+  "timeout": 300000,
+  "vcpus": 2,
+  "memory": 4096,
+  "region": "iad1",
+  "networkPolicy": "deny-all"
+}
+
+[2026-09-24T00:02:22.646Z] second create under the same name threw in 5464ms
+{
+  "name": "Error",
+  "message": "Status code 400 is not ok: A sandbox with the name 'p114-names-muerp6qn' already exists for this project. Use GET /sandboxes/:name to resume it or delete it first.",
+  "status": 400,
+  "json": {
+    "error": {
+      "code": "bad_request",
+      "message": "A sandbox with the name 'p114-names-muerp6qn' already exists for this project. Use GET /sandboxes/:name to resume it or delete it first."
+    }
+  },
+  "text": "{\"error\":{\"code\":\"bad_request\",\"message\":\"A sandbox with the name 'p114-names-muerp6qn' already exists for this project. Use GET /sandboxes/:name to resume it or delete it first.\"}}"
+}
+
+[2026-09-24T00:02:28.124Z] get(name) while running ok in 5477ms
+{
+  "name": "p114-names-muerp6qn",
+  "sessionId": "sbx_UI30c6Jj8Xcp0VOo9RounNvJ7s8E",
+  "status": "running",
+  "persistent": false,
+  "createdAt": "2026-09-24T00:02:17.110Z",
+  "expiresAt": "2026-09-24T00:07:16.939Z",
+  "timeout": 300000,
+  "vcpus": 2,
+  "memory": 4096,
+  "region": "iad1",
+  "networkPolicy": "deny-all",
+  "totalDurationMs": 0
+}
+
+[2026-09-24T00:02:28.124Z] identity check: sessionId from create vs get
+{
+  "create": "sbx_UI30c6Jj8Xcp0VOo9RounNvJ7s8E",
+  "get": "sbx_UI30c6Jj8Xcp0VOo9RounNvJ7s8E"
+}
+
+[2026-09-24T00:02:28.438Z] listSessions ok in 314ms
+{
+  "sessions": [
+    {
+      "id": "sbx_UI30c6Jj8Xcp0VOo9RounNvJ7s8E",
+      "memory": 4096,
+      "vcpus": 2,
+      "region": "iad1",
+      "runtime": "node22",
+      "timeout": 300000,
+      "status": "running",
+      "requestedAt": 1790208136916,
+      "startedAt": 1790208136939,
+      "createdAt": 1790208136916,
+      "cwd": "/vercel",
+      "updatedAt": 1790208137034,
+      "interactivePort": 26661,
+      "networkPolicy": {
+        "mode": "deny-all"
+      },
+      "architecture": "amd64",
+      "sourceSandboxName": "p114-names-muerp6qn",
+      "projectId": "prj_OJbHhpqdqXz1cjk9FOUvCEHdUx1S"
+    }
+  ],
+  "pagination": {
+    "count": 1,
+    "next": null
+  }
+}
+
+[2026-09-24T00:02:31.209Z] stop p114-names-muerp6qn ok in 2771ms
+{
+  "status": "stopped",
+  "snapshot": null
+}
+
+[2026-09-24T00:02:31.425Z] get(name) after stop, resume:false ok in 216ms
+{
+  "name": "p114-names-muerp6qn",
+  "sessionId": "sbx_UI30c6Jj8Xcp0VOo9RounNvJ7s8E",
+  "status": "stopped",
+  "persistent": false,
+  "createdAt": "2026-09-24T00:02:17.110Z",
+  "timeout": 300000,
+  "vcpus": 2,
+  "memory": 4096,
+  "region": "iad1",
+  "networkPolicy": "deny-all",
+  "activeCpuUsageMs": 2366,
+  "totalDurationMs": 12312
+}
+
+[2026-09-24T00:02:31.653Z] create again under the stopped name threw in 228ms
+{
+  "name": "Error",
+  "message": "Status code 400 is not ok: A sandbox with the name 'p114-names-muerp6qn' already exists for this project. Use GET /sandboxes/:name to resume it or delete it first.",
+  "status": 400,
+  "json": {
+    "error": {
+      "code": "bad_request",
+      "message": "A sandbox with the name 'p114-names-muerp6qn' already exists for this project. Use GET /sandboxes/:name to resume it or delete it first."
+    }
+  },
+  "text": "{\"error\":{\"code\":\"bad_request\",\"message\":\"A sandbox with the name 'p114-names-muerp6qn' already exists for this project. Use GET /sandboxes/:name to resume it or delete it first.\"}}"
+}
+
+[2026-09-24T00:02:31.831Z] get(never-created name) threw in 177ms
+{
+  "name": "Error",
+  "message": "Status code 404 is not ok: Named sandbox 'p114-never-muerp6qn' not found for this project.",
+  "status": 404,
+  "json": {
+    "error": {
+      "code": "not_found",
+      "message": "Named sandbox 'p114-never-muerp6qn' not found for this project."
+    }
+  },
+  "text": "{\"error\":{\"code\":\"not_found\",\"message\":\"Named sandbox 'p114-never-muerp6qn' not found for this project.\"}}"
+}
+
+[2026-09-24T00:02:32.084Z] stop p114-names-muerp6qn ok in 254ms
+{
+  "status": "stopped",
+  "snapshot": null
+}
+
+[2026-09-24T00:02:32.423Z] delete ok in 339ms
+(no value)
+
+[2026-09-24T00:02:32.747Z] get(name) after delete threw in 324ms
+{
+  "name": "Error",
+  "message": "Status code 404 is not ok: Named sandbox 'p114-names-muerp6qn' not found for this project.",
+  "status": 404,
+  "json": {
+    "error": {
+      "code": "not_found",
+      "message": "Named sandbox 'p114-names-muerp6qn' not found for this project."
+    }
+  },
+  "text": "{\"error\":{\"code\":\"not_found\",\"message\":\"Named sandbox 'p114-names-muerp6qn' not found for this project.\"}}"
+}

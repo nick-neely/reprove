@@ -1,0 +1,74 @@
+
+[2026-09-24T00:01:50.363Z] before createUser
+/usr/local 0:0 755
+/usr/local/bin 1001:1001 755
+/usr/local/lib 1001:1001 755
+no uid 1001
+total 249944
+drwxr-xr-x  2 1001 1001       198 Sep 16 08:09 .
+drwxr-xr-x 11 root root       129 Sep 16 08:08 ..
+-rwxr-xr-x  1 root root  79500640 Sep  5 01:47 bun
+lrwxrwxrwx  1 root root         3 Sep 16 08:09 bunx -> bun
+lrwxrwxrwx  1 root root        60 Sep 16 08:09 claude -> ../lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe
+lrwxrwxrwx  1 root root        46 Sep 16 08:09 codex -> ../lib/node_modules/@openai/codex/bin/codex.js
+lrwxrwxrwx  1 root root        45 Sep 16 08:09 corepack -> ../lib/node_modules/corepack/dist/corepack.js
+-rwxr-xr-x  1 1001 1001 126595440 Sep  7 23:56 node
+lrwxrwxrwx  1 root root        38 Sep 16 08:09 npm -> ../lib/node_modules/npm/bin/npm-cli.js
+lrwxrwxrwx  1 root root        38 Sep 16 08:09 npx -> ../lib/node_modules/npm/bin/npx-cli.js
+lrwxrwxrwx  1 root root        48 Sep 16 08:09 opencode -> ../lib/node_modules/opencode-ai/bin/opencode.exe
+lrwxrwxrwx  1 root root        70 Sep 16 08:09 pi -> ../lib/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js
+lrwxrwxrwx  1 root root        37 Sep 16 08:09 pn -> ../lib/node_modules/pnpm/bin/pnpm.mjs
+lrwxrwxrwx  1 root root        37 Sep 16 08:09 pnpm -> ../lib/node_modules/pnpm/bin/pnpm.mjs
+lrwxrwxrwx  1 root root        37 Sep 16 08:09 pnpx -> ../lib/node_modules/pnpm/bin/pnpx.mjs
+lrwxrwxrwx  1 root root        37 Sep 16 08:09 pnx -> ../lib/node_modules/pnpm/bin/pnpx.mjs
+-rwxr-xr-x  1 root root  49491696 Sep 16 08:08 uv
+-rwxr-xr-x  1 root root    347024 Sep 16 08:08 uvx
+/usr/local/bin/node
+/usr/local/bin/npm
+/usr/bin/git
+/usr/local/bin/node
+/usr/local/bin
+/usr/local/bin/node
+/usr/local/include
+/usr/local/include/node
+/usr/local/include/node/common.gypi
+/usr/local/include/node/config.gypi
+/usr/local/include/node/cppgc
+/usr/local/include/node/cppgc/allocation.h
+/usr/local/include/node/cppgc/common.h
+/usr/local/include/node/cppgc/cross-thread-persistent.h
+/usr/local/include/node/cppgc/custom-space.h
+/usr/local/include/node/cppgc/default-platform.h
+/usr/local/include/node/cppgc/explicit-management.h
+/usr/local/include/node/cppgc/garbage-collected.h
+/usr/local/include/node/cppgc/heap-consistency.h
+/usr/local/include/node/cppgc/heap-handle.h
+/usr/local/include/node/cppgc/heap-state.h
+/usr/local/include/node/cppgc/heap-statistics.h
+/usr/local/include/node/cppgc/heap.h
+/usr/local/include/node/cppgc/internal
+/usr/local/bin
+/usr/local/bin/node
+/usr/local/include
+/usr/local/include/node
+/usr/local/include/node/common.gypi
+/usr/local/include/node/config.gypi
+/usr/local/include/node/cppgc
+/usr/local/include/node/cppgc/allocation.h
+/usr/local/include/node/cppgc/common.h
+/usr/local/include/node/cppgc/cross-thread-persistent.h
+
+
+[2026-09-24T00:01:56.627Z] after createUser
+uid=1001(reviewer) gid=1001(reviewer) groups=1001(reviewer)
+/usr/local/bin reviewer:reviewer 755
+PATH for root: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
+/usr/local/bin/node
+
+
+[2026-09-24T00:01:56.800Z] reviewer writes into /usr/local/bin
+-rwxrwxr-x 1 reviewer reviewer 10 Sep 24 00:01 /usr/local/bin/p114-planted
+drwxr-xr-x 4 reviewer reviewer  44 Sep  7 23:56 /usr/local/lib
+drwxr-xr-x 9 reviewer reviewer 123 Sep 16 08:09 /usr/local/lib/node_modules
+NODE_MODULES_WRITABLE
+

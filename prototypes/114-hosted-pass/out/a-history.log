@@ -1,0 +1,43 @@
+
+[2026-09-24T00:02:17.397Z] create p114-history-muerp6yj in 5689ms
+{
+  "name": "p114-history-muerp6yj",
+  "sessionId": "sbx_YuGyswH2iAboTbuZM7QkODssX8pj",
+  "status": "running",
+  "persistent": false,
+  "createdAt": "2026-09-24T00:02:17.335Z",
+  "expiresAt": "2026-09-24T00:07:17.220Z",
+  "timeout": 300000,
+  "vcpus": 2,
+  "memory": 4096,
+  "region": "iad1",
+  "networkPolicy": "deny-all"
+}
+
+[2026-09-24T00:02:22.854Z] argv/env/stdout markers
+{
+  "cmdId": "cmd_47c47be4db1446feaf1f1f162eef",
+  "exitCode": 0,
+  "stdout": "STDOUT_MARKER_P114\nENV_MARKER_P114\n",
+  "stderr": "STDERR_MARKER_P114\n"
+}
+
+[2026-09-24T00:02:23.244Z] argv marker
+{
+  "cmdId": "cmd_b1db757fdcf54351aedc84524fa2",
+  "exitCode": 0,
+  "stdout": "ARGV_MARKER_P114\n",
+  "stderr": ""
+}
+
+[2026-09-24T00:02:28.859Z] SDK file read
+FILE_CONTENT_MARKER_P114
+
+[2026-09-24T00:02:28.859Z] NEXT
+Open the Vercel dashboard for sandbox p114-history-muerp6yj, check which markers appear, then run: node phase-a.mjs history-delete p114-history-muerp6yj
+
+[2026-09-24T00:02:36.750Z] stop p114-history-muerp6yj ok in 7891ms
+{
+  "status": "stopped",
+  "snapshot": null
+}

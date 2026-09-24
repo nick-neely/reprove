@@ -1,0 +1,50 @@
+
+[2026-09-24T00:05:47.052Z] create aborted at 300ms threw in 305ms
+{
+  "name": "AbortError",
+  "message": "This operation was aborted"
+}
+
+[2026-09-24T00:05:47.388Z] get(name) at +641ms
+Status code 404 is not ok: Named sandbox 'p114-race-muertsvv' not found for this project.
+
+[2026-09-24T00:05:49.265Z] found at +2518ms
+
+
+[2026-09-24T00:05:49.266Z] found after abort
+{
+  "name": "p114-race-muertsvv",
+  "sessionId": "sbx_ycEH2tz9O3PiF45qDzP8PpvnBKYq",
+  "status": "running",
+  "persistent": false,
+  "createdAt": "2026-09-24T00:05:47.331Z",
+  "expiresAt": "2026-09-24T00:10:47.220Z",
+  "timeout": 300000,
+  "vcpus": 2,
+  "memory": 4096,
+  "region": "iad1",
+  "networkPolicy": "deny-all",
+  "totalDurationMs": 0
+}
+
+[2026-09-24T00:05:50.618Z] stop p114-race-muertsvv ok in 1352ms
+{
+  "status": "stopped",
+  "snapshot": null
+}
+
+[2026-09-24T00:05:50.815Z] get(name) after stop ok in 197ms
+{
+  "name": "p114-race-muertsvv",
+  "sessionId": "sbx_ycEH2tz9O3PiF45qDzP8PpvnBKYq",
+  "status": "stopped",
+  "persistent": false,
+  "createdAt": "2026-09-24T00:05:47.331Z",
+  "timeout": 300000,
+  "vcpus": 2,
+  "memory": 4096,
+  "region": "iad1",
+  "networkPolicy": "deny-all",
+  "activeCpuUsageMs": 1972,
+  "totalDurationMs": 2648
+}

@@ -1,0 +1,4 @@
+.vercel
+.env*
+node_modules/
+out/*.cursor.json

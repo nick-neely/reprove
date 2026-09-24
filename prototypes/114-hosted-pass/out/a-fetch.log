@@ -1,0 +1,89 @@
+
+[2026-09-24T00:02:23.521Z] create p114-fetch-muerp6uc in 581ms
+{
+  "name": "p114-fetch-muerp6uc",
+  "sessionId": "sbx_m9Ok00BasrvviOqC3Ajra47fW3Ua",
+  "status": "running",
+  "persistent": false,
+  "createdAt": "2026-09-24T00:02:23.449Z",
+  "expiresAt": "2026-09-24T00:07:23.286Z",
+  "timeout": 300000,
+  "vcpus": 2,
+  "memory": 4096,
+  "region": "iad1",
+  "networkPolicy": {
+    "allow": [
+      "github.com",
+      "api.github.com"
+    ]
+  }
+}
+
+[2026-09-24T00:02:23.522Z] policy read back
+{
+  "allow": [
+    "github.com",
+    "api.github.com"
+  ]
+}
+
+[2026-09-24T00:02:24.949Z] fetch private fixture by SHA, no credential in the Sandbox
+{
+  "cmdId": "cmd_1779dca025204092872eae35de5b",
+  "exitCode": 0,
+  "stdout": "From https://github.com/nick-neely/reprove-fixture\n * branch            87ee819d54daa8a9ea70df3c46c6ba823fdf610a -> FETCH_HEAD\ncommit\nFrom https://github.com/nick-neely/reprove-fixture\n * branch            87ee819d54daa8a9ea70df3c46c6ba823fdf610a -> FETCH_HEAD\n",
+  "stderr": "+ git init -q /tmp/w\n+ cd /tmp/w\n+ git fetch --no-tags https://github.com/nick-neely/reprove-fixture 87ee819d54daa8a9ea70df3c46c6ba823fdf610a\n+ git cat-file -t 87ee819d54daa8a9ea70df3c46c6ba823fdf610a\n+ git+ tail -2\n fetch https://github.com/nick-neely/reprove-fixture 87ee819d54daa8a9ea70df3c46c6ba823fdf610a --depth=1\n"
+}
+
+[2026-09-24T00:02:25.345Z] fork head by SHA through the base repo (public octocat/Hello-World, refs/pull)
+{
+  "cmdId": "cmd_31e799a8305f4b2d98ee312679e9",
+  "exitCode": 0,
+  "stdout": "7044a8a032e85b6ab611033b2ac8af7ce85805b2\trefs/pull/1/head\n549d75694b43ff0d0f71018200401d956374841e\trefs/pull/100/head\n0052c143fc6efc7d7ab4c60c28984cb98871838a\trefs/pull/10053/head\n",
+  "stderr": ""
+}
+
+[2026-09-24T00:02:27.223Z] fetch that fork SHA directly
+{
+  "cmdId": "cmd_1fdbdd48b36c428fb44e916da00c",
+  "exitCode": 0,
+  "stdout": "From https://github.com/octocat/Hello-World\n * branch            7044a8a032e85b6ab611033b2ac8af7ce85805b2 -> FETCH_HEAD\ncommit\n",
+  "stderr": ""
+}
+
+[2026-09-24T00:02:43.728Z] update removing only the api.github.com transform took 11466ms; read back
+{
+  "allow": [
+    "github.com",
+    "api.github.com"
+  ]
+}
+
+[2026-09-24T00:02:45.096Z] keep-alive client
+{
+  "exitCode": 0,
+  "stdout": "before {\"status\":200,\"reused\":false}\nsame-connection-after {\"status\":200,\"reused\":true}\nfresh-connection-after {\"status\":401,\"reused\":false}\n",
+  "stderr": ""
+}
+
+[2026-09-24T00:02:45.581Z] github.com fetch after the api.github.com removal
+{
+  "cmdId": "cmd_bdc7aa12a6cf4fb18e86ab20d02f",
+  "exitCode": 0,
+  "stdout": "From https://github.com/nick-neely/reprove-fixture\n * branch            87ee819d54daa8a9ea70df3c46c6ba823fdf610a -> FETCH_HEAD\ncommit\n",
+  "stderr": ""
+}
+
+[2026-09-24T00:02:46.457Z] github.com fetch after its own removal
+{
+  "cmdId": "cmd_023bc942585847d783c8e691df96",
+  "exitCode": 0,
+  "stdout": "fatal: could not read Username for 'https://github.com': terminal prompts disabled\n",
+  "stderr": ""
+}
+
+[2026-09-24T00:02:48.914Z] stop p114-fetch-muerp6uc ok in 2456ms
+{
+  "status": "stopped",
+  "snapshot": null
+}

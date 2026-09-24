@@ -1,0 +1,47 @@
+
+[2026-09-24T00:05:47.133Z] create aborted at 450ms threw in 454ms
+{
+  "name": "AbortError",
+  "message": "This operation was aborted"
+}
+
+[2026-09-24T00:05:47.470Z] found at +792ms
+
+
+[2026-09-24T00:05:47.470Z] found after abort
+{
+  "name": "p114-race-muertstx",
+  "sessionId": "sbx_A8RYYvg44ZgOtryPbdz6LJ7ss95M",
+  "status": "running",
+  "persistent": false,
+  "createdAt": "2026-09-24T00:05:47.246Z",
+  "expiresAt": "2026-09-24T00:10:47.117Z",
+  "timeout": 300000,
+  "vcpus": 2,
+  "memory": 4096,
+  "region": "iad1",
+  "networkPolicy": "deny-all",
+  "totalDurationMs": 0
+}
+
+[2026-09-24T00:05:49.904Z] stop p114-race-muertstx ok in 2433ms
+{
+  "status": "stopped",
+  "snapshot": null
+}
+
+[2026-09-24T00:05:50.124Z] get(name) after stop ok in 221ms
+{
+  "name": "p114-race-muertstx",
+  "sessionId": "sbx_A8RYYvg44ZgOtryPbdz6LJ7ss95M",
+  "status": "stopped",
+  "persistent": false,
+  "createdAt": "2026-09-24T00:05:47.246Z",
+  "timeout": 300000,
+  "vcpus": 2,
+  "memory": 4096,
+  "region": "iad1",
+  "networkPolicy": "deny-all",
+  "activeCpuUsageMs": 1643,
+  "totalDurationMs": 1163
+}

@@ -1,0 +1,15 @@
+{
+  "name": "prototype-114-hosted-pass",
+  "private": true,
+  "type": "module",
+  "description": "PROTOTYPE for #114. Throwaway, never merged.",
+  "dependencies": {
+    "@ai-sdk/harness": "^1.0.102",
+    "@ai-sdk/harness-codex": "^1.0.104",
+    "@octokit/auth-app": "^8.3.1",
+    "@vercel/sandbox": "^3.5.0",
+    "pg": "^8.23.0",
+    "ws": "^8.21.3",
+    "zod": "^4.5.4"
+  }
+}

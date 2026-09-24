@@ -1,0 +1,60 @@
+
+[2026-09-24T00:04:10.823Z] status
+stopped
+
+[2026-09-24T00:04:10.963Z] getCommand cmd_47c47be4db1446feaf1f1f162eef
+{
+  "id": "cmd_47c47be4db1446feaf1f1f162eef",
+  "name": "sh",
+  "args": [
+    "-c",
+    "echo STDOUT_MARKER_P114; echo STDERR_MARKER_P114 >&2; echo $SECRET_ENV"
+  ],
+  "cwd": "/vercel",
+  "sessionId": "sbx_YuGyswH2iAboTbuZM7QkODssX8pj",
+  "exitCode": 0,
+  "durationMs": 1,
+  "startedAt": 1790208142769
+}
+
+[2026-09-24T00:04:16.442Z] output cmd_47c47be4db1446feaf1f1f162eef threw
+{
+  "name": "Error",
+  "message": "Status code 410 is not ok: Sandbox has stopped execution and is no longer available",
+  "status": 410,
+  "json": {
+    "error": {
+      "code": "sandbox_stopped",
+      "message": "Sandbox has stopped execution and is no longer available"
+    }
+  },
+  "text": "{\"error\":{\"code\":\"sandbox_stopped\",\"message\":\"Sandbox has stopped execution and is no longer available\"}}"
+}
+
+[2026-09-24T00:04:16.816Z] getCommand cmd_b1db757fdcf54351aedc84524fa2
+{
+  "id": "cmd_b1db757fdcf54351aedc84524fa2",
+  "name": "echo",
+  "args": [
+    "ARGV_MARKER_P114"
+  ],
+  "cwd": "/vercel",
+  "sessionId": "sbx_YuGyswH2iAboTbuZM7QkODssX8pj",
+  "exitCode": 0,
+  "durationMs": 3,
+  "startedAt": 1790208143188
+}
+
+[2026-09-24T00:04:22.176Z] output cmd_b1db757fdcf54351aedc84524fa2 threw
+{
+  "name": "Error",
+  "message": "Status code 410 is not ok: Sandbox has stopped execution and is no longer available",
+  "status": 410,
+  "json": {
+    "error": {
+      "code": "sandbox_stopped",
+      "message": "Sandbox has stopped execution and is no longer available"
+    }
+  },
+  "text": "{\"error\":{\"code\":\"sandbox_stopped\",\"message\":\"Sandbox has stopped execution and is no longer available\"}}"
+}

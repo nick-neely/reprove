@@ -1,0 +1,99 @@
+
+[2026-09-24T00:02:17.258Z] create p114-timeout-muerp6vx in 5643ms
+{
+  "name": "p114-timeout-muerp6vx",
+  "sessionId": "sbx_MBTLzyxqR4yqyHPLUfYcLVqh1uos",
+  "status": "running",
+  "persistent": false,
+  "createdAt": "2026-09-24T00:02:17.200Z",
+  "expiresAt": "2026-09-24T00:03:17.091Z",
+  "timeout": 60000,
+  "vcpus": 2,
+  "memory": 4096,
+  "region": "iad1",
+  "networkPolicy": "deny-all"
+}
+
+[2026-09-24T00:02:37.674Z] get(name) at +15s ok in 5399ms
+{
+  "name": "p114-timeout-muerp6vx",
+  "sessionId": "sbx_MBTLzyxqR4yqyHPLUfYcLVqh1uos",
+  "status": "running",
+  "persistent": false,
+  "createdAt": "2026-09-24T00:02:17.200Z",
+  "expiresAt": "2026-09-24T00:03:17.091Z",
+  "timeout": 60000,
+  "vcpus": 2,
+  "memory": 4096,
+  "region": "iad1",
+  "networkPolicy": "deny-all",
+  "totalDurationMs": 0
+}
+
+[2026-09-24T00:02:53.122Z] get(name) at +30s ok in 395ms
+{
+  "name": "p114-timeout-muerp6vx",
+  "sessionId": "sbx_MBTLzyxqR4yqyHPLUfYcLVqh1uos",
+  "status": "running",
+  "persistent": false,
+  "createdAt": "2026-09-24T00:02:17.200Z",
+  "expiresAt": "2026-09-24T00:03:17.091Z",
+  "timeout": 60000,
+  "vcpus": 2,
+  "memory": 4096,
+  "region": "iad1",
+  "networkPolicy": "deny-all",
+  "totalDurationMs": 0
+}
+
+[2026-09-24T00:03:13.560Z] get(name) at +45s ok in 5385ms
+{
+  "name": "p114-timeout-muerp6vx",
+  "sessionId": "sbx_MBTLzyxqR4yqyHPLUfYcLVqh1uos",
+  "status": "running",
+  "persistent": false,
+  "createdAt": "2026-09-24T00:02:17.200Z",
+  "expiresAt": "2026-09-24T00:03:17.091Z",
+  "timeout": 60000,
+  "vcpus": 2,
+  "memory": 4096,
+  "region": "iad1",
+  "networkPolicy": "deny-all",
+  "totalDurationMs": 0
+}
+
+[2026-09-24T00:03:34.208Z] get(name) at +60s ok in 5594ms
+{
+  "name": "p114-timeout-muerp6vx",
+  "sessionId": "sbx_MBTLzyxqR4yqyHPLUfYcLVqh1uos",
+  "status": "stopped",
+  "persistent": false,
+  "createdAt": "2026-09-24T00:02:17.200Z",
+  "timeout": 60000,
+  "vcpus": 2,
+  "memory": 4096,
+  "region": "iad1",
+  "networkPolicy": "deny-all",
+  "activeCpuUsageMs": 2857,
+  "totalDurationMs": 60369
+}
+
+[2026-09-24T00:03:34.725Z] runCommand on the original handle after timeout threw in 517ms
+{
+  "name": "Error",
+  "message": "Status code 400 is not ok: Cannot resume sandbox: no snapshot available.",
+  "status": 400,
+  "json": {
+    "error": {
+      "code": "snapshot_not_found",
+      "message": "Cannot resume sandbox: no snapshot available."
+    }
+  },
+  "text": "{\"error\":{\"code\":\"snapshot_not_found\",\"message\":\"Cannot resume sandbox: no snapshot available.\"}}"
+}
+
+[2026-09-24T00:03:34.990Z] stop p114-timeout-muerp6vx ok in 264ms
+{
+  "status": "stopped",
+  "snapshot": null
+}

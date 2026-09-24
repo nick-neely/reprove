@@ -1,0 +1,101 @@
+
+[2026-09-24T00:01:14.807Z] create p114-users-muernunq in 5695ms
+{
+  "name": "p114-users-muernunq",
+  "sessionId": "sbx_pdHq6HUmAvyhR68TTjxhlCPJKCEG",
+  "status": "running",
+  "persistent": false,
+  "createdAt": "2026-09-24T00:01:14.728Z",
+  "expiresAt": "2026-09-24T00:06:14.672Z",
+  "timeout": 300000,
+  "vcpus": 2,
+  "memory": 4096,
+  "region": "iad1",
+  "networkPolicy": "deny-all"
+}
+
+[2026-09-24T00:01:20.359Z] default user
+{
+  "cmdId": "cmd_08bc2710f2d74f5c826c350c6efb",
+  "exitCode": 0,
+  "stdout": "uid=1000(ubuntu) gid=1000(ubuntu) groups=1000(ubuntu),4(adm),20(dialout),24(cdrom),25(floppy),27(sudo),29(audio),30(dip),44(video),46(plugdev)\nHOME=/vercel\n/vercel\nSUDO_OK\n",
+  "stderr": ""
+}
+
+[2026-09-24T00:01:20.867Z] image
+{
+  "cmdId": "cmd_97848f04074b439ebca3519accee",
+  "exitCode": 0,
+  "stdout": "PRETTY_NAME=\"Ubuntu 26.04.1 LTS\"\nNAME=\"Ubuntu\"\nVERSION_ID=\"26.04\"\n6.18.49\nv24.21.0\ngit version 2.53.0\n/usr/bin/python3\n/usr/sbin/getcap\n/usr/bin/setpriv\n/usr/bin/unshare\n",
+  "stderr": ""
+}
+
+[2026-09-24T00:01:22.555Z] reviewer: id
+{
+  "cmdId": "cmd_22ff5ff7204b49708f99381c11a9",
+  "exitCode": 0,
+  "stdout": "uid=1001(reviewer) gid=1001(reviewer) groups=1001(reviewer)\n",
+  "stderr": ""
+}
+
+[2026-09-24T00:01:22.855Z] reviewer: sudo -n -l 2>&1 | head -20; sudo -n true && echo SUDO_OK || echo SUDO_DENIED
+{
+  "cmdId": "cmd_98a3a7f8345c420e85c66eb9f9e2",
+  "exitCode": 0,
+  "stdout": "sudo: a password is required\nSUDO_DENIED\n",
+  "stderr": "sudo: a password is required\n"
+}
+
+[2026-09-24T00:01:23.022Z] reviewer: getent group sudo wheel adm docker disk lxd 2>/dev/null
+{
+  "cmdId": "cmd_4bb9286f48de4ed094da80a80c31",
+  "exitCode": 2,
+  "stdout": "sudo:x:27:ubuntu\nadm:x:4:ubuntu\ndisk:x:6:\n",
+  "stderr": ""
+}
+
+[2026-09-24T00:01:23.687Z] reviewer: find / -xdev \( -perm -4000 -o -perm -2000 \) -type f 2>/dev/null
+{
+  "cmdId": "cmd_998a76bdf9ae4b8b9f73f1ec0cf2",
+  "exitCode": 1,
+  "stdout": "/usr/bin/chage\n/usr/bin/chfn\n/usr/bin/chsh\n/usr/bin/expiry\n/usr/bin/gpasswd\n/usr/bin/mount\n/usr/bin/passwd\n/usr/bin/su\n/usr/bin/umount\n/usr/bin/sudo.ws\n/usr/sbin/pam_extrausers_chkpwd\n/usr/sbin/unix_chkpwd\n",
+  "stderr": ""
+}
+
+[2026-09-24T00:01:24.114Z] reviewer: (command -v getcap >/dev/null && getcap -r / 2>/dev/null) || echo 'getcap unavailable'
+{
+  "cmdId": "cmd_2c30d106961d41d6bbd6f00519dd",
+  "exitCode": 0,
+  "stdout": "",
+  "stderr": ""
+}
+
+[2026-09-24T00:01:24.314Z] reviewer: for d in / /usr /usr/bin /usr/local /usr/local/bin /etc /opt /home /tmp /vercel $HOME; do [ -e "$d" ] && printf '%s ' "$d" && stat -c '%U:%G %a' "$d"; done
+{
+  "cmdId": "cmd_6232c4ecdba64d7ab9d4c3017bed",
+  "exitCode": 0,
+  "stdout": "/ root:root 755\n/usr root:root 755\n/usr/bin root:root 755\n/usr/local root:root 755\n/usr/local/bin reviewer:reviewer 755\n/etc root:root 755\n/opt root:root 755\n/home root:root 755\n/tmp root:root 1777\n/vercel ubuntu:ubuntu 755\n/home/reviewer reviewer:ubuntu 770\n",
+  "stderr": ""
+}
+
+[2026-09-24T00:01:24.619Z] reviewer: for d in /usr/local/bin /usr/bin /etc /opt /vercel; do [ -w "$d" ] && echo WRITABLE $d; done; echo done
+{
+  "cmdId": "cmd_384462d65a9f41abb1eb42a8146d",
+  "exitCode": 0,
+  "stdout": "WRITABLE /usr/local/bin\ndone\n",
+  "stderr": ""
+}
+
+[2026-09-24T00:01:24.922Z] reviewer: ls -la /etc/sudoers.d 2>&1; cat /etc/sudoers 2>&1 | grep -v '^#' | grep -v '^$'
+{
+  "cmdId": "cmd_cda4a101a1cd41e08f05254e75cf",
+  "exitCode": 0,
+  "stdout": "total 12\ndrwxr-xr-x  2 root root   35 Sep 16 08:09 .\ndrwxr-xr-x 45 root root 4096 Sep 24 00:01 ..\n-r--r-----  1 root root  863 Jan 14  2026 README\n-r--r-----  1 root root   90 Sep 16 08:08 sandbox\ncat: /etc/sudoers: Permission denied\n",
+  "stderr": ""
+}
+
+[2026-09-24T00:01:27.349Z] stop p114-users-muernunq ok in 2427ms
+{
+  "status": "stopped",
+  "snapshot": null
+}
