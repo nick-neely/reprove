@@ -138,8 +138,8 @@ the checkout, dependencies and fetch temporaries all count against the deploymen
 Attribution stays where ADR 0020 left it, **instructional**. An ordinary `git diff` omits untracked
 files, and an end-state diff cannot show what ran earlier, so this ADR makes **no claim of a
 trustworthy record of what the Reviewer changed**, and the Check must not say attribution was
-checked. Whether the tree is read-only under `inspect` is left to [Fix what inspect withholds from a hosted
-Reviewer and which layer withholds it](https://github.com/nick-neely/reprove/issues/117).
+checked. A read-only tree under `inspect` is a dormant input for whoever reopens that level, not a
+Phase 1 requirement: Phase 1 does not offer `inspect` ([amended by #117](#amended-by-117)).
 
 ## 7. The Reviewer gets its own user, and the protections are checked rather than assumed
 
@@ -178,7 +178,8 @@ It is **install behaviour under `verify`, not an enforced security restriction**
 configuration, the environment or command-line options can override it without any deliberate
 disobedience, and under `verify` the Reviewer holds a shell anyway. It is therefore **not part of the
 deployment-policy meet**, it is not subject to an Owner Ceiling, and **the Check never says scripts
-were blocked**. Under `inspect` no install runs at all, so the key has no effect there.
+were blocked**. Under `inspect` no install would run at all, so the key would have no effect
+there; that clause is dormant, since Phase 1 does not offer `inspect` ([amended by #117](#amended-by-117)).
 
 This is why ADR 0019's `policy_unenforceable` contingency for the key disappears (amendment below):
 there is no longer an enforcement claim that could fail.
@@ -317,7 +318,6 @@ windows with measured deadlines](https://github.com/nick-neely/reprove/issues/11
 [#115](https://github.com/nick-neely/reprove/issues/115) receives the setup-time and disk ceilings.
 [#113](https://github.com/nick-neely/reprove/issues/113) receives the Reviewer-phase network policy.
 [#88](https://github.com/nick-neely/reprove/issues/88) receives the cleanup identity.
-[#117](https://github.com/nick-neely/reprove/issues/117) receives the read-only tree under `inspect`.
 
 ## Consequences
 
@@ -388,3 +388,11 @@ The conditions §12 handed the prototype, as observed on the `vercel/sandbox/uni
   forwarded request arrives without the injected header. Materialization completes under the
   transform policy and the Reviewer-phase policy replaces it; they cannot overlap. How GitHub is
   reached during review is [#127](https://github.com/nick-neely/reprove/issues/127).
+
+## Amended by [#117](https://github.com/nick-neely/reprove/issues/117)
+
+Phase 1 does not offer `inspect`: `review.autonomy: inspect` is a control-plane
+`config_unsupported` at Run creation ([ADR 0019](0019-phase-1-repository-configuration-subset.md#amended-by-117)).
+The `inspect` sentences in §6 and §8 are **dormant**: ideas for whoever reopens the level, not
+Phase 1 requirements. §12's handoff of the read-only tree to #117 is withdrawn; no Phase 1 ticket
+owns it.

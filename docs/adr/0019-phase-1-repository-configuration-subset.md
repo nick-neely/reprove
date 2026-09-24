@@ -25,15 +25,16 @@ control-plane Refusal with a new reason, **`config_unsupported`**, naming the ke
 | `harness` | `codex` honoured; `claude-code` and `opencode` are `config_unsupported` |
 | `model` | honoured when it names the one Model the production catalogue holds for the Harness (§2); any other value is `config_unsupported` |
 | `strategy` | `standard`, the only value the schema admits |
-| `autonomy` | `inspect` and `verify` honoured; `fix` is `config_unsupported`. Whether the resolved Harness build can enforce `inspect` stays a dispatch-time Refusal per ADR 0011 §5 |
+| `autonomy` | `verify` honoured; `inspect` and `fix` are `config_unsupported` ([amended by #117](https://github.com/nick-neely/reprove/issues/117)) |
 | `budget` | honoured as a soft spending limit in USD (§7); `config_unsupported` when the pricing revision carries no price for the resolved Model |
 | `deadline` | honoured; bounds Reviewer execution time, not the claim window (§8) |
 | `event`, `threshold`, `ignore`, `commands`, `baseConventions`, `overrides` | honoured as ADR 0011 defines them |
 | `harnessOptions.codex.reasoningEffort` | honoured, narrowed by the catalogue for the resolved Model |
 
 The distinction from ADR 0011 §5's dispatch-time Refusal is *what is known where*: "the product
-has no self-hosted Worker" is known at Run creation; "this Harness artifact cannot enforce
-`inspect`" is known only from the Worker's behavioural probe.
+has no self-hosted Worker" is known at Run creation; whether a Harness artifact can enforce a
+capability is known only from the Worker's behavioural probe. "Phase 1 does not offer `inspect`" is
+product policy, so it is known at Run creation ([amended by #117](#amended-by-117)).
 
 **`security:` keys** are never `config_unsupported` for the keys that exist today. Two steps apply,
 kept apart: the meet of ADR 0011 §3 produces the effective policy, and whether the hosted Worker
@@ -374,3 +375,62 @@ byte-identical from 0.153.4 to 0.156.1, and the bridge reaches the CLI only thro
 - The provider proxy drops the `x-openai-internal-codex-responses-lite` header the CLI sends for
   these Models. #131 saw no observable difference either way; the handoff decides whether to forward
   it.
+
+## Amended by [#117](https://github.com/nick-neely/reprove/issues/117)
+
+### Phase 1 does not offer `inspect`
+
+**No layer in the current architecture lets the pinned Codex setup read the repository while
+enforcing no Project execution.** ADR 0005 §Autonomy stands, and #117 re-checked it against Codex
+0.156.1 with `gpt-6-sol`:
+
+- the Harness still throws on any `permissionMode` other than `allow-all` and on built-in tool
+  filtering, and the SDK still appends `--sandbox danger-full-access` after the `codexConfig`
+  overrides;
+- `features.shell_tool=false` removes shell execution, but the shell is how Codex reads the
+  repository, so what remains is a diff-only Reviewer, and `apply_patch` and the `collaboration`
+  namespace survive it (table above), so it is not even a read-only tool set;
+- a read-only tree is not no-execution: any interpreter in the image still runs, and scratch space
+  stays writable;
+- a Sandbox with the shell on and no network or install is the shape ADR 0005 rejected as
+  "hygiene, not a control".
+
+Hosted `verify` is not a substitute. It runs untrusted code, ADR 0027 §1 says an approved `GET` can
+carry source-derived data, and `budget` is soft and can overshoot. Isolation and no write-back
+matter, but they do not replace a no-execution guarantee, so the product must not present `verify`
+as `inspect`'s safety by another route.
+
+This reverses the pull-in by [Walk the Phase 1 user journey and pull in what makes it
+usable](https://github.com/nick-neely/reprove/issues/103), which had `inspect` honoured "with
+enforcement by instruction plus no Project commands and no egress beyond the Provider". Instruction
+is not enforcement.
+
+### It is a control-plane `config_unsupported`, as Phase 1 product policy
+
+**Phase 1's offered Autonomy set is `verify`**, stated in the configuration policy beside the other
+Phase 1 support rules. It is not a per-Harness capability field: Phase 1 has one Harness and one
+offered level, and a future Harness offering `inspect` needs more than a table edit (below).
+
+`review.autonomy: inspect` is therefore a control-plane Refusal `config_unsupported` at Run
+creation, under §4: a `refusal` record, **no Run and no Review**. Its Check names
+`review.autonomy: inspect`, says Phase 1 does not offer it, and says that choosing `verify` permits
+the Reviewer to execute Project code. The prospective `Reprove config` Check (§6) runs the same
+loader, so it catches the setting on a pull request that changes `.reprove.yml`; it does not catch
+every configuration change before merge.
+
+This **departs explicitly from ADR 0011 §5**, which refuses exactly this request at dispatch on
+the ground that enforceability is known only from the behavioural probe. That ground still holds
+for capabilities the control plane cannot know, and the Worker keeps checking them: ADR 0005's
+`supportedAutonomy` remains the resolved Worker-side enforcement check, so a `RunSpec` naming a level
+the resolved invocation cannot enforce is still refused at dispatch. What moves is only the case
+the product already knows at Run creation: Phase 1 offers hosted Codex and does not offer
+`inspect`. No control-plane capability table is built.
+
+### The bar for reopening `inspect`
+
+A future `inspect` must let the Reviewer read the repository while **preventing Project execution
+and Workspace mutation**, PRD §9's meaning. Whoever reopens it records the layer that enforces that
+and the evidence for the claim, and decides the Result and publication semantics of a level that
+verifies nothing. The Workspace layout and how an `inspect` Run declares itself are that work's,
+not this ADR's. The `inspect` clauses already written in ADR 0024 §6 and §8 and ADR 0027 §5 are
+dormant inputs to it, not Phase 1 requirements.

@@ -125,11 +125,10 @@ Refusal. The narrowed value is what `resolvedConfig` records and what the `Repro
 reports.
 
 **Which Sandboxes get what.** The default set and extra hosts are a `verify` grant. The probe
-Sandbox gets only the Provider forward. Under `inspect`, `security.egress` resolves to no extra
-hosts and the policy is the Provider forward only; the narrowing shows in the config Check. How
-`inspect` prevents installation stays with [Fix what inspect withholds from a hosted Reviewer and
-which layer withholds it](https://github.com/nick-neely/reprove/issues/117), which this ADR does
-not settle.
+Sandbox gets only the Provider forward. A Provider-forward-only policy for `inspect` is a dormant
+input for whoever reopens that level: Phase 1 refuses `review.autonomy: inspect` before
+resolution, so no `inspect` configuration resolves to any egress policy ([amended by
+#117](#amended-by-117)).
 
 ## 6. What the proxy checks on every request
 
@@ -213,9 +212,6 @@ enforce proxy egress. There is no local exception.
   on the deployed proxy; and behaviour when the `forwardURL` is unreachable.
 - [#115](https://github.com/nick-neely/reprove/issues/115): per-request deadlines only, as ADR 0021
   already handed them. Count, size and concurrency limits stay here until #114 measures them.
-- [#117](https://github.com/nick-neely/reprove/issues/117): under `inspect` the policy is the
-  Provider forward only and `security.egress` resolves to no extra hosts; how installation is
-  prevented is still #117's.
 - [#111](https://github.com/nick-neely/reprove/issues/111) / ADR 0025: the Check's facts table gains
   the aggregate denial count.
 
@@ -263,3 +259,11 @@ is revoked. It does not retract a request already admitted.
   matchers or bodies. #127 decides what replaces the check.
 - The route must disable Next.js's trailing-slash redirect: PyPI's `/simple/<name>/` otherwise gets
   a `308` that the client follows onto a wrong upstream path.
+
+## Amended by [#117](https://github.com/nick-neely/reprove/issues/117)
+
+Phase 1 does not offer `inspect`: `review.autonomy: inspect` is a control-plane
+`config_unsupported` at Run creation, before resolution
+([ADR 0019](0019-phase-1-repository-configuration-subset.md#amended-by-117)). §5's `inspect`
+sentence is **dormant**, and the handoff to #117 is withdrawn. How a future `inspect` prevents
+installation belongs to whoever reopens it.

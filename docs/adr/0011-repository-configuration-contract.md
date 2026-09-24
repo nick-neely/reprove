@@ -153,6 +153,11 @@ behavioral probe against an artifact fingerprint, which exists only at dispatch.
 retired version allowlists precisely because a control-plane table of Harness capabilities
 was wrong within this map's own lifetime, and a parse-time check would rebuild one.
 
+> **Amended by [#117](https://github.com/nick-neely/reprove/issues/117):** in Phase 1 this exact request is refused at Run creation instead, as a
+> control-plane `config_unsupported`, because Phase 1 offers only `verify`. The dispatch-time rule
+> still governs capabilities the control plane cannot know. See [ADR
+> 0019](0019-phase-1-repository-configuration-subset.md#amended-by-117).
+
 ## 6. `overrides` is a restricted schema, not a recursive partial
 
 No per-directory `.reprove.yml` and no ancestor walk - that mechanic is what ADR 0009
@@ -359,4 +364,5 @@ hostnames **in addition to** a Reprove default registry set that is reachable th
 Reviewer turn, so `egress: []` means "no extra hosts", not "no network". Wildcards are not accepted
 in Phase 1. The meet is unchanged: the effective set is the Reprove boundary intersected with the
 request, and a requested host the boundary denies by construction is narrowed out and reported by
-the config Check, never refused. Under `inspect` it resolves to no extra hosts.
+the config Check, never refused. Under `inspect` it resolves to no extra hosts, a dormant clause:
+Phase 1 refuses `inspect` before resolution ([#117](https://github.com/nick-neely/reprove/issues/117)).

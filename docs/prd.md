@@ -2062,7 +2062,7 @@ Establish the architecture before optimizing product behavior.
 
 ---
 
-## Phase 1: MVP, Hosted `inspect` + `verify`
+## Phase 1: MVP, Hosted `verify`
 
 Build the first complete vertical slice using one Harness.
 
@@ -2073,7 +2073,7 @@ GitHub
 → hosted Worker
 → Adapter + Vercel Sandbox
 → Codex
-→ inspect/verify
+→ verify
 → GitHub Review
 ```
 
