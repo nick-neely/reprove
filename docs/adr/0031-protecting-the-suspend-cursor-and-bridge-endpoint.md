@@ -264,3 +264,39 @@ old bridge and every Reviewer process were proven stopped. §1's AAD gains a **b
 checks also run against the wrap-up's idle bridge before its prompt. There, after authorization, a
 demonstrated breach is the Failure `pass_failed` with detail `bridge_guard`, not the Refusal
 `sandbox_unenforceable`.
+
+## Amended by [#135](https://github.com/nick-neely/reprove/issues/135)
+
+[Prove a Reviewer cannot read or use the hosted bridge token](https://github.com/nick-neely/reprove/issues/135)
+**passed** on a real Vercel Sandbox with `@vercel/sandbox` 3.5.0, Harness 1.0.102, Codex Harness
+1.0.104, Codex CLI and SDK 0.156.1, and `gpt-6-sol`. It ran with the §5 wrapper and the §6 patch
+against the Pass's own bridge, before `doPromptTurn` and during a real Codex tool call. So §8's
+condition is met and the public `sandbox.domain(port)` route stands. Whether Vercel's router logs
+query strings is still unverified. ([results](https://github.com/nick-neely/reprove/blob/prototype/135-bridge-token/prototypes/135-bridge-token/RESULTS.md),
+[prototype](https://github.com/nick-neely/reprove/tree/prototype/135-bridge-token/prototypes/135-bridge-token))
+
+- **§4's conditional launch is confirmed, and its fallback is withdrawn.** The token appears in no
+  `/proc/*/cmdline`. It is also absent from Vercel command history: every record, read raw, carries
+  `id, name, args, cwd, sessionId, startedAt, exitCode, durationMs` and no environment. `sudo: true`
+  is the in-VM agent running `sudo sh -c <cmd>` as `ubuntu` under the image's `Defaults !env_reset`,
+  so the environment reaches root unchanged. It also sits in the setuid `sudo` process (uids
+  1000/0/0/0). Non-dumpability protects that process, and the Reviewer cannot read it. Only three
+  processes ever hold the token: that `sudo`, its root `sh -c`, and the root bridge. The
+  `ubuntu`-launch fallback would not work as written, because under `!env_reset` a `sudo -n`
+  preserve list filters nothing. If it is ever revived, it must clear the environment explicitly.
+- **§7's environment check is restated.** Codex, its npm `node` launcher and every tool shell run as
+  the Reviewer uid, so a tool **can** read their `/proc/<pid>/environ`. Each carries zero `BRIDGE_*`
+  variables, because the wrapper removes them before `setpriv`. The invariant, and the permanent
+  check, is therefore: **the token is in no Reviewer-readable environ and in no cmdline**. It is not
+  "Codex's environ is unreadable". The bridge's environ, its root parent's, `sudo`'s and pid 1's are
+  all unreadable by the Reviewer.
+- **§2 is corrected.** `.agent-runs/<id>` is keyed by `doStart`'s `sessionId`, which is the Pass ID.
+  The session's `id`, the recorded instance ID, feeds `bridge.sandboxId` and `mintBridgeToken`'s
+  argument, and is stable across `Sandbox.get` by name.
+- **Observed and not decided.** The Reviewer's tool environment carries `SUDO_COMMAND`, `SUDO_USER`,
+  `SUDO_UID`, `SUDO_GID` and `SUDO_HOME`, inherited through `!env_reset`. `SUDO_COMMAND` is the
+  bridge's launch line. It holds no secret, and the same line is in a world-readable cmdline.
+  Removing these variables in the wrapper is optional hygiene and would be a Revision change. The
+  stock image is now Ubuntu 26.04, and `/vercel/sandbox` does not exist until setup creates it.
+  [ADR 0024](0024-hosted-workspace-materialization-and-snapshots.md)'s uid-1001 ownership of
+  `/usr/local/bin` and `node` still holds, so the Reviewer uid is fixed and never the next free one.
