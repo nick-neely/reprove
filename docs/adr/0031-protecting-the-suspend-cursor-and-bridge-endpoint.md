@@ -293,10 +293,28 @@ query strings is still unverified. ([results](https://github.com/nick-neely/repr
 - **§2 is corrected.** `.agent-runs/<id>` is keyed by `doStart`'s `sessionId`, which is the Pass ID.
   The session's `id`, the recorded instance ID, feeds `bridge.sandboxId` and `mintBridgeToken`'s
   argument, and is stable across `Sandbox.get` by name.
-- **Observed and not decided.** The Reviewer's tool environment carries `SUDO_COMMAND`, `SUDO_USER`,
-  `SUDO_UID`, `SUDO_GID` and `SUDO_HOME`, inherited through `!env_reset`. `SUDO_COMMAND` is the
-  bridge's launch line. It holds no secret, and the same line is in a world-readable cmdline.
-  Removing these variables in the wrapper is optional hygiene and would be a Revision change. The
-  stock image is now Ubuntu 26.04, and `/vercel/sandbox` does not exist until setup creates it.
-  [ADR 0024](0024-hosted-workspace-materialization-and-snapshots.md)'s uid-1001 ownership of
-  `/usr/local/bin` and `node` still holds, so the Reviewer uid is fixed and never the next free one.
+- **§5 step 1 is replaced: the Reviewer's environment is an allowlist, not a removal list.** Under
+  `!env_reset`, the named removal let `SUDO_COMMAND`, `SUDO_USER`, `SUDO_UID`, `SUDO_GID` and
+  `SUDO_HOME` through. They hold no secret. But any variable a future Harness or Vercel agent adds
+  would reach the Reviewer the same way. The wrapper now starts from `env -i` and sets a fixed
+  `PATH`, `HOME`, `CODEX_HOME`, `USER`, `LOGNAME`, `SHELL` and `LANG`. From the bridge it carries
+  only `CODEX_API_KEY`, `OPENAI_BASE_URL`, `CODEX_INTERNAL_ORIGINATOR_OVERRIDE` and the CA-bundle
+  variables, when set: `SSL_CERT_FILE`, `SSL_CERT_DIR`, `NODE_EXTRA_CA_CERTS`, `NODE_USE_SYSTEM_CA`,
+  `CURL_CA_BUNDLE`, `REQUESTS_CA_BUNDLE`, `AWS_CA_BUNDLE`, `GIT_SSL_CAINFO`, `PIP_CERT`,
+  `NPM_CONFIG_CAFILE`, `CARGO_HTTP_CAINFO` and `GRPC_DEFAULT_SSL_ROOTS_FILE_PATH`. Their values
+  never go on a command line: they travel as a heredoc on a spare descriptor, which the `env -i`
+  shell sources before `setpriv`. Adding a name to the allowlist is a wrapper change, so it changes
+  the Revision.
+
+  Proven live: the wrapper dropped exactly nine incoming names, the `BRIDGE_*` variables,
+  `AI_SDK_HARNESS_CLIENT_APP`, the five `SUDO_*` and `TERM`, and Codex supplies its own `TERM` to
+  tools. The turn still reached the Provider. `curl` and Node `fetch` from a tool both completed TLS
+  to `api.openai.com` through the firewall. Every earlier check still passed.
+
+  The permanent contract-suite check is: **the first Reviewer process's environ names are a subset
+  of the allowlist**, allowing only `NODE_PATH`, which pnpm's `.bin/codex` shim exports after the
+  wrapper. The change landed before any qualification, so it costs no requalification.
+- **Image notes.** The stock image is now Ubuntu 26.04, and `/vercel/sandbox` does not exist until
+  setup creates it. [ADR 0024](0024-hosted-workspace-materialization-and-snapshots.md)'s uid-1001
+  ownership of `/usr/local/bin` and `node` still holds, so the Reviewer uid is fixed and never the
+  next free one.
