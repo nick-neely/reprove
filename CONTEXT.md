@@ -209,9 +209,10 @@ nothing.
 _Avoid_: session, credential record, proxy config
 
 **Slice**:
-One durable step's share of a hosted Pass. A Pass on a hosted Worker is a single turn driven
-across several Slices on one running Sandbox; a Slice never starts a turn of its own, and a
-Slice that cannot prove where the previous one stopped ends the Pass rather than guessing.
+One durable step's share of a hosted Pass. Slices drive a hosted Pass's initial turn, and its
+optional repair turn and optional deadline wrap-up turn, on one running Sandbox, each turn under
+its own guards. A continuing Slice never starts a turn of its own, and a Slice that cannot prove
+where the previous one stopped ends the Pass rather than guessing.
 _Avoid_: step, chunk, segment, leg
 
 **Isolation**:

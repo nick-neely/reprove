@@ -321,3 +321,10 @@ the Slice row holds a strictly parsed projection with the bridge token in encryp
 cleared when the Pass is terminalized. A continuing Slice spawns nothing: `mintBridgeToken` throws
 on resume, so a lost `attach` ends the Pass as the Failure `resume_lost` instead of falling to
 `replay` or `rerun`. The hosted session's `id` is the recorded instance ID.
+
+## Amended by [#129](https://github.com/nick-neely/reprove/issues/129)
+
+[ADR 0032](0032-deadline-wrap-up-turn.md) changes §7. Every Slice persists the observations it received in the transaction that finishes
+it, keyed by `(passId, bridgeGeneration, turnOrdinal, toolCallId)` and inserted if absent, and the
+final cross-check reads them. A Pass may end its turn with an `aborted` Slice finished in the same
+transaction that claims one **wrap-up Slice**, the only Slice that starts a turn after an abort.

@@ -254,3 +254,13 @@ block the hosted exit.
 - The hosted-pass execution record gains the encrypted bridge token with its key ID, and the purge
   job gains one fixed function.
 - `CONTEXT.md` gains nothing. Cursor and bridge are implementation terms.
+
+## Amended by [#129](https://github.com/nick-neely/reprove/issues/129)
+
+[ADR 0032](0032-deadline-wrap-up-turn.md) §5 adds the one exception to §3: in a **wrap-up Slice** that has recorded no spawn,
+`mintBridgeToken` returns a token committed in the transaction that claimed that Slice, after the
+old bridge and every Reviewer process were proven stopped. §1's AAD gains a **bridge generation**
+(1, then 2 for the wrap-up), so the old ciphertext cannot stand in for the new one. §7's bridge
+checks also run against the wrap-up's idle bridge before its prompt. There, after authorization, a
+demonstrated breach is the Failure `pass_failed` with detail `bridge_guard`, not the Refusal
+`sandbox_unenforceable`.

@@ -211,3 +211,13 @@ request, which stays in the map's fog.
 reattach, with detail `attach_failed`, `instance_mismatch`, `token_key_unavailable` or
 `token_unreadable`), and the `pass_failed` detail `launch_guard`. Both reach the Run only
 through [#83](https://github.com/nick-neely/reprove/issues/83).
+
+## Amended by [#129](https://github.com/nick-neely/reprove/issues/129)
+
+[ADR 0032](0032-deadline-wrap-up-turn.md) adds `pass_failed` details for a failed deadline wrap-up handoff: `wrapup_stop_failed`,
+`wrapup_quiescence_unproven`, `wrapup_custody_failed` (only when the store answered),
+`wrapup_thread_restarted` and `wrapup_bridge_check_error`, plus `bridge_guard` for a demonstrated
+breach found by the bridge checks after authorization. An invalid wrap-up answer is `result_invalid`,
+and `deadline_reached` stays reserved for a hard-stop overrun. All reach the Run only through
+[#83](https://github.com/nick-neely/reprove/issues/83). §7 is unchanged: the aborted turn's Usage
+is `unknown`.

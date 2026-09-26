@@ -434,3 +434,11 @@ and the evidence for the claim, and decides the Result and publication semantics
 verifies nothing. The Workspace layout and how an `inspect` Run declares itself are that work's,
 not this ADR's. The `inspect` clauses already written in ADR 0024 §6 and §8 and ADR 0027 §5 are
 dormant inputs to it, not Phase 1 requirements.
+
+## Amended by [#129](https://github.com/nick-neely/reprove/issues/129)
+
+§7's "execution stops before the next step" is stated in **turns** ([ADR 0032](0032-deadline-wrap-up-turn.md) §6): a new turn does not
+start under a configured `budget` unless every earlier turn of the Pass reported Usage. A continuing
+Slice of the same turn is never gated by Usage, because a Slice reports none until the turn's
+`finish`. A repair turn after a turn that reported no Usage cannot start under a budget, and a
+Pass with a configured `budget` is never eligible for a deadline wrap-up.

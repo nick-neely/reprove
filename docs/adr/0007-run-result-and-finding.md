@@ -335,3 +335,11 @@ independent of the Threshold and of whether a Review posted. Reconciliation's pr
 highest-sequence earlier Run whose Review is `published` with a GitHub review id; a skipped,
 unresolved or force-released Review is never one. A superseded Run's `cancelled` Check carries a
 title built from its recorded supersession facts.
+
+## Amended by [#129](https://github.com/nick-neely/reprove/issues/129)
+
+[ADR 0032](0032-deadline-wrap-up-turn.md) gives an eligible hosted Pass one wrap-up turn after a deadline abort. `stoppedBy` gains
+**`deadline_reached`**, a trusted reason that overrides `reviewer_stopped`. The Check table gains one
+row: `incomplete` + `deadline_reached` -> **`timed_out`**. The title, the verdict line and the facts
+table say the review was stopped at its deadline whatever `unfinished` holds. A Reviewer still
+running at the hard stop remains a Failure with `deadline_reached`.

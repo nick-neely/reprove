@@ -303,3 +303,13 @@ at the cost of a bridge restart and a turn that re-reads the thread. Whether Pha
 `deadline_reached` with it, is [Decide whether a deadline abort gets a wrap-up
 turn](https://github.com/nick-neely/reprove/issues/129). The aborted turn's Usage never arrives
 (ADR 0023, observed by #114).
+
+## Amended by [#129](https://github.com/nick-neely/reprove/issues/129)
+
+§6 is superseded for a wrap-up-eligible Pass, one with no configured `budget`. [ADR 0032](0032-deadline-wrap-up-turn.md) aborts such
+a Pass at a point A before the hard stop and gives it one wrap-up turn, whose valid answer is a
+`partial` Result with `stoppedBy: deadline_reached`. `deadline_reached` is therefore a `stoppedBy`
+value. The answer target stays as written, and the Reviewer is not told a wrap-up exists: its text
+is a versioned Adapter prompt delivered only on the wrap-up turn, and the policy text does not
+change. An ineligible Pass, or a wrap-up still running at the hard stop, is a `deadline_reached`
+Failure as §6 says.
