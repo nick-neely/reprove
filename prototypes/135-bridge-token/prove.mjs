@@ -354,6 +354,31 @@ async function prove(sandbox, name, passId, instanceId) {
   const toolFile = await run(sandbox, "cat /tmp/p135-tool-check.txt", { sudo: true });
   log("tool call view (from the Reviewer's tool command)", { facts: kv(toolFile.stdout), raw: toolFile.stdout.split("\n") });
 
+  // The wrapper builds the Reviewer's environment from an allowlist. The npm codex launcher is the
+  // first Reviewer process, so its environ is exactly what the wrapper produced.
+  const ALLOWED = new Set([
+    "PATH", "HOME", "CODEX_HOME", "USER", "LOGNAME", "SHELL", "LANG", "PWD",
+    "CODEX_API_KEY", "OPENAI_BASE_URL", "CODEX_INTERNAL_ORIGINATOR_OVERRIDE",
+    "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS", "NODE_USE_SYSTEM_CA", "CURL_CA_BUNDLE", "REQUESTS_CA_BUNDLE",
+    "AWS_CA_BUNDLE", "GIT_SSL_CAINFO", "PIP_CERT", "NPM_CONFIG_CAFILE", "CARGO_HTTP_CAINFO", "GRPC_DEFAULT_SSL_ROOTS_FILE_PATH",
+  ]);
+  const lines = toolFile.stdout.split("\n");
+  const ancestors = lines.filter((l) => l.startsWith("ancestor[")).map((l) => ({ index: l.match(/^ancestor\[(\d+)\]/)[1], line: l }));
+  const launcher = ancestors.find((a) => / comm=MainThread uid=2000 /u.test(a.line));
+  const namesOf = (index) => (lines.find((l) => l.startsWith(`ancestor_env_names[${index}]=`)) ?? "").split("=").slice(1).join("=").trim().split(/\s+/).filter(Boolean);
+  const launcherNames = launcher ? namesOf(launcher.index) : null;
+  const incoming = (await run(sandbox, "cat /opt/reprove/run/wrapper-env-in.names", { sudo: true })).stdout.split("\n").filter(Boolean);
+  const toolNames = (kv(toolFile.stdout).env_names ?? "").trim().split(/\s+/);
+  log("environment allowlist", {
+    reachedWrapper: incoming,
+    droppedByWrapper: incoming.filter((n) => !ALLOWED.has(n)),
+    launcherEnviron: launcherNames,
+    launcherOutsideAllowlist: launcherNames?.filter((n) => !ALLOWED.has(n)) ?? "launcher not found",
+    toolSudoVars: toolNames.filter((n) => n.startsWith("SUDO_")),
+    toolBridgeVars: toolNames.filter((n) => n.startsWith("BRIDGE_")),
+    addedByCodexForTools: toolNames.filter((n) => !ALLOWED.has(n)),
+  });
+
   // The ubuntu file API reads back what the root bridge wrote inside the 0700 .agent-runs.
   const dir = `${WORK}/.agent-runs/${passId}/bridge`;
   const meta = await again.readFileToBuffer({ path: `${dir}/bridge-meta.json` }).catch((e) => ({ error: String(e) }));

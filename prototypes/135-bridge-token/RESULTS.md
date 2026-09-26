@@ -73,10 +73,10 @@ token or the key.
 4. **`.agent-runs/<id>` is keyed by `doStart`'s `sessionId` (the Pass ID), not by the session
    `io.id`.** `io.id` feeds only `bridge.sandboxId` and `mintBridgeToken`. ADR 0031 §2 says the
    instance ID feeds both.
-5. **The Reviewer's tool environment carries `SUDO_COMMAND`, `SUDO_USER`, `SUDO_UID`, `SUDO_GID`
-   and `SUDO_HOME`.** `SUDO_COMMAND` is the bridge's launch line. It holds no secret, and the same
-   line is in the world-readable cmdline anyway. Scrubbing it in the wrapper is optional hygiene and
-   a Revision change.
+5. **The Reviewer's tool environment carried `SUDO_COMMAND`, `SUDO_USER`, `SUDO_UID`, `SUDO_GID`
+   and `SUDO_HOME`** in runs 4 and 5. They held no secret, but they reached the Reviewer only
+   because the wrapper removed four named variables from an environment that `!env_reset` passes
+   whole. That is fixed in run 6 below.
 6. **The stock image moved.** It is now Ubuntu 26.04, `/vercel/sandbox` does not exist until created,
    and `/usr/local/bin` and `node` are owned by uid 1001, which has no passwd entry. A Reviewer created
    with the next free uid would own `node`, which is the #114 observation. The Reviewer uid must be
@@ -84,6 +84,30 @@ token or the key.
 
 ## Spend
 
-Four Sandbox sessions of 1 to 2 minutes each: two failed during setup, then two full runs (the first attempt failed Vercel auth before creating one). There
-were two `gpt-6-sol` turns of about 18.6k input tokens (9k cached) and 460 output tokens each, about
-$0.05 in total. That is well inside the ticket's $1 and five-session bound.
+Five Sandbox sessions of 1 to 2 minutes each: two failed during setup, then three full runs (the
+first attempt failed Vercel auth before creating one). There were three `gpt-6-sol` turns of about
+19k input tokens (about half cached) and 460 to 810 output tokens each, about $0.08 in total. That is well inside the ticket's $1 and five-session bound.
+
+## Follow-up: an allowlisted Reviewer environment (run 6)
+
+`sandbox/reprove-codex` no longer removes named variables. It starts the Reviewer from `env -i`
+and sets a fixed `PATH`, `HOME`, `CODEX_HOME`, `USER`, `LOGNAME`, `SHELL` and `LANG`. From the
+bridge it carries only `CODEX_API_KEY`, `OPENAI_BASE_URL`, `CODEX_INTERNAL_ORIGINATOR_OVERRIDE`
+and the CA-bundle variables, when they are set. The values travel as a heredoc on fd 3 that the
+`env -i` shell sources, never on a command line. A local test passed values containing quotes, `$`,
+backticks and newlines through intact, and dropped the token, `SUDO_*` and a variable whose name is
+not a shell identifier. `out/run-6.log`:
+
+| Check | Result |
+|---|---|
+| Names that reached the wrapper, recorded by name only | 31, including `BRIDGE_*`, `AI_SDK_HARNESS_CLIENT_APP`, five `SUDO_*` and `TERM` |
+| Dropped by the wrapper | exactly those nine |
+| First Reviewer process (the npm `codex` launcher) | every name is on the allowlist except `NODE_PATH`, which pnpm's `.bin/codex` shim exports after the wrapper |
+| `SUDO_*` and `BRIDGE_*` in the tool's environment | none |
+| Names Codex adds for its tools | `CODEX_CI`, `CODEX_SESSION_ID`, `CODEX_THREAD_ID`, `CODEX_VERSION`, `CODEX_MANAGED_*`, `TERM`, `COLORTERM`, `NO_COLOR`, the pagers, `LC_ALL`, `LC_CTYPE` |
+| Provider reachable | yes: the turn completed (18.9k input, 808 output tokens) |
+| TLS from a tool through the firewall | `curl` 401 and Node `fetch` 401 from `api.openai.com`, so the CA-bundle variables are enough |
+| Every run-5 check | unchanged: refusal, `1008`s, positive control, no token in any cmdline or command history, stable session `id` |
+
+The permanent check this adds is that the first Reviewer process's environ names are a subset of
+the allowlist plus the image shim's `NODE_PATH`.

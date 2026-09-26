@@ -1,0 +1,419 @@
+{
+  "run": {
+    "name": "p135-muhqi033",
+    "passId": "pass-p135-muhqi033",
+    "model": "gpt-6-sol",
+    "tokenSha8": "e5e79aa1",
+    "tokenLength": 64
+  },
+  "created": {
+    "instanceId": "sbx_aGl7mBO95CANQNMhCXwrpqOBpRzE",
+    "domain": "https://sb-2oag7vskj67l.vercel.run"
+  },
+  "image facts": {
+    "exitCode": 0,
+    "stdout": "default_user=ubuntu:ubuntu uid=1000\nVERSION_ID=\"26.04\"\nID=ubuntu\nnode=v24.21.0 setpriv=/usr/bin/setpriv pnpm=/usr/local/bin/pnpm\nubuntu:ubuntu 1000:1000 755 /vercel\nUNKNOWN:UNKNOWN 1001:1001 755 /usr/local/bin\nUNKNOWN:UNKNOWN 1001:1001 755 /usr/local/bin/node\nuid2000=free",
+    "stderr": ""
+  },
+  "install": {
+    "exitCode": 0,
+    "stdout": "codex-cli 0.156.1\nubuntu:ubuntu 700 /vercel/sandbox/.agent-runs\nreviewer:reviewer 755 /vercel/sandbox/ws\nreviewer:reviewer 700 /home/reviewer\nreviewer:reviewer 700 /home/reviewer/.codex\nroot:root 555 /opt/reprove/codex/reprove-codex\nroot:root 644 /opt/reprove/codex/bridge.mjs",
+    "stderr": ""
+  },
+  "reviewer baseline": {
+    "exitCode": 0,
+    "stdout": "uid=2000(reviewer) gid=2000(reviewer) groups=2000(reviewer)\nsudo: The \"no new privileges\" flag is set, which prevents sudo from running as root.\nsudo: If sudo is running in a container, you may need to adjust the container configuration to disable the flag.\nsudo_exit=1",
+    "stderr": ""
+  },
+  "reviewer sudoers": {
+    "exitCode": 0,
+    "stdout": "User reviewer is not allowed to run sudo on c826eb46-425.\n--- sudoers.d\n/etc/sudoers.d/README: \n/etc/sudoers.d/sandbox: Defaults always_set_home Defaults !env_reset Defaults !fqdn ubuntu ALL=(ALL) NOPASSWD:ALL",
+    "stderr": ""
+  },
+  "bridge refusal": [
+    "refusal[unset] exit=78 bound=no stderr=reprove: refusing to start the bridge without a 64-hex BRIDGE_CHANNEL_TOKEN ",
+    "refusal[empty] exit=78 bound=no stderr=reprove: refusing to start the bridge without a 64-hex BRIDGE_CHANNEL_TOKEN ",
+    "refusal[short] exit=78 bound=no stderr=reprove: refusing to start the bridge without a 64-hex BRIDGE_CHANNEL_TOKEN ",
+    "refusal[hex63] exit=78 bound=no stderr=reprove: refusing to start the bridge without a 64-hex BRIDGE_CHANNEL_TOKEN ",
+    "refusal[hex65] exit=78 bound=no stderr=reprove: refusing to start the bridge without a 64-hex BRIDGE_CHANNEL_TOKEN ",
+    "refusal[upper] exit=78 bound=no stderr=reprove: refusing to start the bridge without a 64-hex BRIDGE_CHANNEL_TOKEN ",
+    "refusal[nonhex] exit=78 bound=no stderr=reprove: refusing to start the bridge without a 64-hex BRIDGE_CHANNEL_TOKEN ",
+    "refusal[valid] exit=124 bound=yes stderr="
+  ],
+  "session identity": {
+    "recorded": "sbx_aGl7mBO95CANQNMhCXwrpqOBpRzE",
+    "reattachedByName": "sbx_aGl7mBO95CANQNMhCXwrpqOBpRzE",
+    "stable": true
+  },
+  "doStart": {
+    "isResume": false,
+    "counters": {
+      "spawns": 1,
+      "runs": 2
+    },
+    "minted": 1
+  },
+  "bridge processes": {
+    "lines": [
+      "1121 sh uid=0 ppid=1119",
+      "1122 MainThread uid=0 ppid=1121"
+    ],
+    "bridgePid": "1122"
+  },
+  "reviewer checks (idle bridge)": {
+    "exitCode": 0,
+    "facts": {
+      "uid": "2000 user=reviewer groups=2000",
+      "no_new_privs": "1",
+      "sudo_exit": "1",
+      "environ_read_exit[1121]": "1",
+      "environ_read_exit[1122]": "1",
+      "agent_runs_list_exit": "2",
+      "bridge_dir_list_exit": "2",
+      "bridge_meta_read_exit": "1",
+      "event_log_read_exit": "1",
+      "ws[absent] close": "1008 messages=0",
+      "ws[empty] close": "1008 messages=0",
+      "ws[malformed] close": "1008 messages=0",
+      "ws[wrong] close": "1008 messages=0",
+      "ws[wrongUpper] close": "1008 messages=0"
+    },
+    "raw": [
+      "uid=2000 user=reviewer groups=2000",
+      "no_new_privs=1",
+      "sudo_exit=1",
+      "environ_read_exit[1121]=1",
+      "environ_read_exit[1122]=1",
+      "agent_runs_list_exit=2",
+      "bridge_dir_list_exit=2",
+      "bridge_meta_read_exit=1",
+      "event_log_read_exit=1",
+      "ws[absent] close=1008 messages=0",
+      "ws[empty] close=1008 messages=0",
+      "ws[malformed] close=1008 messages=0",
+      "ws[wrong] close=1008 messages=0",
+      "ws[wrongUpper] close=1008 messages=0"
+    ],
+    "stderr": ""
+  },
+  "host scan (idle bridge)": {
+    "tokenMatchesHost": true,
+    "tokenLength": 64,
+    "processesScanned": 7,
+    "tokenInAnyCmdline": [],
+    "tokenInEnviron": [
+      "1119 sudo uid=1000",
+      "1121 sh uid=0",
+      "1122 MainThread uid=0"
+    ],
+    "nonRootWithToken": 1,
+    "tree": [
+      "1119<1 uid=1000 uids(r/e/s/fs)=1000/0/0/0 nnp=0 sudo | sudo sh -c | bridgeVars=BRIDGE_CHANNEL_TOKEN,BRIDGE_WS_PORT",
+      "1121<1119 uid=0 uids(r/e/s/fs)=0/0/0/0 nnp=0 sh | sh -c node '/vercel/sandbox/.harness-bootstrap/codex/bridge.mjs' - | bridgeVars=BRIDGE_CHANNEL_TOKEN,BRIDGE_WS_PORT",
+      "1122<1121 uid=0 uids(r/e/s/fs)=0/0/0/0 nnp=0 MainThread | node /vercel/sandbox/.harness-bootstrap/codex/bridge.mjs --workdir | bridgeVars=BRIDGE_WS_PORT,BRIDGE_CHANNEL_TOKEN",
+      "1171<1169 uid=0 uids(r/e/s/fs)=0/0/0/0 nnp=0 sh | sh -c node /opt/reprove-proof/scan.mjs 1122 | bridgeVars="
+    ]
+  },
+  "public route (idle bridge)": {
+    "absent": {
+      "close": 1008,
+      "messages": []
+    },
+    "empty": {
+      "close": 1008,
+      "messages": []
+    },
+    "wrong": {
+      "close": 1008,
+      "messages": []
+    }
+  },
+  "turn": {
+    "finish": null,
+    "eventTypes": {
+      "stream-start": 1,
+      "text-start": 2,
+      "text-delta": 2,
+      "text-end": 2,
+      "tool-call": 1,
+      "tool-result": 1,
+      "finish-step": 2,
+      "finish": 1
+    },
+    "toolNames": [
+      "bash"
+    ],
+    "usage": [
+      {
+        "inputTokens": {
+          "total": 0,
+          "noCache": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "outputTokens": {
+          "total": 0,
+          "text": 0
+        }
+      },
+      {
+        "inputTokens": {
+          "total": 0,
+          "noCache": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "outputTokens": {
+          "total": 0,
+          "text": 0
+        }
+      },
+      {
+        "inputTokens": {
+          "total": 18918,
+          "noCache": 9865,
+          "cacheRead": 9053,
+          "cacheWrite": 0
+        },
+        "outputTokens": {
+          "total": 808,
+          "text": 808
+        }
+      }
+    ],
+    "answerChars": 2592
+  },
+  "host scan (during the tool call)": {
+    "tokenMatchesHost": true,
+    "tokenLength": 64,
+    "processesScanned": 13,
+    "tokenInAnyCmdline": [],
+    "tokenInEnviron": [
+      "1119 sudo uid=1000",
+      "1121 sh uid=0",
+      "1122 MainThread uid=0"
+    ],
+    "nonRootWithToken": 1,
+    "tree": [
+      "1119<1 uid=1000 uids(r/e/s/fs)=1000/0/0/0 nnp=0 sudo | sudo sh -c | bridgeVars=BRIDGE_CHANNEL_TOKEN,BRIDGE_WS_PORT",
+      "1121<1119 uid=0 uids(r/e/s/fs)=0/0/0/0 nnp=0 sh | sh -c node '/vercel/sandbox/.harness-bootstrap/codex/bridge.mjs' - | bridgeVars=BRIDGE_CHANNEL_TOKEN,BRIDGE_WS_PORT",
+      "1122<1121 uid=0 uids(r/e/s/fs)=0/0/0/0 nnp=0 MainThread | node /vercel/sandbox/.harness-bootstrap/codex/bridge.mjs --workdir | bridgeVars=BRIDGE_WS_PORT,BRIDGE_CHANNEL_TOKEN",
+      "1260<1192 uid=2000 uids(r/e/s/fs)=2000/2000/2000/2000 nnp=1 codex | /opt/reprove/codex/node_modules/.pnpm/@openai+codex@0.156.1- exec --experimental-json | bridgeVars=",
+      "1336<1260 uid=2000 uids(r/e/s/fs)=2000/2000/2000/2000 nnp=1 codex-code-mode | /opt/reprove/codex/node_modules/.pnpm/@openai+codex@0.156.1-  | bridgeVars=",
+      "1341<1260 uid=2000 uids(r/e/s/fs)=2000/2000/2000/2000 nnp=1 sh | /bin/sh -c sh /opt/reprove-proof/tool-check.sh | bridgeVars=",
+      "1342<1341 uid=2000 uids(r/e/s/fs)=2000/2000/2000/2000 nnp=1 sh | sh /opt/reprove-proof/tool-check.sh  | bridgeVars=",
+      "1449<1447 uid=0 uids(r/e/s/fs)=0/0/0/0 nnp=0 sh | sh -c node /opt/reprove-proof/scan.mjs 1122 | bridgeVars="
+    ]
+  },
+  "tool call view (from the Reviewer's tool command)": {
+    "facts": {
+      "uid": "2000 user=reviewer groups=2000",
+      "no_new_privs": "1",
+      "bridge_vars_in_env": "0",
+      "env_names": "AWS_CA_BUNDLE CARGO_HTTP_CAINFO CODEX_API_KEY CODEX_CI CODEX_HOME CODEX_INTERNAL_ORIGINATOR_OVERRIDE CODEX_MANAGED_BY_NPM CODEX_MANAGED_PACKAGE_ROOT CODEX_SESSION_ID CODEX_THREAD_ID CODEX_VERSION COLORTERM CURL_CA_BUNDLE GH_PAGER GIT_PAGER GIT_SSL_CAINFO GRPC_DEFAULT_SSL_ROOTS_FILE_PATH HOME LANG LC_ALL LC_CTYPE LOGNAME NODE_EXTRA_CA_CERTS NODE_PATH NODE_USE_SYSTEM_CA NO_COLOR NPM_CONFIG_CAFILE OPENAI_BASE_URL PAGER PATH PIP_CERT PWD REQUESTS_CA_BUNDLE SHELL SSL_CERT_FILE TERM USER ",
+      "HOME": "/home/reviewer owner=reviewer",
+      "CODEX_HOME": "/home/reviewer/.codex owner=reviewer",
+      "sudo_exit": "1",
+      "agent_runs_list_exit": "2",
+      "tls_curl": "401",
+      "tls_node": "401",
+      "PPID": "1341 ppid_comm=sh",
+      "ancestor_env_names[0]": "AWS_CA_BUNDLE CARGO_HTTP_CAINFO CODEX_API_KEY CODEX_CI CODEX_HOME CODEX_INTERNAL_ORIGINATOR_OVERRIDE CODEX_MANAGED_BY_NPM CODEX_MANAGED_PACKAGE_ROOT CODEX_SESSION_ID CODEX_THREAD_ID CODEX_VERSION COLORTERM CURL_CA_BUNDLE GH_PAGER GIT_PAGER GIT_SSL_CAINFO GRPC_DEFAULT_SSL_ROOTS_FILE_PATH HOME LANG LC_ALL LC_CTYPE LOGNAME NODE_EXTRA_CA_CERTS NODE_PATH NODE_USE_SYSTEM_CA NO_COLOR NPM_CONFIG_CAFILE OPENAI_BASE_URL PAGER PATH PIP_CERT PWD REQUESTS_CA_BUNDLE SHELL SSL_CERT_FILE TERM USER ",
+      "ancestor[0] pid": "1341 comm=sh uid=2000 environ=readable bridge_vars=0",
+      "ancestor_env_names[1]": "AWS_CA_BUNDLE CARGO_HTTP_CAINFO CODEX_API_KEY CODEX_HOME CODEX_INTERNAL_ORIGINATOR_OVERRIDE CODEX_MANAGED_BY_NPM CODEX_MANAGED_PACKAGE_ROOT CURL_CA_BUNDLE GIT_SSL_CAINFO GRPC_DEFAULT_SSL_ROOTS_FILE_PATH HOME LANG LOGNAME NODE_EXTRA_CA_CERTS NODE_PATH NODE_USE_SYSTEM_CA NPM_CONFIG_CAFILE OPENAI_BASE_URL PATH PIP_CERT PWD REQUESTS_CA_BUNDLE SHELL SSL_CERT_FILE USER ",
+      "ancestor[1] pid": "1260 comm=codex uid=2000 environ=readable bridge_vars=0",
+      "ancestor_env_names[2]": "AWS_CA_BUNDLE CARGO_HTTP_CAINFO CODEX_API_KEY CODEX_HOME CODEX_INTERNAL_ORIGINATOR_OVERRIDE CURL_CA_BUNDLE GIT_SSL_CAINFO GRPC_DEFAULT_SSL_ROOTS_FILE_PATH HOME LANG LOGNAME NODE_EXTRA_CA_CERTS NODE_PATH NODE_USE_SYSTEM_CA NPM_CONFIG_CAFILE OPENAI_BASE_URL PATH PIP_CERT PWD REQUESTS_CA_BUNDLE SHELL SSL_CERT_FILE USER ",
+      "ancestor[2] pid": "1192 comm=MainThread uid=2000 environ=readable bridge_vars=0",
+      "ancestor[3] pid": "1122 comm=MainThread uid=0 environ=denied bridge_vars=-",
+      "ancestor[4] pid": "1121 comm=sh uid=0 environ=denied bridge_vars=-",
+      "ancestor[5] pid": "1119 comm=sudo uid=1000 environ=denied bridge_vars=-",
+      "ancestor[6] pid": "1 comm=sandbox-init uid=1000 environ=denied bridge_vars=-"
+    },
+    "raw": [
+      "uid=2000 user=reviewer groups=2000",
+      "no_new_privs=1",
+      "bridge_vars_in_env=0",
+      "env_names=AWS_CA_BUNDLE CARGO_HTTP_CAINFO CODEX_API_KEY CODEX_CI CODEX_HOME CODEX_INTERNAL_ORIGINATOR_OVERRIDE CODEX_MANAGED_BY_NPM CODEX_MANAGED_PACKAGE_ROOT CODEX_SESSION_ID CODEX_THREAD_ID CODEX_VERSION COLORTERM CURL_CA_BUNDLE GH_PAGER GIT_PAGER GIT_SSL_CAINFO GRPC_DEFAULT_SSL_ROOTS_FILE_PATH HOME LANG LC_ALL LC_CTYPE LOGNAME NODE_EXTRA_CA_CERTS NODE_PATH NODE_USE_SYSTEM_CA NO_COLOR NPM_CONFIG_CAFILE OPENAI_BASE_URL PAGER PATH PIP_CERT PWD REQUESTS_CA_BUNDLE SHELL SSL_CERT_FILE TERM USER ",
+      "HOME=/home/reviewer owner=reviewer",
+      "CODEX_HOME=/home/reviewer/.codex owner=reviewer",
+      "sudo_exit=1",
+      "agent_runs_list_exit=2",
+      "tls_curl=401",
+      "tls_node=401",
+      "PPID=1341 ppid_comm=sh",
+      "ancestor_env_names[0]=AWS_CA_BUNDLE CARGO_HTTP_CAINFO CODEX_API_KEY CODEX_CI CODEX_HOME CODEX_INTERNAL_ORIGINATOR_OVERRIDE CODEX_MANAGED_BY_NPM CODEX_MANAGED_PACKAGE_ROOT CODEX_SESSION_ID CODEX_THREAD_ID CODEX_VERSION COLORTERM CURL_CA_BUNDLE GH_PAGER GIT_PAGER GIT_SSL_CAINFO GRPC_DEFAULT_SSL_ROOTS_FILE_PATH HOME LANG LC_ALL LC_CTYPE LOGNAME NODE_EXTRA_CA_CERTS NODE_PATH NODE_USE_SYSTEM_CA NO_COLOR NPM_CONFIG_CAFILE OPENAI_BASE_URL PAGER PATH PIP_CERT PWD REQUESTS_CA_BUNDLE SHELL SSL_CERT_FILE TERM USER ",
+      "ancestor[0] pid=1341 comm=sh uid=2000 environ=readable bridge_vars=0",
+      "ancestor_env_names[1]=AWS_CA_BUNDLE CARGO_HTTP_CAINFO CODEX_API_KEY CODEX_HOME CODEX_INTERNAL_ORIGINATOR_OVERRIDE CODEX_MANAGED_BY_NPM CODEX_MANAGED_PACKAGE_ROOT CURL_CA_BUNDLE GIT_SSL_CAINFO GRPC_DEFAULT_SSL_ROOTS_FILE_PATH HOME LANG LOGNAME NODE_EXTRA_CA_CERTS NODE_PATH NODE_USE_SYSTEM_CA NPM_CONFIG_CAFILE OPENAI_BASE_URL PATH PIP_CERT PWD REQUESTS_CA_BUNDLE SHELL SSL_CERT_FILE USER ",
+      "ancestor[1] pid=1260 comm=codex uid=2000 environ=readable bridge_vars=0",
+      "ancestor_env_names[2]=AWS_CA_BUNDLE CARGO_HTTP_CAINFO CODEX_API_KEY CODEX_HOME CODEX_INTERNAL_ORIGINATOR_OVERRIDE CURL_CA_BUNDLE GIT_SSL_CAINFO GRPC_DEFAULT_SSL_ROOTS_FILE_PATH HOME LANG LOGNAME NODE_EXTRA_CA_CERTS NODE_PATH NODE_USE_SYSTEM_CA NPM_CONFIG_CAFILE OPENAI_BASE_URL PATH PIP_CERT PWD REQUESTS_CA_BUNDLE SHELL SSL_CERT_FILE USER ",
+      "ancestor[2] pid=1192 comm=MainThread uid=2000 environ=readable bridge_vars=0",
+      "ancestor[3] pid=1122 comm=MainThread uid=0 environ=denied bridge_vars=-",
+      "ancestor[4] pid=1121 comm=sh uid=0 environ=denied bridge_vars=-",
+      "ancestor[5] pid=1119 comm=sudo uid=1000 environ=denied bridge_vars=-",
+      "ancestor[6] pid=1 comm=sandbox-init uid=1000 environ=denied bridge_vars=-"
+    ]
+  },
+  "environment allowlist": {
+    "reachedWrapper": [
+      "AI_SDK_HARNESS_CLIENT_APP",
+      "AWS_CA_BUNDLE",
+      "BRIDGE_CHANNEL_TOKEN",
+      "BRIDGE_WS_PORT",
+      "CARGO_HTTP_CAINFO",
+      "CODEX_API_KEY",
+      "CODEX_INTERNAL_ORIGINATOR_OVERRIDE",
+      "CURL_CA_BUNDLE",
+      "GIT_SSL_CAINFO",
+      "GRPC_DEFAULT_SSL_ROOTS_FILE_PATH",
+      "HOME",
+      "LANG",
+      "LOGNAME",
+      "NODE_EXTRA_CA_CERTS",
+      "NODE_USE_SYSTEM_CA",
+      "NPM_CONFIG_CAFILE",
+      "OPENAI_BASE_URL",
+      "PATH",
+      "PIP_CERT",
+      "PWD",
+      "REQUESTS_CA_BUNDLE",
+      "SHELL",
+      "SSL_CERT_FILE",
+      "SUDO_COMMAND",
+      "SUDO_GID",
+      "SUDO_HOME",
+      "SUDO_UID",
+      "SUDO_USER",
+      "TERM",
+      "USER"
+    ],
+    "droppedByWrapper": [
+      "AI_SDK_HARNESS_CLIENT_APP",
+      "BRIDGE_CHANNEL_TOKEN",
+      "BRIDGE_WS_PORT",
+      "SUDO_COMMAND",
+      "SUDO_GID",
+      "SUDO_HOME",
+      "SUDO_UID",
+      "SUDO_USER",
+      "TERM"
+    ],
+    "launcherEnviron": [
+      "AWS_CA_BUNDLE",
+      "CARGO_HTTP_CAINFO",
+      "CODEX_API_KEY",
+      "CODEX_HOME",
+      "CODEX_INTERNAL_ORIGINATOR_OVERRIDE",
+      "CURL_CA_BUNDLE",
+      "GIT_SSL_CAINFO",
+      "GRPC_DEFAULT_SSL_ROOTS_FILE_PATH",
+      "HOME",
+      "LANG",
+      "LOGNAME",
+      "NODE_EXTRA_CA_CERTS",
+      "NODE_PATH",
+      "NODE_USE_SYSTEM_CA",
+      "NPM_CONFIG_CAFILE",
+      "OPENAI_BASE_URL",
+      "PATH",
+      "PIP_CERT",
+      "PWD",
+      "REQUESTS_CA_BUNDLE",
+      "SHELL",
+      "SSL_CERT_FILE",
+      "USER"
+    ],
+    "launcherOutsideAllowlist": [
+      "NODE_PATH"
+    ],
+    "toolSudoVars": [],
+    "toolBridgeVars": [],
+    "addedByCodexForTools": [
+      "CODEX_CI",
+      "CODEX_MANAGED_BY_NPM",
+      "CODEX_MANAGED_PACKAGE_ROOT",
+      "CODEX_SESSION_ID",
+      "CODEX_THREAD_ID",
+      "CODEX_VERSION",
+      "COLORTERM",
+      "GH_PAGER",
+      "GIT_PAGER",
+      "LC_ALL",
+      "LC_CTYPE",
+      "NODE_PATH",
+      "NO_COLOR",
+      "PAGER",
+      "TERM"
+    ]
+  },
+  "file API readback": {
+    "bridgeMeta": {
+      "bytes": 57,
+      "state": "waiting",
+      "keys": [
+        "type",
+        "port",
+        "state",
+        "pid"
+      ]
+    },
+    "eventLog": {
+      "bytes": 6521,
+      "lines": 13
+    },
+    "tokenInEitherFile": false,
+    "ownership": [
+      "ubuntu:ubuntu 700 /vercel/sandbox/.agent-runs",
+      "ubuntu:ubuntu 755 /vercel/sandbox/.agent-runs/pass-p135-muhqi033",
+      "ubuntu:ubuntu 755 /vercel/sandbox/.agent-runs/pass-p135-muhqi033/bridge",
+      "ubuntu:ubuntu 644 /vercel/sandbox/.agent-runs/pass-p135-muhqi033/bridge/bridge-meta.json",
+      "root:root 644 /vercel/sandbox/.agent-runs/pass-p135-muhqi033/bridge/event-log.ndjson",
+      "root:root 644 /vercel/sandbox/.agent-runs/pass-p135-muhqi033/bridge/rerun-start-config.json",
+      "root:root 644 /vercel/sandbox/.agent-runs/pass-p135-muhqi033/bridge/start-config.json"
+    ]
+  },
+  "public route control (correct token)": {
+    "close": 1000,
+    "messages": [
+      "bridge-hello"
+    ]
+  },
+  "command history": {
+    "commandsChecked": 23,
+    "anyTokenPresent": false,
+    "anyEnvField": false,
+    "recordKeys": [
+      "id",
+      "name",
+      "args",
+      "cwd",
+      "sessionId",
+      "startedAt",
+      "exitCode",
+      "durationMs"
+    ],
+    "statuses": [
+      200
+    ],
+    "bridgeCommand": {
+      "id": "cmd_c9d4029510c0406b8054278c981b",
+      "status": 200,
+      "tokenPresent": false,
+      "keys": [
+        "id",
+        "name",
+        "args",
+        "cwd",
+        "sessionId",
+        "startedAt",
+        "exitCode"
+      ],
+      "hasEnvField": false
+    },
+    "listEndpoint": {
+      "status": 200,
+      "tokenPresent": false,
+      "bytes": 9131
+    }
+  },
+  "stopped": "p135-muhqi033"
+}
