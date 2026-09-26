@@ -286,7 +286,7 @@ query strings is still unverified. ([results](https://github.com/nick-neely/repr
   preserve list filters nothing. If it is ever revived, it must clear the environment explicitly.
 - **§7's environment check is restated.** Codex, its npm `node` launcher and every tool shell run as
   the Reviewer uid, so a tool **can** read their `/proc/<pid>/environ`. Each carries zero `BRIDGE_*`
-  variables, because the wrapper removes them before `setpriv`. The invariant, and the permanent
+  variables, because the wrapper never carries them past `setpriv`. The invariant, and the permanent
   check, is therefore: **the token is in no Reviewer-readable environ and in no cmdline**. It is not
   "Codex's environ is unreadable". The bridge's environ, its root parent's, `sudo`'s and pid 1's are
   all unreadable by the Reviewer.
