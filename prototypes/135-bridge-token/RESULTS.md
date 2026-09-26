@@ -100,7 +100,7 @@ not a shell identifier. `out/run-6.log`:
 
 | Check | Result |
 |---|---|
-| Names that reached the wrapper, recorded by name only | 31, including `BRIDGE_*`, `AI_SDK_HARNESS_CLIENT_APP`, five `SUDO_*` and `TERM` |
+| Names that reached the wrapper, recorded by name only | 30, including `BRIDGE_*`, `AI_SDK_HARNESS_CLIENT_APP`, five `SUDO_*` and `TERM` |
 | Dropped by the wrapper | exactly those nine |
 | First Reviewer process (the npm `codex` launcher) | every name is on the allowlist except `NODE_PATH`, which pnpm's `.bin/codex` shim exports after the wrapper |
 | `SUDO_*` and `BRIDGE_*` in the tool's environment | none |
