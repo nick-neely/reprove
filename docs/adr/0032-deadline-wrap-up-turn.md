@@ -214,3 +214,62 @@ zero Findings publishes no Review (ADR 0007); only the Check reports it.
   also run before the wrap-up prompt, where a breach is a Failure.
 - `CONTEXT.md`: Slice no longer assumes one turn per Pass. Wrap-up stays an execution mechanism, not
   a domain noun; the user-facing outcome is a partial Result stopped by the deadline.
+
+## Amended by [#137](https://github.com/nick-neely/reprove/issues/137)
+
+[Measure a deadline wrap-up on a long review thread](https://github.com/nick-neely/reprove/issues/137)
+ran the §5 handoff end to end on a real Vercel Sandbox. It used the #135 image (Codex CLI 0.156.1,
+Harness 1.0.104, the patched bridge, the allowlist wrapper, Reviewer uid 2000), the ADR 0020 policy
+and `gpt-6-sol`, with gpt-6-luna for plumbing. The thread was about 200K and 162K tokens on two
+runs, with A landing during a repair turn on others. Every wrap-up stayed on the same thread and
+returned a schema-valid answer with no tool call.
+([results](https://github.com/nick-neely/reprove/blob/prototype/137-wrap-up/prototypes/137-wrap-up/RESULTS.md),
+[prototype](https://github.com/nick-neely/reprove/tree/prototype/137-wrap-up/prototypes/137-wrap-up))
+
+- **§2's reserve, measured.** A to a persisted Result took 15.0-19.7 s on six runs, 16.0 s on the
+  200K thread. The mechanism before the prompt costs about 6-7 s: `doStop()`, the quiescence proof,
+  the custody transaction, the generation-2 `doStart` and the §7 checks. The wrap-up turn costs 8-12 s,
+  driven more by answer length than by thread length while the cache is warm. Two measured effects
+  set the worst case:
+  - the prompt cache can miss a 200K re-read after a gap of about 100 s, costing about 11 s of
+    prefill;
+  - on this org's tier, gpt-6-sol's 500K tokens-per-minute limit counts cached input, so a wrap-up
+    right after a long aborted turn can wait about 24 s on a 200K thread.
+
+  With a long answer, the estimate is about 90 s, so three minutes holds with room. [Replace the
+  Phase 0 windows with measured deadlines](https://github.com/nick-neely/reprove/issues/115) sets
+  the number.
+- **§4's key is confirmed.** `toolCallId` is Codex's `item.id`. It is stable across `attach`: a
+  deliberately rewound cursor replayed results with the same id and identical content. It is unique
+  within a turn, including code-mode's parallel calls. It restarts with every `codex exec` process,
+  which means every turn: `item_2` opened turns 1, 2 and 3 of one Pass. The turn ordinal is
+  therefore load-bearing. The bridge generation is redundant while turn ordinals are Pass-wide,
+  and stays. The event-id fallback is not needed.
+- **§6: the wrap-up's `finish` covers the aborted turn's completed responses, never the one in flight.**
+  Codex's `finish` Usage is the thread's cumulative total, restored across processes and bridge
+  generations. So each turn's increment under ADR 0023 is the difference between successive `finish`
+  totals, and the aborted turn's completed model responses surface inside the wrap-up's difference.
+  The request in flight at A is recorded nowhere. On a long thread that is one full context of input,
+  about 200K tokens, per abort, and the Provider presumably bills it. The aborted turn's Usage
+  therefore stays incomplete, not merely late. [Decide whether the Provider route meters Usage per
+  response](https://github.com/nick-neely/reprove/issues/138) owns that gap.
+- **§5 step 3 holds, and it is load-bearing.** A Reviewer-started `setsid nohup` helper and its
+  detached, TERM-ignoring grandchild survived both the abort and `doStop()`, as did a planted
+  own-session double fork. A plain `nohup … &` is reaped by Codex code-mode when its command ends.
+  `pkill -KILL` over the Reviewer uid, repeated until none remain, then the proof, held on every
+  run: no Reviewer process, no zombies (the Sandbox's PID 1 is `sandbox-init` and reaps), the old
+  bridge's pid gone, nothing listening on its port. One run needed a second round, so the kill must
+  loop, not fire once.
+- **§5 step 6's checks pass on the generation-2 bridge.** The public route refuses the generation-1
+  token with `1008`.
+- **The same-thread check (§3) depends on every continue carrying identical `instructions`.** This is
+  read from the pinned Harness source, not measured. `doContinueTurn` fingerprints its `instructions`
+  and `tools` like `doPromptTurn`. A continue that omits them stores a different fingerprint, and the
+  wrap-up's `doPromptTurn` then silently restarts the thread. The Adapter passes the Pass's
+  instructions and tools on every prompt and continue. The contract suite gains a wrap-up after a
+  sliced turn.
+- **A Codex retry notice fails the turn today.** A rate-limited wrap-up was rejected by the Harness
+  on Codex's `Reconnecting... 1/5` `error` frame, while Codex retried and completed it 11 s later.
+  The same happens on any turn. [Keep a Codex turn alive through a retryable stream
+  error](https://github.com/nick-neely/reprove/issues/139) is an implementation bug outside this map,
+  and a prerequisite for the real Codex core, like #132.
