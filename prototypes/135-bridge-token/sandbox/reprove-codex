@@ -1,0 +1,27 @@
+#!/bin/sh
+# PROTOTYPE for #135. ADR 0031 §5 stage one: codexPathOverride, run as root (the bridge's uid).
+set -eu
+unset BRIDGE_CHANNEL_TOKEN BRIDGE_WS_PORT BRIDGE_REPLAY_FROM_DISK AI_SDK_HARNESS_CLIENT_APP
+export HOME=/home/reviewer CODEX_HOME=/home/reviewer/.codex
+take=0
+for a; do
+  shift
+  if [ "$take" = 1 ]; then
+    take=0
+    case "$a" in
+      /tmp/codex-output-schema-*/schema.json) ;;
+      *) echo "launch_guard: unexpected output schema path" >&2; exit 97 ;;
+    esac
+    d=$(dirname -- "$a")
+    if [ -L "$d" ] || [ ! -d "$d" ] || [ -L "$a" ] || [ ! -f "$a" ]; then
+      echo "launch_guard: output schema is not a plain file" >&2; exit 97
+    fi
+    dest=$(mktemp /opt/reprove/run/schemas/schema.XXXXXXXX)
+    cat -- "$a" > "$dest"
+    chmod 0444 "$dest"
+    a=$dest
+  fi
+  if [ "$a" = "--output-schema" ]; then take=1; fi
+  set -- "$@" "$a"
+done
+exec setpriv --reuid=reviewer --regid=reviewer --init-groups --no-new-privs -- /opt/reprove/codex/reprove-codex-stage2 "$@"

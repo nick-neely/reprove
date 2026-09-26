@@ -1,0 +1,12 @@
+{
+  "name": "prototype-135-bridge-token",
+  "private": true,
+  "type": "module",
+  "description": "PROTOTYPE for #135. Throwaway, never merged.",
+  "dependencies": {
+    "@ai-sdk/harness": "1.0.102",
+    "@ai-sdk/harness-codex": "1.0.104",
+    "@vercel/sandbox": "3.5.0",
+    "ws": "8.21.0"
+  }
+}

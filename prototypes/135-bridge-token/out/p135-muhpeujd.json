@@ -1,0 +1,44 @@
+{
+  "run": {
+    "name": "p135-muhpeujd",
+    "passId": "pass-p135-muhpeujd",
+    "model": "gpt-6-sol",
+    "tokenSha8": "17af1e22",
+    "tokenLength": 64
+  },
+  "created": {
+    "instanceId": "sbx_RpCFoChyuntqBPOzdMAoni36SBKT",
+    "domain": "https://sb-mti9th9bwgfv.vercel.run"
+  },
+  "image facts": {
+    "exitCode": 0,
+    "stdout": "default_user=ubuntu:ubuntu uid=1000\nVERSION_ID=\"26.04\"\nID=ubuntu\nnode=v24.21.0 setpriv=/usr/bin/setpriv pnpm=/usr/local/bin/pnpm\nubuntu:ubuntu 1000:1000 755 /vercel\nUNKNOWN:UNKNOWN 1001:1001 755 /usr/local/bin\nUNKNOWN:UNKNOWN 1001:1001 755 /usr/local/bin/node\nuid2000=free",
+    "stderr": ""
+  },
+  "install": {
+    "exitCode": 0,
+    "stdout": "codex-cli 0.156.1\nubuntu:ubuntu 700 /vercel/sandbox/.agent-runs\nreviewer:reviewer 755 /vercel/sandbox/ws\nreviewer:reviewer 700 /home/reviewer\nreviewer:reviewer 700 /home/reviewer/.codex\nroot:root 555 /opt/reprove/codex/reprove-codex\nroot:root 644 /opt/reprove/codex/bridge.mjs",
+    "stderr": ""
+  },
+  "reviewer baseline": {
+    "exitCode": 0,
+    "stdout": "uid=2000(reviewer) gid=2000(reviewer) groups=2000(reviewer)\nsudo: The \"no new privileges\" flag is set, which prevents sudo from running as root.\nsudo: If sudo is running in a container, you may need to adjust the container configuration to disable the flag.\nsudo_exit=1",
+    "stderr": ""
+  },
+  "bridge refusal": [
+    "refusal[unset] exit=78 bound=no stderr=reprove: refusing to start the bridge without a 64-hex BRIDGE_CHANNEL_TOKEN ",
+    "refusal[empty] exit=78 bound=no stderr=reprove: refusing to start the bridge without a 64-hex BRIDGE_CHANNEL_TOKEN ",
+    "refusal[short] exit=78 bound=no stderr=reprove: refusing to start the bridge without a 64-hex BRIDGE_CHANNEL_TOKEN ",
+    "refusal[hex63] exit=78 bound=no stderr=reprove: refusing to start the bridge without a 64-hex BRIDGE_CHANNEL_TOKEN ",
+    "refusal[hex65] exit=78 bound=no stderr=reprove: refusing to start the bridge without a 64-hex BRIDGE_CHANNEL_TOKEN ",
+    "refusal[upper] exit=78 bound=no stderr=reprove: refusing to start the bridge without a 64-hex BRIDGE_CHANNEL_TOKEN ",
+    "refusal[nonhex] exit=78 bound=no stderr=reprove: refusing to start the bridge without a 64-hex BRIDGE_CHANNEL_TOKEN ",
+    "refusal[valid] exit=124 bound=yes stderr="
+  ],
+  "session identity": {
+    "recorded": "sbx_RpCFoChyuntqBPOzdMAoni36SBKT",
+    "reattachedByName": "sbx_RpCFoChyuntqBPOzdMAoni36SBKT",
+    "stable": true
+  },
+  "stopped": "p135-muhpeujd"
+}

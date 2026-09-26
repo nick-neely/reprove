@@ -1,0 +1,6 @@
+#!/bin/sh
+# PROTOTYPE for #135. ADR 0031 §5 stage two, runs as the Reviewer.
+set -eu
+if [ "$(id -u)" != "2000" ]; then echo "launch_guard: not the Reviewer uid" >&2; exit 97; fi
+if ! grep -q '^NoNewPrivs:[[:space:]]*1$' /proc/self/status; then echo "launch_guard: no_new_privs unset" >&2; exit 97; fi
+exec /opt/reprove/codex/node_modules/.pnpm/node_modules/.bin/codex "$@" --ignore-user-config --ignore-rules

@@ -1,0 +1,24 @@
+{
+  "run": {
+    "name": "p135-muhpeh5b",
+    "passId": "pass-p135-muhpeh5b",
+    "model": "gpt-6-sol",
+    "tokenSha8": "5d37dff8",
+    "tokenLength": 64
+  },
+  "created": {
+    "instanceId": "sbx_Yhq0P0SFLL86tfZ9RB2TJJ0SosIm",
+    "domain": "https://sb-72roly6yn5ty.vercel.run"
+  },
+  "image facts": {
+    "exitCode": 0,
+    "stdout": "default_user=ubuntu:ubuntu uid=1000\nVERSION_ID=\"26.04\"\nID=ubuntu\nnode=v24.21.0 setpriv=/usr/bin/setpriv pnpm=/usr/local/bin/pnpm\nubuntu:ubuntu 755 /vercel\nUNKNOWN:UNKNOWN 755 /usr/local/bin\nUNKNOWN:UNKNOWN 755 /usr/local/bin/node\nuid2000=free",
+    "stderr": "stat: cannot stat '/vercel/sandbox': No such file or directory (os error 2)"
+  },
+  "install": {
+    "exitCode": 1,
+    "stdout": "",
+    "stderr": "stat: cannot stat '/vercel/sandbox': No such file or directory (os error 2)"
+  },
+  "stopped": "p135-muhpeh5b"
+}
