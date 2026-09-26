@@ -1,0 +1,57 @@
+#!/bin/sh
+# PROTOTYPE for #135, reused by #137. ADR 0031 §5 stage one: codexPathOverride, run as root (the bridge's uid).
+# The Reviewer's environment is built from an allowlist, never by removing named variables:
+# the image's sudoers sets !env_reset, so whatever reaches the bridge would otherwise reach the Reviewer.
+set -eu
+
+# PROTOTYPE diagnostic: the names (never the values) that reached the wrapper, root-only.
+env | sed -n 's/^\([^=]*\)=.*/\1/p' | sort -u > /opt/reprove/run/wrapper-env-in.names
+chmod 0600 /opt/reprove/run/wrapper-env-in.names
+
+# Carried from the bridge when set. Everything else is dropped, whatever its name.
+INHERIT="CODEX_API_KEY OPENAI_BASE_URL CODEX_INTERNAL_ORIGINATOR_OVERRIDE
+SSL_CERT_FILE SSL_CERT_DIR NODE_EXTRA_CA_CERTS NODE_USE_SYSTEM_CA CURL_CA_BUNDLE REQUESTS_CA_BUNDLE
+AWS_CA_BUNDLE GIT_SSL_CAINFO PIP_CERT NPM_CONFIG_CAFILE CARGO_HTTP_CAINFO GRPC_DEFAULT_SSL_ROOTS_FILE_PATH"
+
+# Values travel as a sourced heredoc on fd 3, never on a command line (root's argv is world-readable).
+exports=
+for name in $INHERIT; do
+  eval "present=\${$name+yes}"
+  if [ "${present:-}" = yes ]; then
+    eval "value=\$$name"
+    quoted=$(printf '%s' "$value" | sed "s/'/'\\\\''/g")
+    exports="${exports}export $name='$quoted'
+"
+  fi
+  present=
+done
+
+take=0
+for a; do
+  shift
+  if [ "$take" = 1 ]; then
+    take=0
+    case "$a" in
+      /tmp/codex-output-schema-*/schema.json) ;;
+      *) echo "launch_guard: unexpected output schema path" >&2; exit 97 ;;
+    esac
+    d=$(dirname -- "$a")
+    if [ -L "$d" ] || [ ! -d "$d" ] || [ -L "$a" ] || [ ! -f "$a" ]; then
+      echo "launch_guard: output schema is not a plain file" >&2; exit 97
+    fi
+    dest=$(mktemp /opt/reprove/run/schemas/schema.XXXXXXXX)
+    cat -- "$a" > "$dest"
+    chmod 0444 "$dest"
+    a=$dest
+  fi
+  if [ "$a" = "--output-schema" ]; then take=1; fi
+  set -- "$@" "$a"
+done
+
+exec 3<<ALLOWED
+$exports
+ALLOWED
+exec /usr/bin/env -i \
+  PATH=/usr/local/bin:/usr/bin:/bin HOME=/home/reviewer CODEX_HOME=/home/reviewer/.codex \
+  USER=reviewer LOGNAME=reviewer SHELL=/bin/sh LANG=C.UTF-8 \
+  /bin/sh -c '. /dev/fd/3; exec 3<&-; exec /usr/bin/setpriv --reuid=reviewer --regid=reviewer --init-groups --no-new-privs -- /opt/reprove/codex/reprove-codex-stage2 "$@"' reprove-codex "$@"

@@ -1,0 +1,13 @@
+{
+  "name": "prototype-137-wrap-up",
+  "private": true,
+  "type": "module",
+  "description": "PROTOTYPE for #137. Throwaway, never merged.",
+  "dependencies": {
+    "@ai-sdk/harness": "1.0.102",
+    "@ai-sdk/harness-codex": "1.0.104",
+    "@vercel/sandbox": "3.5.0",
+    "pg": "8.23.0",
+    "ws": "8.21.0"
+  }
+}
