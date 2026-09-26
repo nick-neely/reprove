@@ -121,6 +121,9 @@ Under the lease, immediately before posting a Run's Review, in this order:
 6. **Otherwise Reconciliation runs against the baseline** (§6), and the Review is posted with
    `commit_id: run.headSha`, always.
 
+> **Amended by [#134](#amended-by-134):** GitHub does not fence a pending Review against a moved head,
+> so steps 3 to 5 run again immediately before the submit, not only before the create.
+
 **The guarantee, stated honestly: publication never knowingly starts for a head the pull request has
 moved past.** A read and a POST cannot be atomic, so a push racing an in-flight POST can still leave a
 Review on the old commit.
@@ -158,6 +161,11 @@ on the fixture repository. Until [Check whether a pending App Review makes Revie
 recoverable](https://github.com/nick-neely/reprove/issues/134) proves it, this ADR does not promise the
 lookup recovers anything.
 
+> **Amended by [#134](#amended-by-134):** the marker round trip is proven, and a Review is now
+> published in two steps, a pending create and a submit by id, so recovery is automatic. An unknown
+> create holds nothing, and an unknown submit is resolved by reading one Review by id. A forced release
+> is left for a GitHub that stays unreachable past the bound.
+
 **The only way past an unresolved Review without GitHub's evidence is a forced release.** In Phase 1
 that is a documented runbook step, not a product surface: a conditional update against the exact
 unresolved row (its id and its `unresolved` state), which moves it to `force_released` and records who
@@ -175,6 +183,10 @@ the queue nor guarantees no stale post.
 newest per name (ADR 0025 §9), and it gets concluded. Its stored Check Run id and suite id must still
 be reconciled to one row, because ADR 0022 validates re-runs against them; the handoff ticket covers
 what GitHub returns for the duplicate.
+
+> **Amended by [#134](#amended-by-134):** the listing uses `filter=all`, and a publication owns and
+> concludes every Check Run at its head that carries its `external_id`, because a late duplicate can be
+> the newest one.
 
 Rejected: an automatic retry after a lookup miss past a settle interval, which turns a late commit
 into a stale Review and a wrong baseline, not merely a duplicate; and a human-confirmed `not_posted`,
@@ -235,7 +247,118 @@ is a second reason for the Provider-route metering that stays in the map's fog.
 - ADR 0021 §7's Slice claim gains the `executing` predicate.
 - A Review POST that times out can hold a pull request's later Reviews until an operator acts. That
   is accepted over a stale Review or a wrong baseline.
+  ([Amended by #134](#amended-by-134): only while GitHub stays unreachable past the lookup bound.)
 
 ## Amended by [#127](https://github.com/nick-neely/reprove/issues/127)
 
 ADR 0028 §7 is superseded by [ADR 0030](0030-verify-egress-enforced-by-the-sandbox-firewall.md): a terminal Run stops new **Provider** admissions only. Reviewer-phase egress to approved hosts continues until the Sandbox is stopped or its policy set to deny-all, so a lost wake bounds model spend but not egress.
+
+## Amended by [#134](https://github.com/nick-neely/reprove/issues/134)
+
+2026-09-26. Checked live against the scratch App on a throwaway pull request in the fixture
+repository, using only the GitHub API. §5 made recovery by marker lookup conditional on this check,
+and named GitHub's two-step pending Review as the path that could make recovery automatic. Both hold.
+
+### What GitHub did
+
+| Probe | Observed |
+| --- | --- |
+| Marker round trip | The create response, the App's list and the repository owner's list all returned the body byte-for-byte, marker included. The author is `type: Bot`, `login: <slug>[bot]`, with a stable account `id`. |
+| Create without `event` | `PENDING`, `submitted_at: null`, HTTP 200 (not 201). Only the App can see it: the owner's list omits it and the owner's `GET` by id is a 404. The App lists it along with its comments. |
+| Second create by the App | 422, `"User can only have one pending review per pull request"`. A create **with** `event` gets the same 422 while the pending Review exists. |
+| Submit (`POST …/reviews/{id}/events`) | 200, `COMMENTED`, `submitted_at` set. |
+| Repeat submit | 422 `Validation Failed`, `"Could not comment pull request review."`. The same with a changed body. The error does not say "already submitted". A `GET` by id does. |
+| Submit after the head moved | Accepted. The Review lands on the commit it was created with. GitHub applies no fence. |
+| `DELETE` | Pending: 200, and after that 404 on `GET`, `DELETE` or submit. Submitted: 422, `"Can not delete a non-pending pull request review"`. |
+| Duplicate Check | Two creates with the same name, `external_id` and head both returned 201. They got two Check Run ids and shared one suite id. `filter=all` returns both, newest first. The default `filter=latest` returns only the newest. The API has no `external_id` filter. |
+| Re-runs of the duplicate | `check_suite.rerequested` carries only the suite id. `check_run.rerequested` (sent through the API with an installation token) is delivered for **either** duplicate, the hidden older one too. Each names its own Check Run id, with the shared `external_id` and suite id. |
+
+### 1. Marker lookup is proven
+
+A Review is identified as ours by its author's account `id`, the App's bot account, and by the
+marker. The login is not used, because it follows the App's slug. This settles the question §5 left
+open. It no longer needs to be the recovery path, though, because §2 below replaces it.
+
+### 2. A Review is published in two steps, and recovery is automatic
+
+**Create, then submit by id.** A Review is created without `event`: body, Comments and
+`commit_id: run.headSha` all go in that create, and the review id it returns is recorded on the
+publication row before anything else. The Review is then submitted with `event` and that id. The
+submit sends nothing but the event, since GitHub would reject a changed body on a repeat anyway.
+A single-step create with `event` is never used for a Review.
+
+**Only the submit publishes.** A pending Review is visible to nobody but the App, and it can be
+deleted at any time. The submit goes to one review id, and a repeat is refused, so a submit can
+never make a second Review. GitHub allows the App one pending Review per pull request, so there is
+never more than one to find. These facts make every step retryable.
+
+**The fence moves next to the submit.** §4 steps 1, 2 and 6 run before the create, because
+Reconciliation decides what goes in the body. Steps 3 to 5 (live head, `stale_head`, `overtaken`)
+run again **immediately before the submit**, because GitHub accepted a submit after the head
+moved. If the fence skips at that point, the pending Review is deleted.
+
+**A create whose outcome is unknown is not `unresolved`.** Whatever it made is invisible and not
+yet published, so it holds nothing. The holder lists the App's Reviews for a `PENDING` one carrying
+this Run's marker and adopts it if one is there. Otherwise it creates again. A 422 on that create
+is positive evidence that a pending Review exists. The holder lists again within a bound, and if
+the pending Review still does not appear, the row goes to operator attention. A miss is never
+treated as proof of anything, because retrying is what is safe here.
+
+**A submit whose outcome is unknown stays `unresolved`, and §5's hold stands. Resolution is a
+`GET` of the recorded id, not a search.**
+
+| `GET` answer | Resolution |
+| --- | --- |
+| Submitted (`COMMENTED`) | `published`, with the review id. It becomes a baseline. |
+| `PENDING` | Run the fence again. Submit again if it passes, or delete if it skips. A 422 on the resubmit is not a verdict: `GET` again. |
+| 404 | Someone deleted it, and a deleted Review can never be submitted, so it was not posted. The outcome is `failed`, flagged for operator attention, because Reprove never deletes a Review it has already submitted. |
+| Error or timeout | Retry within §5's durable bound. |
+
+If a `DELETE` gets 422 `non-pending`, the submit it was racing had already landed, and the row is
+recorded `published`.
+
+**A pending Review that no row claims is deleted.** The case is a create that commits after its
+retry has already been submitted. It leaves a second pending Review carrying the same marker. Nobody
+can see it and nothing will submit it, but it blocks every later Review by the App on that pull
+request, with a 422. A holder whose create gets that 422 therefore lists the pending Review and
+deals with it before anything else:
+
+- **Its id is recorded on another row.** That row's publication goes back through the fence in
+  sequence order.
+- **It carries the marker of a row whose create is in flight.** That row adopts it.
+- **Anything else.** It is deleted.
+
+After that, Reconciliation is recomputed, because the baseline may have changed. A person's own
+pending Review does not interfere, because the limit is per user.
+
+**What this changes in §5.** Recovery never depends on a list being eventually consistent, and it
+never waits on a lookup that can miss. The durable bounded retry stays. Past the bound, the row
+stays `unresolved` for operator attention. A forced release is now only for a GitHub that stays
+unreachable past that bound. It is no longer the answer to a lookup miss. The retry that §5
+rejected, after a miss, stays rejected for a single-step create. The two-step path is different,
+because retrying a create can publish nothing. Not verified: whether a `GET` straight after a submit
+always reads its own write. It did here. A stale `PENDING` read would only cause a resubmit, which
+GitHub refuses, so correctness does not depend on the answer.
+
+### 3. A publication owns every Check Run at its head that carries its `external_id`
+
+A Check create whose outcome is unknown is still resolved by listing, but the listing uses
+`filter=all` and matches `external_id` on the client. A late-committing first create is newer than
+its re-create. The newest Check is the one GitHub shows, so it can be that late duplicate, still in
+whatever state its create carried. **Re-assertion therefore concludes every Check Run the
+publication owns**, not just the newest. It stores the suite id once, which is shared, and the Check
+Run ids it knows about. A re-run can name the hidden duplicate, so [ADR
+0022](0022-manual-review-request.md) §3 binds a `check_run.rerequested` delivery by `external_id`
+and suite id, not by an exact Check Run id (amended there).
+
+### Handoff additions for [#116](https://github.com/nick-neely/reprove/issues/116)
+
+The deterministic scenario adds five cases:
+
+- An unknown create that is retried, gets 422 and adopts the pending Review.
+- An unknown submit resolved by `GET`, for each of the four answers.
+- A zombie pending Review cleared before the next Run's create.
+- A fence skip between create and submit that deletes the pending Review.
+- A re-run naming the older duplicate Check, which is accepted and routed to the same record.
+
+The publication row gains the recorded review id.

@@ -101,6 +101,10 @@ The App filter is not optional hygiene: GitHub "sends all events for `created` c
 app installed on a repository that has the necessary checks permissions", so an unfiltered handler
 sees other Apps' Checks.
 
+> **Amended by [#134](#amended-by-134):** the last line is replaced. The payload's `external_id`
+> references the record, and its `check_suite.id` equals the publication's stored suite id. The Check
+> Run id is not compared, because a re-run can name a duplicate Check that the publication owns.
+
 A `check_suite.rerequested` delivery validates `check_suite.app.id`, and binds to stored
 publications by the **exact suite id**: each publication stores the check suite id it landed in, and
 the routing set is the publications carrying that id. Installation, repository and SHA together are
@@ -345,3 +349,25 @@ compared    headSha, baseSha, provenance, placement, allowHostedFallback,
 It sits outside `configDigest`, so without its own entry a re-run after the description was edited
 would be equivalent to a live Run holding the old narrative and would no-op. Editing the narrative
 changes what is reviewed, which is exactly what this comparison exists to notice.
+
+## Amended by [#134](https://github.com/nick-neely/reprove/issues/134)
+
+2026-09-26. Observed live on the fixture repository. A Check created twice at one head with the same
+`external_id`, which is how [ADR 0029](0029-stopping-and-fencing-a-superseded-run.md) §5 recovers a
+Check create whose outcome is unknown, produces two Check Run ids in **one** suite.
+`check_run.rerequested` is delivered for either of them. That includes the older duplicate, which
+`filter=latest` and the pull request page hide. And a late-committing first create can end up newer
+than the id the record stored.
+
+So §3's last condition for a `check_run.rerequested` delivery becomes:
+
+```text
+the payload's external_id references the record
+the payload's check_suite.id equals the publication's stored suite id
+```
+
+The exact Check Run id is not compared. A stored suite id that is still null is unknown, not
+mismatched, exactly as for a suite event. The App filter and the Owner and repository checks are
+unchanged, and so is `check_suite.rerequested` binding. Every Check Run the publication owns is
+concluded (ADR 0029, [amended by #134](0029-stopping-and-fencing-a-superseded-run.md#amended-by-134)
+§3), so whichever duplicate the re-run named, the re-run reaches the same record.
