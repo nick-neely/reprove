@@ -138,3 +138,7 @@ If the platform later exposes denial logs, the aggregate may return without reop
   Runs losing egress admissions narrows to Provider admissions.
 - `CONTEXT.md`'s **Sandbox** and PRD §23 and §35 are amended to match.
 - The egress authorization record and the egress route are removed from the plan.
+
+## Amended by [#115](https://github.com/nick-neely/reprove/issues/115)
+
+[ADR 0033](0033-hosted-run-timing.md) §4: at H, the Provider route refuses new admissions and actively aborts every upstream stream it holds. The Sandbox timeout targets H but is not an egress guarantee, because a late server-side create moves its stop past H. Nothing restores per-request egress liveness.

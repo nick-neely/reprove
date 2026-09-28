@@ -221,3 +221,7 @@ breach found by the bridge checks after authorization. An invalid wrap-up answer
 and `deadline_reached` stays reserved for a hard-stop overrun. All reach the Run only through
 [#83](https://github.com/nick-neely/reprove/issues/83). §7 is unchanged: the aborted turn's Usage
 is `unknown`.
+
+## Amended by [#115](https://github.com/nick-neely/reprove/issues/115)
+
+[ADR 0033](0033-hosted-run-timing.md) §8 names §2's case. A configured `budget` whose probe reports no Usage is the Refusal **`usage_unmeasurable`**, because a known admission requirement cannot be established. A later turn blocked the same way is the Failure `usage_unmeasurable`.

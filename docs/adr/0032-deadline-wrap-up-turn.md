@@ -273,3 +273,7 @@ returned a schema-valid answer with no tool call.
   The same happens on any turn. [Keep a Codex turn alive through a retryable stream
   error](https://github.com/nick-neely/reprove/issues/139) is an implementation bug outside this map,
   and a prerequisite for the real Codex core, like #132.
+
+## Amended by [#115](https://github.com/nick-neely/reprove/issues/115)
+
+[ADR 0033](0033-hosted-run-timing.md) sets §2's reserve: **H - A = 3 minutes**, twice #137's estimated worst case, and A - T = 2 minutes of repair allowance. A Slice claimed after A but before H performs a late abort. A wrap-up Result counts only under the database-authorized receipt before H.

@@ -237,3 +237,7 @@ this ADR's handoff said, and no stricter promptness is promised.
 ## Superseded in part by [#127](https://github.com/nick-neely/reprove/issues/127)
 
 §7 is superseded by [ADR 0030](0030-verify-egress-enforced-by-the-sandbox-firewall.md). With no egress route there is no per-admission egress liveness check; that guarantee is given up explicitly. Cleanup attempts a bounded deny-all policy update concurrently with `stop()`. The Provider route keeps its per-admission liveness.
+
+## Amended by [#115](https://github.com/nick-neely/reprove/issues/115)
+
+[ADR 0033](0033-hosted-run-timing.md) sets the handoff's numbers. The cleanup margin is **zero**, so the Sandbox timeout targets H. The retry bound is **H + 15 minutes**, an operational bound after which the state is `unconfirmed`. It claims nothing about whether the Sandbox stopped, because a late create's own timeout can outrun it.

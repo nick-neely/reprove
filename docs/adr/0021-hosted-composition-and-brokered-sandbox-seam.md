@@ -328,3 +328,7 @@ on resume, so a lost `attach` ends the Pass as the Failure `resume_lost` instead
 it, keyed by `(passId, bridgeGeneration, turnOrdinal, toolCallId)` and inserted if absent, and the
 final cross-check reads them. A Pass may end its turn with an `aborted` Slice finished in the same
 transaction that claims one **wrap-up Slice**, the only Slice that starts a turn after an abort.
+
+## Amended by [#115](https://github.com/nick-neely/reprove/issues/115)
+
+[ADR 0033](0033-hosted-run-timing.md) sets §7's cleanup margin to **zero**, so the Sandbox platform timeout targets H, and bounds Slices at **4 minutes**. The finishing Slice's transaction is the **receipt**: it persists a validated Result only under a row lock, while `clock_timestamp() <= H`. After H, one replay-safe finalize step submits the Result and runs Acceptance. The Provider route stops admissions and aborts every held upstream stream at H, with no stall limits in Phase 1.

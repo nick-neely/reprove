@@ -343,3 +343,7 @@ title built from its recorded supersession facts.
 row: `incomplete` + `deadline_reached` -> **`timed_out`**. The title, the verdict line and the facts
 table say the review was stopped at its deadline whatever `unfinished` holds. A Reviewer still
 running at the hard stop remains a Failure with `deadline_reached`.
+
+## Amended by [#115](https://github.com/nick-neely/reprove/issues/115)
+
+[ADR 0033](0033-hosted-run-timing.md) §7 and §8 add four Failure details: `review_window_lost` (the Reviewer's turn did not start before its authorization cutoff), `usage_unmeasurable` (under a configured `budget`, a turn is blocked because an earlier one reported no Usage), `budget_exhausted` (a repair turn is blocked because known Usage meets the budget) and `finalization_incomplete` (on `worker_lost`, a Result received in time was never accepted). `stoppedBy: budget_exhausted` is unreachable in Phase 1, because a soft budget never interrupts a turn, and stays in the v1 schema.

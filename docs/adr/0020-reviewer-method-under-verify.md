@@ -313,3 +313,7 @@ value. The answer target stays as written, and the Reviewer is not told a wrap-u
 is a versioned Adapter prompt delivered only on the wrap-up turn, and the policy text does not
 change. An ineligible Pass, or a wrap-up still running at the hard stop, is a `deadline_reached`
 Failure as §6 says.
+
+## Amended by [#115](https://github.com/nick-neely/reprove/issues/115)
+
+[ADR 0033](0033-hosted-run-timing.md) §1 sets §6's numbers: the answer target T is **H - 5 minutes**, where H is `claimedAt + deadline`, for every Pass, budgeted or not. The Reviewer's turn starts only before the authorization cutoff S = H - 10 minutes. The drive Slice is the primary enforcer, the Sandbox timeout targets H, and a Result counts only under a database-authorized receipt before H.

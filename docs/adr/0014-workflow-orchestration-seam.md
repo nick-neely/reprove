@@ -246,3 +246,7 @@ runtime execution is the check that survives such an upgrade.
   `unscheduled` already carry the meanings this ADR relies on. That is deliberate, not an
   omission - the naming pressure this work produced was on a *package*, and was resolved by
   qualifying the foreign word rather than by adding vocabulary.
+
+## Amended by [#115](https://github.com/nick-neely/reprove/issues/115)
+
+The claimable window stays **5 minutes**, now as a product value that is env-readable in `DeploymentPolicy` ([ADR 0033](0033-hosted-run-timing.md) §11). It rests on Workflow start latency observed in seconds, not on a stress measurement.

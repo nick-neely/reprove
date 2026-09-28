@@ -405,3 +405,7 @@ The closure sequence gains two steps after the probe: the bridge token is commit
 `doStart` launches the Pass's bridge, then that idle bridge is checked as the Reviewer before
 authorization. A demonstrated breach is `sandbox_unenforceable`; `doPromptTurn` follows
 authorization.
+
+## Amended by [#115](https://github.com/nick-neely/reprove/issues/115)
+
+[ADR 0033](0033-hosted-run-timing.md) sets §11's numbers. The materialization ceiling is **4 minutes** of setup time inside `deadline`. The disk ceiling is **24 GB** over both histories, the checkout and the fetch temporaries; this is a policy choice, env-readable and capped at 56 GB at boot. Missing the authorization cutoff before the Reviewer's turn starts is the Failure `review_window_lost`.

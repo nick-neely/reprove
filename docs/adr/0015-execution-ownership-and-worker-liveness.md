@@ -280,3 +280,7 @@ for every terminal Run that records a pass, with the pass's own `stop()` as the 
 platform timeout as the backstop. `sandbox_teardown_incomplete` keeps its meaning on local placement
 only; a hosted Sandbox not confirmed stopped is handed to the reaper and the outcome stands (ADR 0028
 §5).
+
+## Amended by [#115](https://github.com/nick-neely/reprove/issues/115)
+
+For hosted Runs, `executionExpiresAt = H + livenessGrace`, where H is `claimedAt + deadline` and the grace is a 10-minute product constant; `livenessFor` is left to the self-hosted Lease in Phase 3 ([ADR 0033](0033-hosted-run-timing.md) §1, §3). The lifecycle's state-driven loop gains **a wake at H** that terminalizes a Run with no database-authorized receipt as `deadline_reached`, racing the receipt under one row lock (§5). `worker_lost` needs evidence from a detector before H, or a receipt left unaccepted at `executionExpiresAt`, recorded as `finalization_incomplete` (§7). A Slice's timestamp never classifies the cause.

@@ -442,3 +442,7 @@ start under a configured `budget` unless every earlier turn of the Pass reported
 Slice of the same turn is never gated by Usage, because a Slice reports none until the turn's
 `finish`. A repair turn after a turn that reported no Usage cannot start under a budget, and a
 Pass with a configured `budget` is never eligible for a deadline wrap-up.
+
+## Amended by [#115](https://github.com/nick-neely/reprove/issues/115)
+
+[ADR 0033](0033-hosted-run-timing.md) settles §7's and §8's handoffs. There is **no default `budget`**, and `budget` stays soft. The default `deadline` is **20 minutes**, the minimum 18, and the maximum `min(60 min, sandboxSessionLimit - 10 min)`; a value outside those bounds is `config_unsupported` at Run creation. Missing Usage under a configured `budget` is the Refusal `usage_unmeasurable` at the probe and the Failure `usage_unmeasurable` after authorization. `DeploymentPolicy` holds `claimableFor`, `sandboxSessionLimit` and the disk ceiling, each checked at boot; it does not hold `livenessForMs`.
