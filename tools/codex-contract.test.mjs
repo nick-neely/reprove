@@ -34,13 +34,13 @@ const ANSWER = {
 
 // Only the external Provider HTTP boundary is substituted. Container runtime,
 // CLI, bridge, credential transforms, process streams and parsing are real.
-const responseEvents = (output) => {
+const responseEvents = (...output) => {
   const response = {
     id: "resp_fixture",
     object: "response",
     status: "completed",
     model: "gpt-5.6-sol",
-    output: [output],
+    output,
     usage: { input_tokens: 3, output_tokens: 4, total_tokens: 7 },
   };
   const events = [
@@ -48,50 +48,50 @@ const responseEvents = (output) => {
       type: "response.created",
       response: { ...response, status: "in_progress", output: [] },
     },
-    {
-      type: "response.output_item.added",
-      output_index: 0,
-      item: { ...output, status: "in_progress" },
-    },
   ];
-  if (output.type === "message") {
-    const [part] = output.content;
-    const { text } = part;
-    events.push(
-      {
-        type: "response.content_part.added",
-        item_id: output.id,
-        output_index: 0,
-        content_index: 0,
-        part: { type: "output_text", text: "", annotations: [] },
-      },
-      {
-        type: "response.output_text.delta",
-        item_id: output.id,
-        output_index: 0,
-        content_index: 0,
-        delta: text,
-      },
-      {
-        type: "response.output_text.done",
-        item_id: output.id,
-        output_index: 0,
-        content_index: 0,
-        text,
-      },
-      {
-        type: "response.content_part.done",
-        item_id: output.id,
-        output_index: 0,
-        content_index: 0,
-        part: output.content[0],
-      }
-    );
+  for (const [output_index, item] of output.entries()) {
+    events.push({
+      type: "response.output_item.added",
+      output_index,
+      item: { ...item, status: "in_progress" },
+    });
+    if (item.type === "message") {
+      const [part] = item.content;
+      const { text } = part;
+      events.push(
+        {
+          type: "response.content_part.added",
+          item_id: item.id,
+          output_index,
+          content_index: 0,
+          part: { type: "output_text", text: "", annotations: [] },
+        },
+        {
+          type: "response.output_text.delta",
+          item_id: item.id,
+          output_index,
+          content_index: 0,
+          delta: text,
+        },
+        {
+          type: "response.output_text.done",
+          item_id: item.id,
+          output_index,
+          content_index: 0,
+          text,
+        },
+        {
+          type: "response.content_part.done",
+          item_id: item.id,
+          output_index,
+          content_index: 0,
+          part,
+        }
+      );
+    }
+    events.push({ type: "response.output_item.done", output_index, item });
   }
-  events.push(
-    { type: "response.output_item.done", output_index: 0, item: output },
-    { type: "response.completed", response }
-  );
+  events.push({ type: "response.completed", response });
   return new Response(
     events
       .map(
@@ -102,13 +102,19 @@ const responseEvents = (output) => {
   );
 };
 
-const message = (text) => ({
-  id: "msg_fixture",
-  type: "message",
-  role: "assistant",
-  status: "completed",
-  content: [{ type: "output_text", text, annotations: [] }],
-});
+const message = (text, phase, id = "msg_fixture") => {
+  const item = {
+    id,
+    type: "message",
+    role: "assistant",
+    status: "completed",
+    content: [{ type: "output_text", text, annotations: [] }],
+  };
+  if (phase) {
+    item.phase = phase;
+  }
+  return item;
+};
 
 const seed = async (sandbox, narrative = true) => {
   const files = Object.fromEntries(
@@ -153,6 +159,46 @@ const qualify = async (
     });
     expect(proof.satisfied).toBe(true);
     return proof;
+  } finally {
+    await sandbox.teardown();
+  }
+};
+
+const brokeredPassFromResponses = async (fetch, runId) => {
+  const provider = createDockerProvider({
+    runtime: createCliRuntime({ name: "docker" }),
+  });
+  const authentication = {
+    kind: "api-key",
+    provider: "openai",
+    key: "synthetic-broker-key",
+  };
+  const proof = await qualify(provider, authentication);
+  const sandbox = await provider.launch(
+    sandboxRequestFor("codex", CODEX_SANDBOX_PROFILE)
+  );
+  try {
+    await seed(sandbox);
+    const adapter = createCodexAdapter({
+      model: "gpt-5.6-sol",
+      authentication,
+      instructionProbe: () => Promise.resolve(proof),
+      fetch,
+    });
+    return await adapter.pass({
+      runId,
+      passId: crypto.randomUUID(),
+      model: "gpt-5.6-sol",
+      autonomy: "verify",
+      instructions: {
+        policy: "Return JSON",
+        conventions: [],
+        narrativePath: "/reprove/input/narrative.json",
+      },
+      sandbox,
+      signal: AbortSignal.timeout(60_000),
+      check: () => null,
+    });
   } finally {
     await sandbox.teardown();
   }
@@ -210,6 +256,102 @@ const RUN_SPEC = {
 
 describe("real Codex Adapter contracts", () => {
   beforeAll(buildCodexImage, 240_000);
+
+  it.each([
+    [
+      "direct exec_command",
+      {
+        id: "fc_fixture",
+        call_id: "call_fixture",
+        type: "function_call",
+        name: "exec_command",
+        arguments: JSON.stringify({
+          cmd: "cat /reprove/workspace/AGENTS.md",
+          max_output_tokens: 100,
+        }),
+        status: "completed",
+      },
+    ],
+    [
+      "code-mode exec",
+      {
+        id: "ct_fixture",
+        call_id: "call_fixture",
+        type: "custom_tool_call",
+        name: "exec",
+        input:
+          'const r = await tools.exec_command({cmd:"cat /reprove/workspace/AGENTS.md",max_output_tokens:100}); text(r.output);',
+        status: "completed",
+      },
+    ],
+  ])(
+    "parses the final JSON message after a preamble and %s without repair",
+    async (_toolKind, toolCall) => {
+      let requests = 0;
+      const output = await brokeredPassFromResponses(() => {
+        requests += 1;
+        if (requests === 1) {
+          return Promise.resolve(
+            responseEvents(
+              message("I'll read the file.", "commentary", "msg_preamble"),
+              toolCall
+            )
+          );
+        }
+        return Promise.resolve(
+          responseEvents(
+            message(JSON.stringify(ANSWER), "final_answer", "msg_answer")
+          )
+        );
+      }, "preamble");
+      expect(output).toMatchObject({
+        ...ANSWER,
+        outcome: "completed",
+        repairTurnUsed: false,
+      });
+      expect(output.observed).toEqual([
+        expect.objectContaining({
+          command: expect.stringContaining("cat /reprove/workspace/AGENTS.md"),
+          exitCode: 0,
+        }),
+      ]);
+      expect(requests).toBe(2);
+    },
+    90_000
+  );
+
+  it("bounds all brokered turn text even when the final answer is small", async () => {
+    let requests = 0;
+    const output = await brokeredPassFromResponses(() => {
+      requests += 1;
+      return Promise.resolve(
+        responseEvents(
+          message("a".repeat(1024 * 1024 - 10), "commentary", "msg_preamble"),
+          message(JSON.stringify(ANSWER), "final_answer", "msg_answer")
+        )
+      );
+    }, "oversize-preamble");
+    expect(output).toMatchObject({
+      outcome: "failed",
+      failureReason: "codex_execution_failed",
+      repairTurnUsed: false,
+    });
+    expect(requests).toBe(1);
+  }, 90_000);
+
+  it("repairs once when a brokered turn has no answer message", async () => {
+    let requests = 0;
+    const output = await brokeredPassFromResponses(() => {
+      requests += 1;
+      return Promise.resolve(responseEvents());
+    }, "missing-answer");
+    expect(output).toMatchObject({
+      outcome: "failed",
+      failureReason: "result_invalid",
+      repairTurnUsed: true,
+    });
+    expect(requests).toBe(2);
+  }, 90_000);
 
   it.each([
     "RUN sed -i 's/ --ignore-user-config --ignore-rules//' /opt/reprove/codex/reprove-codex",

@@ -205,6 +205,7 @@ export const createBrokeredSession = async (
   return {
     turn: async (prompt) => {
       let text = "";
+      let textBytes = 0;
       let failed = false;
       let finished = false;
       let usage: Usage = { inputTokens: 0, outputTokens: 0 };
@@ -222,13 +223,15 @@ export const createBrokeredSession = async (
           schema: ANSWER_SCHEMA as HarnessV1JSONSchema,
         },
         emit: (event) => {
+          if (event.type === "text-start") {
+            text = "";
+          }
           if (event.type === "text-delta") {
-            if (
-              Buffer.byteLength(text) + Buffer.byteLength(event.delta) >
-              1024 * 1024
-            ) {
+            const deltaBytes = Buffer.byteLength(event.delta);
+            if (textBytes + deltaBytes > 1024 * 1024) {
               failed = true;
             } else {
+              textBytes += deltaBytes;
               text += event.delta;
             }
           }
