@@ -79,7 +79,7 @@ Three levels of increasing Autonomy:
 | Phase | Goal |
 |---|---|
 | 0 | Foundation - GitHub App, control-plane boundaries, Run / Result |
-| 1 | MVP - hosted `inspect` + `verify` end to end on one Harness |
+| 1 | MVP - hosted `verify` end to end on one Harness |
 | 2 | Multi-Harness, Model choice, Strategies |
 | 3 | Self-hosted Worker |
 | 4 | `fix` Autonomy and cross-Harness workflows |

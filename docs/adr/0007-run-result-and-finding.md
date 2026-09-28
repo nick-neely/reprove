@@ -188,7 +188,7 @@ discriminator can be added; title similarity must not become foundational.
 The residual case - defect A on Run 1, defect B on Run 2, one anchor, nothing changed - has a
 bounded blast radius, and this is why the framing matters: **dedupe suppresses a `Comment`,
 never a `Finding`.** The current Finding still exists, is still in Run history, and is still
-represented in the Review summary and counts.
+represented in the Review index and counts.
 
 **The prior side is internal and never claims a fix.** Two values:
 
@@ -216,10 +216,12 @@ untouched callee - exactly the class of defect a whole-repo reviewer sees and a 
 reviewer structurally cannot. GitHub cannot line-anchor a review comment on a file the diff
 never touched.
 
-Such a Finding **renders as a structured entry in the Review body** under its own heading,
-carrying `path:line`, Severity and Verification, and passes through the same Threshold and
-dedupe rules as any other Finding. It is kept clear of the prose summary so it stays
-actionable rather than buried narrative.
+Such a Finding **is published as a Check Run annotation at its exact line**, and is listed in
+the Review's index as an "outside the diff" row linking to the Check, carrying `path:line`,
+Severity and Verification. It passes through the same Threshold and dedupe rules as any other
+Finding. This amends the original decision, which rendered it as a structured entry in the
+Review body: [ADR 0025](0025-how-a-run-appears-on-the-pull-request.md) §2 moved it once the
+GitHub write-surface research showed annotations anchor anywhere a review Comment cannot.
 
 It is **not** a `Comment`, because `CONTEXT.md` defines a Comment as the line-anchored GitHub
 projection of a Finding.
@@ -286,7 +288,8 @@ concern dictate physical storage. And the non-isomorphism is not a matter of tas
 ## Consequences
 
 - `CONTEXT.md` gains the complete/partial distinction on `Result`, and an explicit statement
-  on `Comment` that a Finding GitHub cannot line-anchor is not projected as one.
+  on `Comment` that a Finding GitHub cannot line-anchor is not projected as one (it is a Check
+  Run annotation, per [ADR 0025](0025-how-a-run-appears-on-the-pull-request.md) §2).
 - **PRD §11, §17, §27, §28, §29 and §32 are resolved**, including §27's and §32's
   `[Undecided]` markers and §28's `PARTIALLY_VERIFIED`, which ADR 0002 had already replaced.
   PRD §36 loses `ReviewArtifact`. Edits land on
@@ -300,3 +303,47 @@ concern dictate physical storage. And the non-isomorphism is not a matter of tas
   its keys.
 - ADR 0005's per-Pass naming handoff is discharged by declining it, and the per-phase map that
   builds a multi-Pass Strategy inherits the naming question with the reason it was deferred.
+
+## Amended by [#107](https://github.com/nick-neely/reprove/issues/107)
+
+[ADR 0020](0020-reviewer-method-under-verify.md) lets the Reviewer declare its own review
+unfinished. `stoppedBy` gains **`reviewer_stopped`**, set when the answer's `unfinished` is non-null; it is
+either `null` or a bounded, non-whitespace explanation, and there is no separate flag to contradict
+it. The trusted layer's own reasons override it when both apply. The Check table gains one row: `incomplete` + `reviewer_stopped` ->
+**`failure`**. The Result's answer gains `unfinished` and `limitations`. A Reviewer
+still running at the hard deadline produces no Result and is a Failure with `deadline_reached` as
+its detail; `deadline_reached` is not a `stoppedBy` value in Phase 1.
+
+## Amended by [#95](https://github.com/nick-neely/reprove/issues/95)
+
+The `unscheduled` row's "`claimableUntil` expired; never dispatched" is too narrow.
+[ADR 0023](0023-worker-refusal-over-a-dispatched-run.md) defines `unscheduled` as: scheduling ended
+without an accepted execution, because the claim window expired or because the control plane
+terminated scheduling after an accepted Refusal. A refused hosted Run was dispatched and still ends
+here, told apart by its non-empty accumulated Refusals. A Run whose execution owner went silent is
+not `unscheduled`; it stays `failed(worker_lost)`. "Nothing executed" in the paragraph on Failure
+vocabulary reads as "execution was never authorized": a refused Run may have spent a probe, and its
+Usage is reported.
+
+## Amended by [#118](https://github.com/nick-neely/reprove/issues/118)
+
+[ADR 0029](0029-stopping-and-fencing-a-superseded-run.md) changes publication, not the Run. A Review that the fence skips is a Review outcome on the
+publication row, never a Run status: `stale_head` when the pull request's head moved past the Run,
+`overtaken` when a later Run in the pull request's sequence already published. The Run stays
+`completed` or `incomplete`, and its Check concludes from the Run outcome under this ADR's mapping,
+independent of the Threshold and of whether a Review posted. Reconciliation's predecessor is the
+highest-sequence earlier Run whose Review is `published` with a GitHub review id; a skipped,
+unresolved or force-released Review is never one. A superseded Run's `cancelled` Check carries a
+title built from its recorded supersession facts.
+
+## Amended by [#129](https://github.com/nick-neely/reprove/issues/129)
+
+[ADR 0032](0032-deadline-wrap-up-turn.md) gives an eligible hosted Pass one wrap-up turn after a deadline abort. `stoppedBy` gains
+**`deadline_reached`**, a trusted reason that overrides `reviewer_stopped`. The Check table gains one
+row: `incomplete` + `deadline_reached` -> **`timed_out`**. The title, the verdict line and the facts
+table say the review was stopped at its deadline whatever `unfinished` holds. A Reviewer still
+running at the hard stop remains a Failure with `deadline_reached`.
+
+## Amended by [#115](https://github.com/nick-neely/reprove/issues/115)
+
+[ADR 0033](0033-hosted-run-timing.md) §7 and §8 add four Failure details: `review_window_lost` (the Reviewer's turn did not start before its authorization cutoff), `usage_unmeasurable` (under a configured `budget`, a turn is blocked because an earlier one reported no Usage), `budget_exhausted` (a repair turn is blocked because known Usage meets the budget) and `finalization_incomplete` (on `worker_lost`, a Result received in time was never accepted). `stoppedBy: budget_exhausted` is unreachable in Phase 1, because a soft budget never interrupts a turn, and stays in the v1 schema.

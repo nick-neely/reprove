@@ -27,7 +27,10 @@ decisions live in [docs/adr/](docs/adr/).
 **Run**:
 One bounded attempt to review a pull request at a fixed base and head SHA, with harness,
 model, strategy and autonomy pinned at creation. A new push or a retry produces a new Run
-rather than mutating an existing one.
+rather than mutating an existing one. Its trigger is *automatic*, derived from a pull request
+event, or *manual*, a person's or an actor's explicit request through the Check's re-run, which
+is the one trigger that may review a draft pull request, because the draft skip exists to avoid
+spending nobody asked for.
 _Avoid_: Job, ReviewJob, ReviewRun, task
 
 **Review**:
@@ -80,8 +83,9 @@ _Avoid_: verificationStatus, confidence, partially verified
 The line-anchored artifact GitHub renders. It is a projection of at most one Finding, and a
 Finding may be suppressed by thresholds or by dedupe against an earlier Run - dedupe suppresses
 a Comment, never a Finding. Line-anchoring is what the word means, so a Finding at a location
-GitHub cannot anchor - one outside the diff - is not projected as a Comment at all; it renders
-structurally in the Review body under the same thresholds.
+GitHub cannot anchor - one outside the diff - is not projected as a Comment at all; it is
+published as a Check Run annotation at its line and listed in the Review's index, under the same
+thresholds.
 _Avoid_: annotation, note
 
 **Reconciliation**:
@@ -95,6 +99,13 @@ _Avoid_: dedupe, matching, Finding identity
 An optional proposed change carried by a Finding. A GitHub suggestion block is one way to
 render a Patch, not another name for it.
 _Avoid_: suggestion, fix, diff
+
+**Limitation**:
+A fact the Reviewer declares about the environment or scope that prevented part of a review - a
+dependency that would not install, a service that was not available, a scope left out - recorded
+once on the Result. It is not a Finding's Verification and not the reason execution stopped, and
+it never by itself makes a review unfinished.
+_Avoid_: gap, coverage, caveat, skipped
 
 **Evidence**:
 The structured record of what a Reviewer executed while verifying a Finding - the command, its exit
@@ -184,10 +195,25 @@ _Avoid_: mode, path, transport, invocation method
 **Sandbox**:
 The isolation boundary a Run executes inside, defined by properties rather than by a technology:
 its own network, PID and mount namespaces, no host bind mounts and no runtime socket, seccomp and
-resource limits, ephemeral storage, egress only through Reprove's proxy, and teardown after the
+resource limits, ephemeral storage, default-deny egress enforced by Reprove's policy, and teardown after the
 Run. Repository code must not cross it outward; whether a credential sits inside it is what
 Exposure records. A Harness's own sandbox is never this boundary.
 _Avoid_: container, VM, jail
+
+**Binding**:
+The durable record that lets Reprove's broker act for one Sandbox: which Pass it serves, which
+Sandbox instance it admits, which Provider origin, methods and paths it allows, and the
+placeholder that stands in for the credential. The credential itself is never on it. A request
+the broker cannot match to a live Binding is refused; a Binding whose Pass has ended admits
+nothing.
+_Avoid_: session, credential record, proxy config
+
+**Slice**:
+One durable step's share of a hosted Pass. Slices drive a hosted Pass's initial turn, and its
+optional repair turn and optional deadline wrap-up turn, on one running Sandbox, each turn under
+its own guards. A continuing Slice never starts a turn of its own, and a Slice that cannot prove
+where the previous one stopped ends the Pass rather than guessing.
+_Avoid_: step, chunk, segment, leg
 
 **Isolation**:
 How strongly a Sandbox is separated from its host and from the credential, as a ladder the Worker
@@ -196,8 +222,10 @@ computes and advertises rather than declares: `microvm`, `container-rootless`, `
 _Avoid_: isolation level, hardening, security level
 
 **Workspace**:
-The repository checkout inside a Sandbox, pinned to a Run's base and head SHA, which a Reviewer
-may mutate only under `fix` autonomy. It is self-contained and sandbox-owned: the Worker
+The repository checkout inside a Sandbox, pinned to a Run's base and head SHA. The working tree is
+the Reviewer's to write under `verify`, and only under `fix` may any change leave it as a Patch; the
+pinned history the Worker trusts is held apart from it, so nothing the Reviewer writes changes what
+trusted code reads. It is self-contained and sandbox-owned: the Worker
 materializes it with every remote and host reference stripped, so it carries no authority to reach
 GitHub and nothing inside the Sandbox can fetch what the Worker did not put there.
 _Avoid_: working tree, clone, repo
@@ -220,20 +248,22 @@ nobody pays.
 _Avoid_: cost, spend, tokens
 
 **Refusal**:
-A decision not to execute, made before execution begins, because a requirement was not met. It
-arises in the control plane - configuration that is invalid or cannot be resolved - or in a
+A decision not to execute, made before execution is authorized, because a requirement was not met.
+It arises in the control plane - configuration that is invalid or cannot be resolved - or in a
 Worker, from a missing hard Sandbox property, an ineligible combination of Exposure, Isolation and
-Provenance, or a capability probe too stale to trust. It names the requirement that failed rather
-than degrading quietly, and it is always visible on a Check rather than a log line; the Worker
-protocol message is one way a Refusal originates, not what the word means. Narrowing a request to
-an Owner's ceiling is not a Refusal, because it moves toward the safe position rather than away
-from it.
+Provenance, or a capability probe too stale to trust. A Worker's Refusal follows dispatch and may
+have cost Usage to reach; what it never follows is authorization. It names the requirement that
+failed rather than degrading quietly, and it is always visible on a Check rather than a log line;
+the Worker protocol message is one way a Refusal originates, not what the word means. Narrowing a
+request to an Owner's ceiling is not a Refusal, because it moves toward the safe position rather
+than away from it.
 _Avoid_: rejection, denial, error
 
 **Failure**:
-The outcome of a Run or Pass that began executing and could not produce an acceptable Result. It is
-distinct from a Refusal, which happens before dispatch, and from a Review carrying no Findings,
-which is a success.
+The outcome of a Run or Pass that could not produce an acceptable Result after execution was
+authorized, or whose Worker stopped answering or could not be shown to have stopped. It is distinct
+from a Refusal, which is a decision made before execution is authorized, and from a Review carrying
+no Findings, which is a success.
 _Avoid_: error, crash, abort
 
 **Attestation**:
@@ -253,8 +283,8 @@ _Avoid_: disable, blocklist, circuit breaker
 ### Controls
 
 **Autonomy**:
-What a Reviewer is permitted to do, as a ladder: `inspect` may read, `verify` may execute,
-`fix` may mutate the Workspace. A level is offered only where it can be enforced, so a Harness
+What a Reviewer is permitted to do, as a ladder: `inspect` may read, `verify` may execute and
+write scratch changes that never leave the Sandbox, `fix` may return changes as a Patch. A level is offered only where it can be enforced, so a Harness
 that cannot be restricted does not advertise the levels it cannot honour.
 _Avoid_: mode, review mode, permission level
 

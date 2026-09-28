@@ -126,7 +126,9 @@ export const resolvedReviewConfigSchema = z
     model: z.string().min(1).max(128).optional(),
     strategy: strategySchema.default("standard"),
     autonomy: autonomySchema.optional(),
+    /** Soft spending limit in USD (ADR 0019). */
     budget: z.number().positive().finite().optional(),
+    /** Reviewer execution ceiling, never the claim window (ADR 0019). */
     deadline: z
       .string()
       .regex(/^\d+[smh]$/u)

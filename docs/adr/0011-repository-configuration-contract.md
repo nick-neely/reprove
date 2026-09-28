@@ -153,6 +153,11 @@ behavioral probe against an artifact fingerprint, which exists only at dispatch.
 retired version allowlists precisely because a control-plane table of Harness capabilities
 was wrong within this map's own lifetime, and a parse-time check would rebuild one.
 
+> **Amended by [#117](https://github.com/nick-neely/reprove/issues/117):** in Phase 1 this exact request is refused at Run creation instead, as a
+> control-plane `config_unsupported`, because Phase 1 offers only `verify`. The dispatch-time rule
+> still governs capabilities the control plane cannot know. See [ADR
+> 0019](0019-phase-1-repository-configuration-subset.md#amended-by-117).
+
 ## 6. `overrides` is a restricted schema, not a recursive partial
 
 No per-directory `.reprove.yml` and no ancestor walk - that mechanic is what ADR 0009
@@ -181,8 +186,10 @@ published rather than when a Finding is made, so changing it never requires a ne
 ADR 0008's publication disposition gains a value:
 
 ```
-inline_comment | review_body | suppressed_threshold | suppressed_dedupe | suppressed_ignore
+inline_comment | check_annotation | suppressed_threshold | suppressed_dedupe | suppressed_ignore
 ```
+
+`review_body` was renamed `check_annotation` by [ADR 0025](0025-how-a-run-appears-on-the-pull-request.md) §2.
 
 Where both would suppress, **`suppressed_ignore` wins** as the more specific explanation.
 
@@ -278,6 +285,7 @@ review:
     test: pnpm test
     typecheck: pnpm typecheck
   baseConventions: true      # ADR 0009's re-admission switch; quality control, default on
+  installScripts: deny       # best-effort install behaviour, not a security control
   harnessOptions:
     codex:
       reasoningEffort: medium # low | medium | high | xhigh | max; Model-dependent
@@ -289,7 +297,6 @@ review:
 security:
   maxExposure: account            # ladder minimum
   allowExternalProvenance: false  # ADR 0004's single opt-in
-  installScripts: deny            # boolean AND
   allowHostedFallback: false      # ADR 0006; boolean AND
   egress: []                      # set intersection when an Owner ceiling exists
 ```
@@ -331,3 +338,31 @@ matters for audit. A breaking change would introduce one deliberately.
 - PRD §7, §30 and §31 lose their `[Undecided]` markers.
 - Anything that later wants to gate on how an Adapter works must find the domain property
   it is really reaching for, or argue with §4.
+
+## Amended by [#106](https://github.com/nick-neely/reprove/issues/106)
+
+[ADR 0019](0019-phase-1-repository-configuration-subset.md) is authoritative for which keys Phase 1
+honours; this note only records what changes in the sections above. §5 gains a fourth
+control-plane reason, `config_unsupported`, for a `review:` value naming functionality the product
+does not have, and a control-plane Refusal is persisted as its own Owner-scoped record rather than
+on a Run or the ingress ledger. §10's resolved snapshot requires `harness`, `model`, `autonomy`
+and `deadline`, with each value's provenance (`configured` or `default`) recorded beside the
+snapshot and outside `configDigest`. `deadline` bounds Reviewer execution time, not the claim
+window. Phase 1 supplies no Owner layer and adds no unused Owner parameter.
+
+## Amended by [#110](https://github.com/nick-neely/reprove/issues/110)
+
+[ADR 0024](0024-hosted-workspace-materialization-and-snapshots.md) moves `installScripts` out of
+`security:` and into `review:`, and the example above is updated accordingly. It is best-effort
+install behaviour under `verify` rather than an enforced restriction, so it has no narrowing
+operation and does not belong in a section defined by the meet. Its default stays `deny`.
+
+## Amended by [#113](https://github.com/nick-neely/reprove/issues/113)
+
+[ADR 0027](0027-verify-sandbox-egress.md) §5 fixes `security.egress`'s meaning: it lists exact
+hostnames **in addition to** a Reprove default registry set that is reachable throughout a `verify`
+Reviewer turn, so `egress: []` means "no extra hosts", not "no network". Wildcards are not accepted
+in Phase 1. The meet is unchanged: the effective set is the Reprove boundary intersected with the
+request, and a requested host the boundary denies by construction is narrowed out and reported by
+the config Check, never refused. Under `inspect` it resolves to no extra hosts, a dormant clause:
+Phase 1 refuses `inspect` before resolution ([#117](https://github.com/nick-neely/reprove/issues/117)).

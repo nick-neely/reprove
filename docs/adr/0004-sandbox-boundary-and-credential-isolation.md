@@ -23,7 +23,8 @@ must provide:
 - seccomp enabled, never `unconfined`;
 - resource limits on CPU, memory and process count;
 - a Workspace in sandbox-owned ephemeral storage, not a writable host directory;
-- egress only through Reprove's proxy;
+- default-deny egress enforced by Reprove's policy, at the Sandbox firewall or Reprove's proxy
+  (amended by [ADR 0030](0030-verify-egress-enforced-by-the-sandbox-firewall.md));
 - teardown after the Run.
 
 **The Harness's own sandbox is never this boundary.** Codex's `--sandbox workspace-write` grants
@@ -202,6 +203,15 @@ boundary itself, not merely the Run.
   information are exactly what a Reviewer needs, and re-implementing them as tools would be worse
   in every respect than shipping a repository with no remote and no credential.
 
+  > **Amended by [#110](https://github.com/nick-neely/reprove/issues/110).**
+  > [ADR 0024](0024-hosted-workspace-materialization-and-snapshots.md) replaces "host-side" with
+  > **by the Worker's identity, before the Reviewer exists**. On a hosted Worker there is no host
+  > with room for a repository, so that identity is root inside the Pass's own Sandbox, in a setup
+  > phase that runs no repository code. Submodules and LFS are not resolved in Phase 1 and are
+  > recorded as Limitations instead. The self-contained copy admits **no alternates and no
+  > hardlinks**, because the Reviewer-writable copy must not reach the objects the authoritative
+  > one depends on.
+
 - **Project commands resolve from the base ref, never the head**, because configuration a pull
   request can edit is not policy. This is hygiene and **not** a security control: under `verify`
   Autonomy the Reviewer holds a shell and can run anything the head contains. The control is the
@@ -325,3 +335,21 @@ Everything else in ADR 0003 stands unchanged.
 > lands with the issue that first drives a Harness. ADR 0010's forbidden-type gate runs over this
 > package's packed declarations, so the bridge needs a non-leaking wrapper of its own; keeping the
 > published surface free of upstream types is worth more than shipping the adapter early.
+
+## Amended by [#113](https://github.com/nick-neely/reprove/issues/113)
+
+2026-09-23. [ADR 0027](0027-verify-sandbox-egress.md) fixes what a hosted `verify` Sandbox may reach.
+Two statements above read more strongly than the design supports. **Egress allowlisting constrains
+the blast; it does not prevent leakage to approved hosts.** Method and path rules block uploads, but
+an approved `GET` can carry source-derived data in its path, query and headers, so every approved
+host is a trusted recipient of it. And **"network policy changes live between phases" means
+materialization and Reviewer**, not install and verify: under `verify` the Reviewer installs when it
+chooses, so a default registry set stays reachable for the whole Reviewer turn. The "additional
+approved egress destinations" key is `security.egress`, and it names hosts beyond that default set.
+
+## Amended by [#127](https://github.com/nick-neely/reprove/issues/127)
+
+The Sandbox property is default-deny egress enforced by Reprove's policy, not egress only through
+Reprove's proxy: a hosted `verify` Sandbox enforces method, path and authority at the Vercel
+firewall ([ADR 0030](0030-verify-egress-enforced-by-the-sandbox-firewall.md)). The per-Run limits "always at the proxy" hold for the Provider route only;
+hosted Reviewer-phase egress has no request count, size or concurrency limit.

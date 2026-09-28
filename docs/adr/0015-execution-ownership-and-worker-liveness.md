@@ -91,6 +91,16 @@ A Run abandoned at `claimed` still ends as `failed(worker_lost)`, not `unschedul
 Refusal. Once a claim succeeded, scheduling succeeded and execution responsibility exists, even if
 the Reviewer never started. `lostFrom: claimed | executing` records which.
 
+> **Amended by [#95](https://github.com/nick-neely/reprove/issues/95):** an accepted Refusal is the
+> one ending that returns a claimed Run to scheduling's vocabulary, because the Worker answered and
+> was not lost. [ADR 0023](0023-worker-refusal-over-a-dispatched-run.md) has the hosted pass record
+> `executing` as its own first step, so hosted dispatch is `claimRun` then `startPass` and the
+> `unrecorded` outcome is gone; `markExecuting` is idempotent only for the same token and Workflow
+> run id on a Run still live and eligible. For hosted execution `acceptRefusal` accepts from
+> `executing` alone and writes `unscheduled` in the same transaction that records the Refusal,
+> with no automatic re-offer. The `claimed` to `queued` return in the consequences below stays as
+> specified for self-hosted Workers, undecided until Phase 3.
+
 ## One transition, three detectors
 
 ```
@@ -261,3 +271,16 @@ valid liveness evidence, this execution becomes ineligible."
   > row - `claimed`, token assigned, no pass id - because that row is what the window is. The
   > discharge stands unchanged; only how the case is reached moved. See
   > [ADR 0016](0016-phase-0-acceptance-scenario.md)'s amendment on the hosted `start()` orphan.
+
+## Amended by [#88](https://github.com/nick-neely/reprove/issues/88)
+
+The deferral in "What this deliberately does not claim", that a cancelled pass is not a torn-down
+Sandbox and nothing here provides reaping, is resolved by [ADR 0028](0028-reaping-a-hosted-pass-sandbox.md). The Run's lifecycle initiates cleanup
+for every terminal Run that records a pass, with the pass's own `stop()` as the fast path and the
+platform timeout as the backstop. `sandbox_teardown_incomplete` keeps its meaning on local placement
+only; a hosted Sandbox not confirmed stopped is handed to the reaper and the outcome stands (ADR 0028
+§5).
+
+## Amended by [#115](https://github.com/nick-neely/reprove/issues/115)
+
+For hosted Runs, `executionExpiresAt = H + livenessGrace`, where H is `claimedAt + deadline` and the grace is a 10-minute product constant; `livenessFor` is left to the self-hosted Lease in Phase 3 ([ADR 0033](0033-hosted-run-timing.md) §1, §3). The lifecycle's state-driven loop gains **a wake at H** that terminalizes a Run with no database-authorized receipt as `deadline_reached`, racing the receipt under one row lock (§5). `worker_lost` needs evidence from a detector before H, or a receipt left unaccepted at `executionExpiresAt`, recorded as `finalization_incomplete` (§7). A Slice's timestamp never classifies the cause.
