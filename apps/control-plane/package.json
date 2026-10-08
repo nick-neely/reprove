@@ -14,7 +14,7 @@
     "@reprove/control-plane-workflow": "workspace:*",
     "@reprove/worker-hosted": "workspace:*",
     "@workflow/world-postgres": "catalog:workflow",
-    "next": "^16.3.4",
+    "next": "^16.3.8",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "workflow": "catalog:workflow"
