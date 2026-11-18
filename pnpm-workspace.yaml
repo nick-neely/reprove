@@ -22,7 +22,7 @@ catalogs:
     "@ai-sdk/harness-codex": 1.0.104
   workflow:
     workflow: 4.8.5
-    "@workflow/world-postgres": 4.3.5
+    "@workflow/world-postgres": 5.2.0
     "@workflow/vitest": 4.0.21
 
 # --- Package manager selection -------------------------------------------------
